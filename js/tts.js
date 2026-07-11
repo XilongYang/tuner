@@ -64,9 +64,10 @@ export async function synthesizeAzure(text, locale) {
     const extra = detail ? ` — ${detail.slice(0, 300)}` : '';
     if (response.status === 400) {
       throw new Error(
-        `TTS bad request (400)${extra}. The selected voice may be misspelled or not available in your region.`);
+        `TTS bad request (400) for voice "${voice}" in region "${creds.region}"${extra}. ` +
+        `Check the voice name is correct and available in that region.`);
     }
-    throw new Error(`TTS request failed: HTTP ${response.status}${extra}`);
+    throw new Error(`TTS request failed: HTTP ${response.status} (voice "${voice}", region "${creds.region}")${extra}`);
   }
 
   return await response.blob();

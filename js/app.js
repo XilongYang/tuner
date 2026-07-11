@@ -12,6 +12,9 @@ import {
   hasCredentials,
   loadHideText,
   saveHideText,
+  VOICE_OPTIONS,
+  getVoice,
+  saveVoice,
 } from './config.js';
 
 // ---- 全局状态 ----
@@ -44,6 +47,8 @@ const els = {
   toggleKeyPanel: $('#toggle-key-panel'),
   keyPanel: $('#key-panel'),
   globalHideInput: $('#global-hide-input'),
+  voiceJa: $('#voice-ja'),
+  voiceEn: $('#voice-en'),
 };
 
 // ---- 凭据面板 ----
@@ -86,7 +91,24 @@ function initKeyPanel() {
     els.toggleKeyPanel.setAttribute('aria-expanded', String(!els.keyPanel.hidden));
   });
 
+  initVoiceSelectors();
   refreshKeyStatus();
+}
+
+/** 填充并绑定音色下拉框，选择写入本地存储。 */
+function initVoiceSelectors() {
+  const wire = (selectEl, locale) => {
+    for (const opt of VOICE_OPTIONS[locale]) {
+      const o = document.createElement('option');
+      o.value = opt.id;
+      o.textContent = opt.label;
+      selectEl.appendChild(o);
+    }
+    selectEl.value = getVoice(locale);
+    selectEl.addEventListener('change', () => saveVoice(locale, selectEl.value));
+  };
+  wire(els.voiceJa, 'ja-JP');
+  wire(els.voiceEn, 'en-US');
 }
 
 // ---- 句子列表 ----
@@ -128,19 +150,15 @@ function render() {
   });
 }
 
-/** 把句子文本构造为逐字符 span，以便隐藏时逐字符渲染为黑色方块。 */
+/** 构造句子文本元素；用内联 span 包裹整句，隐藏时按行渲染为连续黑条。 */
 function buildTextEl(sentence) {
   const el = document.createElement('div');
   el.className = 'row-text';
   if (sentence.hidden) el.classList.add('is-hidden');
-  for (const ch of Array.from(sentence.text)) {
-    const span = document.createElement('span');
-    span.className = 'ch';
-    // 空白不涂黑，保留词/句的间隔结构
-    if (ch === ' ' || ch === '　' || ch === '\t') span.dataset.space = '';
-    span.textContent = ch;
-    el.appendChild(span);
-  }
+  const inner = document.createElement('span');
+  inner.className = 'row-text-inner';
+  inner.textContent = sentence.text;
+  el.appendChild(inner);
   return el;
 }
 

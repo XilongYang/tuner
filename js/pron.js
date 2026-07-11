@@ -93,24 +93,34 @@ export function parseResult(json) {
   const best = json.NBest && json.NBest[0];
   if (!best) throw new Error('评估结果为空，请重试');
 
-  const pa = best.PronunciationAssessment || {};
+  // Azure 有两种返回结构：
+  //   1. 分数嵌套在 PronunciationAssessment 子对象里（较新的 detailed 格式）
+  //   2. 分数直接扁平挂在对象上（conversation 端点常见）
+  // 两种都兼容：优先读嵌套字段，缺失时回退到扁平字段。
+  const bpa = best.PronunciationAssessment || {};
   const overall = {
-    accuracy: numberOr(pa.AccuracyScore),
-    fluency: numberOr(pa.FluencyScore),
-    completeness: numberOr(pa.CompletenessScore),
-    pron: numberOr(pa.PronScore),
+    accuracy: pickScore(bpa.AccuracyScore, best.AccuracyScore),
+    fluency: pickScore(bpa.FluencyScore, best.FluencyScore),
+    completeness: pickScore(bpa.CompletenessScore, best.CompletenessScore),
+    pron: pickScore(bpa.PronScore, best.PronScore),
   };
 
   const words = (best.Words || []).map((w) => {
     const wpa = w.PronunciationAssessment || {};
     return {
       word: w.Word || '',
-      accuracy: numberOr(wpa.AccuracyScore),
-      errorType: wpa.ErrorType || 'None',
-      phonemes: (w.Phonemes || []).map((p) => ({
-        phoneme: p.Phoneme || '',
-        accuracy: numberOr(p.PronunciationAssessment && p.PronunciationAssessment.AccuracyScore),
-      })),
+      accuracy: pickScore(wpa.AccuracyScore, w.AccuracyScore),
+      errorType: wpa.ErrorType || w.ErrorType || 'None',
+      phonemes: (w.Phonemes || [])
+        .map((p) => {
+          const ppa = p.PronunciationAssessment || {};
+          return {
+            phoneme: p.Phoneme || '',
+            accuracy: pickScore(ppa.AccuracyScore, p.AccuracyScore),
+          };
+        })
+        // 部分语言（如日语）音素名会返回空串，此时不展示音素明细
+        .filter((p) => p.phoneme),
     };
   });
 
@@ -122,6 +132,10 @@ export function parseResult(json) {
   };
 }
 
-function numberOr(value, fallback = 0) {
-  return typeof value === 'number' && !Number.isNaN(value) ? value : fallback;
+/** 从多个候选中取第一个有效数字（用于兼容嵌套 / 扁平两种字段布局）。 */
+function pickScore(...values) {
+  for (const v of values) {
+    if (typeof v === 'number' && !Number.isNaN(v)) return v;
+  }
+  return 0;
 }

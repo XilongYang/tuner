@@ -6,19 +6,19 @@ const STORAGE_KEY = 'speak.azure.credentials';
 
 // 每种语言使用的默认 Neural 语音。
 export const DEFAULT_VOICES = {
-  'ja-JP': 'ja-JP-NanamiNeural',
+  'ja-JP': 'ja-JP-NaokiNeural',
   'en-US': 'en-US-OllieMultilingualNeural',
 };
 
 // 可选的 Azure Neural 音色（按语言分组）。id 为 Azure 短名，label 供界面展示。
 export const VOICE_OPTIONS = {
   'ja-JP': [
+    { id: 'ja-JP-NaokiNeural', label: 'Naoki · male' },
     { id: 'ja-JP-NanamiNeural', label: 'Nanami · female' },
     { id: 'ja-JP-KeitaNeural', label: 'Keita · male' },
     { id: 'ja-JP-AoiNeural', label: 'Aoi · female' },
     { id: 'ja-JP-DaichiNeural', label: 'Daichi · male' },
     { id: 'ja-JP-MayuNeural', label: 'Mayu · female' },
-    { id: 'ja-JP-NaokiNeural', label: 'Naoki · male' },
     { id: 'ja-JP-ShioriNeural', label: 'Shiori · female' },
   ],
   'en-US': [

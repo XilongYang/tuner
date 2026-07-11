@@ -8,14 +8,11 @@
 
 ## 功能
 
-**第一阶段（已实现）**
 1. 粘贴文本 → 点击「拆分」→ 按句末标点（。！？ / .!?）自动分句并编号
 2. 每句自动检测语言（ja / en），可手动切换
 3. 「朗读」：调用 Azure Neural TTS 播放标准发音（未配置 Key 时降级为浏览器内置语音）
-4. 「录音」：用 MediaRecorder 录制自己的跟读，「回放」试听
-
-**第二阶段（规划中）**
-- 接入 Azure Speech 的 Pronunciation Assessment，返回逐词 / 逐音素的准确度、流利度评分，并高亮读得不准的词
+4. 「录音」：用 Web Audio API 采集 16kHz WAV 录制跟读，「回放」试听
+5. 「评分」：直连 Azure Pronunciation Assessment（REST），返回综合 / 准确度 / 流利度 / 完整度四项分数，并对每个词按准确度着色，标出漏读 / 多读，悬停可看逐音素分数
 
 ## 使用方式
 
@@ -52,7 +49,8 @@ js/segment.js       句子拆分
 js/lang.js          语言检测（ja / en）
 js/config.js        Azure 凭据管理（localStorage）
 js/tts.js           TTS（Azure REST + 浏览器降级）
-js/recorder.js      录音（MediaRecorder 封装）
+js/recorder.js      录音（Web Audio → 16kHz WAV）
+js/pron.js          发音评估（Azure Pronunciation Assessment REST）
 js/app.js           主应用逻辑
 ```
 

@@ -3,6 +3,7 @@
 import { segment } from './segment.js';
 import { detectLang, LOCALES } from './lang.js';
 import { synthesizeAzure, speakWithBrowser } from './tts.js';
+import { assessPronunciation } from './pron.js';
 import { Recorder } from './recorder.js';
 import {
   loadCredentials,
@@ -13,7 +14,7 @@ import {
 
 // ---- 全局状态 ----
 
-/** @type {Array<{ id: number, text: string, lang: 'ja'|'en', recorder: Recorder, recordingUrl: string|null }>} */
+/** @type {Array<{ id: number, text: string, lang: 'ja'|'en', recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null }>} */
 let sentences = [];
 let nextId = 1;
 
@@ -95,6 +96,7 @@ function handleSplit() {
     lang: detectLang(text),
     recorder: new Recorder(),
     recordingUrl: null,
+    recordingBlob: null,
   }));
 
   render();
@@ -179,6 +181,14 @@ function renderRow(sentence, index) {
   playbackBtn.hidden = !sentence.recordingUrl;
   actions.appendChild(playbackBtn);
 
+  // 评分
+  const scoreBtn = document.createElement('button');
+  scoreBtn.className = 'btn';
+  scoreBtn.type = 'button';
+  scoreBtn.textContent = '评分';
+  scoreBtn.hidden = !sentence.recordingBlob;
+  actions.appendChild(scoreBtn);
+
   body.appendChild(actions);
 
   // 状态/错误行
@@ -187,10 +197,16 @@ function renderRow(sentence, index) {
   status.hidden = true;
   body.appendChild(status);
 
+  // 评分结果容器
+  const result = document.createElement('div');
+  result.className = 'row-result';
+  result.hidden = true;
+  body.appendChild(result);
+
   row.appendChild(body);
 
   // ---- 行内交互 ----
-  wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, status });
+  wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, status, result });
 
   return row;
 }
@@ -206,7 +222,7 @@ function setStatus(statusEl, message, kind = 'info') {
   statusEl.dataset.kind = kind;
 }
 
-function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, status }) {
+function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, status, result }) {
   // 朗读
   playBtn.addEventListener('click', async () => {
     const locale = LOCALES[sentence.lang];
@@ -234,12 +250,14 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, status }) {
     if (sentence.recorder.isRecording) {
       recordBtn.disabled = true;
       try {
-        const { url } = await sentence.recorder.stop();
+        const { url, blob } = await sentence.recorder.stop();
         sentence.recordingUrl = url;
+        sentence.recordingBlob = blob;
         recordBtn.textContent = '录音';
         row.classList.remove('is-recording');
         playbackBtn.hidden = false;
-        setStatus(status, '录音完成，可点击「回放」试听。', 'info');
+        scoreBtn.hidden = false;
+        setStatus(status, '录音完成，可点击「回放」试听，或点「评分」评估发音。', 'info');
       } catch (err) {
         setStatus(status, '停止录音失败：' + err.message, 'error');
       } finally {
@@ -266,6 +284,109 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, status }) {
       setStatus(status, '回放失败：' + err.message, 'error');
     });
   });
+
+  // 评分
+  scoreBtn.addEventListener('click', async () => {
+    if (!sentence.recordingBlob) {
+      setStatus(status, '请先录音再评分。', 'error');
+      return;
+    }
+    scoreBtn.disabled = true;
+    result.hidden = true;
+    setStatus(status, '正在评估发音…', 'info');
+    try {
+      const locale = LOCALES[sentence.lang];
+      const assessment = await assessPronunciation(
+        sentence.recordingBlob, sentence.text, locale);
+      renderAssessment(result, assessment);
+      setStatus(status, '', 'info');
+    } catch (err) {
+      setStatus(status, '评分失败：' + err.message, 'error');
+    } finally {
+      scoreBtn.disabled = false;
+    }
+  });
+}
+
+/** 根据准确度分数决定词的展示等级。 */
+function accuracyLevel(score) {
+  if (score >= 80) return 'good';
+  if (score >= 60) return 'mid';
+  return 'bad';
+}
+
+const ERROR_LABELS = {
+  None: '',
+  Mispronunciation: '发音不准',
+  Omission: '漏读',
+  Insertion: '多读',
+  UnexpectedBreak: '不当停顿',
+  MissingBreak: '缺少停顿',
+  Monotone: '语调平淡',
+};
+
+/** 渲染评分结果：总分 + 逐词着色。 */
+function renderAssessment(container, a) {
+  container.innerHTML = '';
+  container.hidden = false;
+
+  // 总分区
+  const scores = document.createElement('div');
+  scores.className = 'score-grid';
+  const items = [
+    ['综合', a.overall.pron],
+    ['准确度', a.overall.accuracy],
+    ['流利度', a.overall.fluency],
+    ['完整度', a.overall.completeness],
+  ];
+  for (const [label, value] of items) {
+    const chip = document.createElement('div');
+    chip.className = 'score-chip';
+    chip.dataset.level = accuracyLevel(value);
+    chip.innerHTML =
+      `<span class="score-value">${Math.round(value)}</span>` +
+      `<span class="score-label">${label}</span>`;
+    scores.appendChild(chip);
+  }
+  container.appendChild(scores);
+
+  // 逐词区
+  const wordsWrap = document.createElement('div');
+  wordsWrap.className = 'words-line';
+  for (const w of a.words) {
+    const span = document.createElement('span');
+    span.className = 'word';
+    span.textContent = w.word;
+
+    if (w.errorType === 'Omission') {
+      span.dataset.error = 'omission';
+      span.title = '漏读（参考文本中有，但没读出来）';
+    } else if (w.errorType === 'Insertion') {
+      span.dataset.error = 'insertion';
+      span.title = '多读（读了参考文本以外的内容）';
+    } else {
+      span.dataset.level = accuracyLevel(w.accuracy);
+      const errLabel = ERROR_LABELS[w.errorType] || '';
+      const phonemeText = w.phonemes.length
+        ? ' · ' + w.phonemes.map((p) => `${p.phoneme}${Math.round(p.accuracy)}`).join(' ')
+        : '';
+      span.title = `准确度 ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}${phonemeText}`;
+    }
+    wordsWrap.appendChild(span);
+  }
+  container.appendChild(wordsWrap);
+
+  // 图例
+  const legend = document.createElement('div');
+  legend.className = 'legend';
+  legend.innerHTML =
+    '<span class="legend-item"><i data-level="good"></i>良好 ≥80</span>' +
+    '<span class="legend-item"><i data-level="mid"></i>一般 60–79</span>' +
+    '<span class="legend-item"><i data-level="bad"></i>较差 &lt;60</span>' +
+    '<span class="legend-item"><i data-error="omission"></i>漏读</span>' +
+    '<span class="legend-item"><i data-error="insertion"></i>多读</span>' +
+    '<span class="legend-hint">悬停单词可看逐音素分数</span>';
+  container.appendChild(legend);
 }
 
 // ---- 初始化 ----

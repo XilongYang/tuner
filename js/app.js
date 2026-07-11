@@ -1,4 +1,5 @@
-// 主应用逻辑：把各模块串起来，管理句子列表与界面交互。
+// Main application logic: wires the modules together and manages the sentence
+// list and UI interactions.
 
 import { segment } from './segment.js';
 import { detectLang, LOCALES } from './lang.js';
@@ -17,19 +18,19 @@ import {
   saveVoice,
 } from './config.js';
 
-// ---- 全局状态 ----
+// ---- Global state ----
 
 /** @type {Array<{ id: number, text: string, lang: 'ja'|'en', hidden: boolean, recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null }>} */
 let sentences = [];
 let nextId = 1;
 
-// 全局「隐藏正文」开关，作为每句独立开关的默认值。
+// Global "hide text" switch; the default value for each per-sentence toggle.
 let globalHideText = false;
 
-// 供 TTS 播放复用的 audio 元素
+// Reusable audio element for TTS playback
 const ttsAudio = new Audio();
 
-// ---- DOM 引用 ----
+// ---- DOM references ----
 const $ = (sel) => document.querySelector(sel);
 
 const els = {
@@ -38,7 +39,7 @@ const els = {
   clearInputBtn: $('#clear-input-btn'),
   list: $('#sentence-list'),
   count: $('#sentence-count'),
-  // 凭据面板
+  // Credentials panel
   keyInput: $('#azure-key'),
   regionInput: $('#azure-region'),
   saveKeyBtn: $('#save-key-btn'),
@@ -53,9 +54,10 @@ const els = {
   voiceEn: $('#voice-en'),
 };
 
-// ---- 凭据面板 ----
+// ---- Credentials panel ----
 
-// 两态互斥：有 Key → 显示一行提示 + Clear；无 Key → 显示输入框 + Save。
+// Two mutually exclusive states: has key → one-line status + Clear;
+// no key → input fields + Save.
 function updateKeyPanel() {
   const creds = loadCredentials();
   const has = !!creds;
@@ -95,7 +97,7 @@ function initKeyPanel() {
   updateKeyPanel();
 }
 
-/** 填充并绑定音色下拉框，选择写入本地存储。 */
+/** Populate and wire the voice selectors; choices are written to localStorage. */
 function initVoiceSelectors() {
   const wire = (selectEl, locale) => {
     for (const opt of VOICE_OPTIONS[locale]) {
@@ -111,18 +113,18 @@ function initVoiceSelectors() {
   wire(els.voiceEn, 'en-US');
 }
 
-// ---- 句子列表 ----
+// ---- Sentence list ----
 
 function handleSplit() {
   const parts = segment(els.input.value);
-  // 释放旧录音资源
+  // Release resources from the previous recordings
   for (const s of sentences) s.recorder.dispose();
 
   sentences = parts.map((text) => ({
     id: nextId++,
     text,
     lang: detectLang(text),
-    hidden: globalHideText, // 默认取全局开关
+    hidden: globalHideText, // defaults to the global switch
     recorder: new Recorder(),
     recordingUrl: null,
     recordingBlob: null,
@@ -150,7 +152,8 @@ function render() {
   });
 }
 
-/** 构造句子文本元素；用内联 span 包裹整句，隐藏时按行渲染为连续黑条。 */
+/** Build the sentence text element; wrap the whole sentence in an inline span so
+ *  that when hidden it renders as a continuous black bar per line. */
 function buildTextEl(sentence) {
   const el = document.createElement('div');
   el.className = 'row-text';
@@ -162,14 +165,14 @@ function buildTextEl(sentence) {
   return el;
 }
 
-/** 刷新单句隐藏开关按钮的显示。 */
+/** Refresh the label of a sentence's hide toggle button. */
 function paintHidden(sentence) {
   if (!sentence._hideBtn) return;
   sentence._hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
   sentence._hideBtn.setAttribute('aria-pressed', String(sentence.hidden));
 }
 
-/** 设置单句的隐藏状态并同步 DOM。 */
+/** Set a sentence's hidden state and sync the DOM. */
 function applyHidden(sentence, value) {
   sentence.hidden = value;
   if (sentence._textEl) sentence._textEl.classList.toggle('is-hidden', value);
@@ -180,13 +183,13 @@ function renderRow(sentence, index) {
   const row = document.createElement('div');
   row.className = 'sentence-row';
 
-  // 序号
+  // Index
   const num = document.createElement('div');
   num.className = 'row-index';
   num.textContent = String(index + 1).padStart(2, '0');
   row.appendChild(num);
 
-  // 主体
+  // Body
   const body = document.createElement('div');
   body.className = 'row-body';
 
@@ -194,11 +197,11 @@ function renderRow(sentence, index) {
   sentence._textEl = textEl;
   body.appendChild(textEl);
 
-  // 操作区
+  // Actions
   const actions = document.createElement('div');
   actions.className = 'row-actions';
 
-  // 语言切换
+  // Language toggle
   const langToggle = document.createElement('button');
   langToggle.className = 'lang-toggle';
   langToggle.type = 'button';
@@ -213,7 +216,7 @@ function renderRow(sentence, index) {
   });
   actions.appendChild(langToggle);
 
-  // 每句「隐藏正文」独立开关
+  // Per-sentence "hide text" toggle
   const hideBtn = document.createElement('button');
   hideBtn.className = 'hide-toggle';
   hideBtn.type = 'button';
@@ -223,21 +226,21 @@ function renderRow(sentence, index) {
   hideBtn.addEventListener('click', () => applyHidden(sentence, !sentence.hidden));
   actions.appendChild(hideBtn);
 
-  // 朗读
+  // Speak
   const playBtn = document.createElement('button');
   playBtn.className = 'btn';
   playBtn.type = 'button';
   playBtn.textContent = 'Speak';
   actions.appendChild(playBtn);
 
-  // 录音
+  // Record
   const recordBtn = document.createElement('button');
   recordBtn.className = 'btn';
   recordBtn.type = 'button';
   recordBtn.textContent = 'Record';
   actions.appendChild(recordBtn);
 
-  // 回放
+  // Playback
   const playbackBtn = document.createElement('button');
   playbackBtn.className = 'btn';
   playbackBtn.type = 'button';
@@ -245,7 +248,7 @@ function renderRow(sentence, index) {
   playbackBtn.hidden = !sentence.recordingUrl;
   actions.appendChild(playbackBtn);
 
-  // 评分
+  // Score
   const scoreBtn = document.createElement('button');
   scoreBtn.className = 'btn';
   scoreBtn.type = 'button';
@@ -255,13 +258,13 @@ function renderRow(sentence, index) {
 
   body.appendChild(actions);
 
-  // 状态/错误行
+  // Status / error line
   const status = document.createElement('div');
   status.className = 'row-status';
   status.hidden = true;
   body.appendChild(status);
 
-  // 评分结果容器
+  // Score result container
   const result = document.createElement('div');
   result.className = 'row-result';
   result.hidden = true;
@@ -269,7 +272,7 @@ function renderRow(sentence, index) {
 
   row.appendChild(body);
 
-  // ---- 行内交互 ----
+  // ---- Row interactions ----
   wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, status, result });
 
   return row;
@@ -287,7 +290,7 @@ function setStatus(statusEl, message, kind = 'info') {
 }
 
 function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, status, result }) {
-  // 朗读
+  // Speak
   playBtn.addEventListener('click', async () => {
     const locale = LOCALES[sentence.lang];
     playBtn.disabled = true;
@@ -309,7 +312,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
     }
   });
 
-  // 录音（切换开始/停止）
+  // Record (toggle start/stop)
   recordBtn.addEventListener('click', async () => {
     if (sentence.recorder.isRecording) {
       recordBtn.disabled = true;
@@ -340,7 +343,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
     }
   });
 
-  // 回放
+  // Playback
   playbackBtn.addEventListener('click', () => {
     if (!sentence.recordingUrl) return;
     const audio = new Audio(sentence.recordingUrl);
@@ -349,7 +352,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
     });
   });
 
-  // 评分
+  // Score
   scoreBtn.addEventListener('click', async () => {
     if (!sentence.recordingBlob) {
       setStatus(status, 'Please record before scoring.', 'error');
@@ -372,7 +375,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
   });
 }
 
-/** 根据准确度分数决定词的展示等级。 */
+/** Map an accuracy score to a display level. */
 function accuracyLevel(score) {
   if (score >= 80) return 'good';
   if (score >= 60) return 'mid';
@@ -389,12 +392,12 @@ const ERROR_LABELS = {
   Monotone: 'monotone',
 };
 
-/** 渲染评分结果：总分 + 逐词着色。 */
+/** Render the assessment: overall scores + per-word coloring. */
 function renderAssessment(container, a) {
   container.innerHTML = '';
   container.hidden = false;
 
-  // 总分区
+  // Overall scores
   const scores = document.createElement('div');
   scores.className = 'score-grid';
   const items = [
@@ -414,7 +417,7 @@ function renderAssessment(container, a) {
   }
   container.appendChild(scores);
 
-  // 逐词区
+  // Per-word
   const wordsWrap = document.createElement('div');
   wordsWrap.className = 'words-line';
   for (const w of a.words) {
@@ -440,12 +443,12 @@ function renderAssessment(container, a) {
   }
   container.appendChild(wordsWrap);
 
-  // 图例
+  // Legend
   const legend = buildLegend();
   container.appendChild(legend);
 }
 
-/** 构造单词的悬停提示：标题行 + 逐音素色块。鼠标移上即时显示（纯 CSS）。 */
+/** Build a word's hover tooltip: a heading line + per-phoneme chips. Shows instantly on hover (pure CSS). */
 function buildWordTip(head, headLevel, phonemes) {
   const tip = document.createElement('span');
   tip.className = 'word-tip';
@@ -489,12 +492,13 @@ function buildLegend() {
   return legend;
 }
 
-// ---- 初始化 ----
+// ---- Initialization ----
 
 function init() {
   initKeyPanel();
 
-  // 全局「隐藏正文」开关：读取本地存储，变更时写回并联动所有句子。
+  // Global "hide text" switch: load from localStorage, write back on change and
+  // cascade to all sentences.
   globalHideText = loadHideText();
   els.globalHideInput.checked = globalHideText;
   els.globalHideInput.addEventListener('change', () => {

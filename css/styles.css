@@ -1,9 +1,10 @@
-/* 设计风格向主站（LaTeX.css 学术风）靠拢：
-   衬线正文与标题、暖白纸张背景、近黑文字、下划线深色链接、扁平克制。
-   数字（句子编号、评分）保留等宽字体作为「数据」呈现。 */
+/* Design aligned with the main site (LaTeX.css academic style):
+   serif body and headings, cool near-white background, near-black text,
+   underlined dark links, flat and restrained.
+   Numbers (sentence index, scores) keep a monospace font as "data". */
 
 :root {
-  /* 冷调近白背景与近黑文字 */
+  /* Cool near-white background and near-black text */
   --bg: hsl(210, 20%, 98%);
   --surface: #ffffff;
   --surface-2: hsl(210, 18%, 95.5%);
@@ -14,19 +15,19 @@
   --text-muted: hsl(210, 9%, 42%);
   --text-faint: hsl(210, 12%, 62%);
 
-  /* 强调色：红色，仅用于录音中 / 错误 / 较差发音等关键节点 */
+  /* Accent: red, only for key moments — recording, errors, poor pronunciation */
   --accent: #ee5555;
   --accent-soft: hsl(0, 78%, 95%);
   --accent-text: hsl(0, 62%, 45%);
 
-  /* 评分等级色（bad 复用红色强调） */
+  /* Score level colors (bad reuses the red accent) */
   --good: hsl(145, 32%, 38%);
   --good-soft: hsl(145, 30%, 93%);
   --mid: hsl(38, 58%, 42%);
   --mid-soft: hsl(40, 52%, 90%);
 
   --radius: 4px;
-  /* 衬线栈：优先 Latin Modern（若本机装了），回退到通用衬线与中日文明朝/宋体 */
+  /* Serif stack: prefer Latin Modern (if installed locally), fall back to generic serifs and CJK Mincho/Song */
   --serif: "Latin Modern Roman", Georgia, "Times New Roman",
            "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP",
            "Songti SC", "Noto Serif SC", STSong, "SimSun", serif;
@@ -35,7 +36,7 @@
 
 * { box-sizing: border-box; }
 
-/* 确保 hidden 属性始终生效，即使元素设了 display（如 flex）。 */
+/* Ensure the hidden attribute always wins, even when an element sets display (e.g. flex). */
 [hidden] { display: none !important; }
 
 html, body { margin: 0; padding: 0; }
@@ -57,7 +58,7 @@ a {
 }
 a:hover { color: var(--accent); }
 
-/* ---- Header（居中报头，呼应主站 masthead） ---- */
+/* ---- Header (centered masthead, echoing the main site) ---- */
 .app-header {
   background: transparent;
 }
@@ -135,7 +136,7 @@ a:hover { color: var(--accent); }
   margin: 0 0 14px;
 }
 
-/* ---- 凭据面板 ---- */
+/* ---- Credentials panel ---- */
 .key-panel {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -220,7 +221,7 @@ a:hover { color: var(--accent); }
   border-color: var(--accent);
 }
 
-/* ---- 输入区 ---- */
+/* ---- Input area ---- */
 #input-text {
   width: 100%;
   font-family: var(--serif);
@@ -250,7 +251,7 @@ a:hover { color: var(--accent); }
   margin-left: auto;
 }
 
-/* ---- 按钮 ---- */
+/* ---- Buttons ---- */
 .btn {
   font-family: var(--serif);
   font-size: 14px;
@@ -277,7 +278,7 @@ a:hover { color: var(--accent); }
   border-color: #000;
 }
 
-/* ---- 句子列表 ---- */
+/* ---- Sentence list ---- */
 .sentence-list {
   display: flex;
   flex-direction: column;
@@ -362,8 +363,8 @@ a:hover { color: var(--accent); }
   border-color: var(--accent);
 }
 
-/* 隐藏正文：每行渲染为一条连续黑条（脱稿跟读练习用）。
-   内联背景会随文本按行断开，box-decoration-break: clone 让每行片段各自带圆角。 */
+/* Hidden text: render one continuous black bar per line (for from-memory shadowing).
+   The inline background breaks per line, and box-decoration-break: clone rounds each line fragment. */
 .row-text.is-hidden .row-text-inner {
   color: transparent;
   background: var(--text);
@@ -373,7 +374,7 @@ a:hover { color: var(--accent); }
   -webkit-box-decoration-break: clone;
 }
 
-/* ---- 行内状态 ---- */
+/* ---- Row status ---- */
 .row-status {
   font-size: 14px;
   font-family: var(--serif);
@@ -391,14 +392,14 @@ a:hover { color: var(--accent); }
   border-radius: var(--radius);
 }
 
-/* ---- 评分结果 ---- */
+/* ---- Score results ---- */
 .row-result {
   margin-top: 4px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
-/* display:flex 会覆盖 hidden 属性的默认 display:none，需显式还原 */
+/* display:flex would override the hidden attribute's default display:none; restore it explicitly */
 .row-result[hidden] { display: none; }
 .score-grid {
   display: flex;
@@ -457,7 +458,7 @@ a:hover { color: var(--accent); }
   border-bottom: 2px dashed var(--accent);
 }
 
-/* ---- 单词悬停提示（纸张卡片，即时显示） ---- */
+/* ---- Word hover tooltip (paper card, shown instantly) ---- */
 .word-tip {
   position: absolute;
   bottom: calc(100% + 9px);
@@ -475,7 +476,7 @@ a:hover { color: var(--accent); }
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  /* 无进入延迟：鼠标移上立即出现，仅做极短淡入 */
+  /* No enter delay: appears immediately on hover, with only a very short fade */
   transition: opacity 0.09s ease, transform 0.09s ease;
 }
 .word:hover .word-tip {
@@ -590,7 +591,7 @@ a:hover { color: var(--accent); }
   font-style: italic;
 }
 
-/* ---- 响应式 ---- */
+/* ---- Responsive ---- */
 @media (max-width: 560px) {
   .header-inner {
     padding: 20px 20px 24px;

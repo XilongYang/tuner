@@ -1,13 +1,14 @@
-// 录音：用 Web Audio API 直接采集 PCM，输出 16kHz / 16bit / 单声道 WAV。
+// Recording: capture PCM directly via the Web Audio API, output 16kHz / 16bit / mono WAV.
 //
-// 为什么不用 MediaRecorder？
-// MediaRecorder 在 Chrome 下产出 webm/opus，而 Azure 发音评估的 REST 短音频接口
-// 只接受 `audio/wav (PCM 16k)` 或 `audio/ogg;opus`。为了让「同一份录音」既能回放
-// 又能直接上传评分，这里统一采集裸 PCM 并封装成标准 WAV（浏览器可直接播放）。
+// Why not MediaRecorder?
+// MediaRecorder produces webm/opus in Chrome, but Azure Pronunciation Assessment's
+// short-audio REST endpoint only accepts `audio/wav (PCM 16k)` or `audio/ogg;opus`.
+// So the same recording can be both played back and uploaded for scoring, we
+// capture raw PCM and wrap it into a standard WAV (which the browser can play directly).
 
 const TARGET_RATE = 16000;
 
-/** 将采集到的 Float32 采样重采样到 16kHz。 */
+/** Resample captured Float32 samples to 16kHz. */
 function resampleTo16k(input, inputRate) {
   if (inputRate === TARGET_RATE) return input;
   const ratio = inputRate / TARGET_RATE;
@@ -15,8 +16,9 @@ function resampleTo16k(input, inputRate) {
   const out = new Float32Array(newLen);
 
   if (ratio > 1) {
-    // 下采样（如 48k/44.1k → 16k）：对每个输出样本取输入窗口的平均，
-    // 兼作抗混叠低通，避免朴素抽点带来的混叠。
+    // Downsampling (e.g. 48k/44.1k → 16k): average the input window for each
+    // output sample, which doubles as an anti-aliasing low-pass and avoids the
+    // aliasing of naive sample picking.
     for (let i = 0; i < newLen; i++) {
       const start = Math.floor(i * ratio);
       const end = Math.min(Math.floor((i + 1) * ratio), input.length);
@@ -26,7 +28,7 @@ function resampleTo16k(input, inputRate) {
       out[i] = n ? sum / n : 0;
     }
   } else {
-    // 上采样：线性插值
+    // Upsampling: linear interpolation
     for (let i = 0; i < newLen; i++) {
       const idx = i * ratio;
       const i0 = Math.floor(idx);
@@ -45,9 +47,10 @@ function writeString(view, offset, str) {
 }
 
 /**
- * 峰值归一化：把整段录音等比放大到接近满幅，解决原始麦克风音量过小的问题。
- * 因为是录完后对整段做统一缩放，不像 autoGainControl 那样动态调整，故不会产生泵感/断音。
- * maxGain 上限避免把近乎静音的底噪放大到爆。
+ * Peak normalization: scale the whole recording up to near full-scale, fixing
+ * overly quiet raw microphone input. Because it scales the entire clip uniformly
+ * after recording (unlike autoGainControl's dynamic adjustment), it introduces no
+ * pumping or dropouts. The maxGain cap prevents blowing up near-silent noise floor.
  */
 function normalize(samples, targetPeak = 0.95, maxGain = 30) {
   let peak = 0;
@@ -61,7 +64,7 @@ function normalize(samples, targetPeak = 0.95, maxGain = 30) {
   return samples;
 }
 
-/** 将 Float32 PCM 编码为 16kHz/16bit/单声道 WAV，返回 ArrayBuffer。 */
+/** Encode Float32 PCM into a 16kHz/16bit/mono WAV, returning an ArrayBuffer. */
 function encodeWav(float32, inputRate) {
   const pcm = normalize(resampleTo16k(float32, inputRate));
   const numSamples = pcm.length;
@@ -72,13 +75,13 @@ function encodeWav(float32, inputRate) {
   view.setUint32(4, 36 + numSamples * 2, true);
   writeString(view, 8, 'WAVE');
   writeString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);          // fmt chunk 大小
+  view.setUint32(16, 16, true);          // fmt chunk size
   view.setUint16(20, 1, true);           // PCM
-  view.setUint16(22, 1, true);           // 单声道
-  view.setUint32(24, TARGET_RATE, true); // 采样率
-  view.setUint32(28, TARGET_RATE * 2, true); // 字节率 = 采样率 × 声道 × 每样本字节
-  view.setUint16(32, 2, true);           // 块对齐
-  view.setUint16(34, 16, true);          // 位深
+  view.setUint16(22, 1, true);           // mono
+  view.setUint32(24, TARGET_RATE, true); // sample rate
+  view.setUint32(28, TARGET_RATE * 2, true); // byte rate = rate × channels × bytesPerSample
+  view.setUint16(32, 2, true);           // block align
+  view.setUint16(34, 16, true);          // bit depth
   writeString(view, 36, 'data');
   view.setUint32(40, numSamples * 2, true);
 
@@ -91,7 +94,7 @@ function encodeWav(float32, inputRate) {
   return buffer;
 }
 
-/** 合并多个 Float32Array 分块。 */
+/** Concatenate multiple Float32Array chunks. */
 function flatten(chunks) {
   let total = 0;
   for (const c of chunks) total += c.length;
@@ -110,7 +113,7 @@ export class Recorder {
     this._stream = null;
     this._source = null;
     this._workletNode = null;
-    this._scriptNode = null;   // 仅在不支持 AudioWorklet 时使用
+    this._scriptNode = null;   // used only when AudioWorklet is unsupported
     this._silentGain = null;
     this._chunks = [];
     this._recording = false;
@@ -122,7 +125,7 @@ export class Recorder {
     return this._recording;
   }
 
-  /** 开始录音。若浏览器不支持或用户拒绝授权会抛错。 */
+  /** Start recording. Throws if the browser doesn't support it or the user denies access. */
   async start() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       throw new Error('This browser does not support recording (getUserMedia unavailable)');
@@ -133,7 +136,8 @@ export class Recorder {
     }
 
     try {
-      // 使用浏览器自带的音频增强（回声消除 / 降噪 / 自动增益）。
+      // Use the browser's built-in audio enhancement (echo cancellation / noise
+      // suppression / auto gain control).
       this._stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -149,14 +153,15 @@ export class Recorder {
       throw new Error('Cannot access microphone: ' + (err && err.message ? err.message : err));
     }
 
-    // 使用设备原生采样率创建 AudioContext。
-    // 不再强制 16kHz：强制非原生采样率会触发音频设备重配置，导致麦克风采集
-    // 中途中断（录音图标闪断）与断音。原生采样率采集，录完在 encodeWav 里统一
-    // 重采样到 16kHz（Azure REST 所需格式）。
+    // Create the AudioContext at the device's native sample rate.
+    // No longer forcing 16kHz: forcing a non-native rate triggers an audio device
+    // reconfiguration that interrupts microphone capture mid-recording (the recording
+    // icon flickers off) and causes dropouts. Capture at native rate, then resample
+    // to 16kHz in encodeWav (the format Azure REST requires).
     this._audioContext = new AudioCtx();
-    // 自动播放策略可能让 context 处于 suspended，需显式恢复。
+    // The autoplay policy may leave the context suspended; resume it explicitly.
     if (this._audioContext.state === 'suspended') {
-      try { await this._audioContext.resume(); } catch { /* 忽略 */ }
+      try { await this._audioContext.resume(); } catch { /* ignore */ }
     }
     this._sampleRate = this._audioContext.sampleRate;
     this._source = this._audioContext.createMediaStreamSource(this._stream);
@@ -171,25 +176,26 @@ export class Recorder {
     this._recording = true;
   }
 
-  /** 首选：AudioWorklet 采集，音频线程处理，不丢帧。 */
+  /** Preferred: AudioWorklet capture, processed on the audio thread, no dropped frames. */
   async _startWithWorklet() {
     const workletUrl = new URL('./recorder-worklet.js', import.meta.url);
     await this._audioContext.audioWorklet.addModule(workletUrl);
 
     this._workletNode = new AudioWorkletNode(this._audioContext, 'recorder-processor');
     this._workletNode.port.onmessage = (e) => {
-      // e.data 是一块 Float32Array 采样
+      // e.data is one block of Float32Array samples
       if (this._recording && e.data && e.data.length) {
         this._chunks.push(e.data);
       }
     };
 
-    // worklet 默认输出静音（我们不写 outputs），接到 destination 以保证图被持续拉取。
+    // The worklet outputs silence by default (we don't write outputs); connect it to
+    // destination so the graph keeps being pulled.
     this._source.connect(this._workletNode);
     this._workletNode.connect(this._audioContext.destination);
   }
 
-  /** 兜底：老浏览器无 AudioWorklet 时用 ScriptProcessor（可能在主线程繁忙时丢帧）。 */
+  /** Fallback: ScriptProcessor for old browsers without AudioWorklet (may drop frames when the main thread is busy). */
   _startWithScriptProcessor() {
     this._scriptNode = this._audioContext.createScriptProcessor(4096, 1, 1);
     this._scriptNode.addEventListener('audioprocess', (e) => {
@@ -204,7 +210,7 @@ export class Recorder {
   }
 
   /**
-   * 停止录音，返回 { blob, url }（WAV 格式，可回放也可上传评分）。
+   * Stop recording and return { blob, url } (WAV, playable and uploadable for scoring).
    * @returns {Promise<{ blob: Blob, url: string }>}
    */
   async stop() {
@@ -225,7 +231,7 @@ export class Recorder {
 
     this._releaseStream();
     if (this._audioContext) {
-      try { await this._audioContext.close(); } catch { /* 忽略 */ }
+      try { await this._audioContext.close(); } catch { /* ignore */ }
       this._audioContext = null;
     }
 
@@ -241,12 +247,12 @@ export class Recorder {
     }
   }
 
-  /** 释放全部资源。 */
+  /** Release all resources. */
   dispose() {
     this._recording = false;
     this._releaseStream();
     if (this._audioContext) {
-      try { this._audioContext.close(); } catch { /* 忽略 */ }
+      try { this._audioContext.close(); } catch { /* ignore */ }
       this._audioContext = null;
     }
     if (this._objectUrl) {

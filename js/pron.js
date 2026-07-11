@@ -1,17 +1,18 @@
-// 发音评估（Pronunciation Assessment）。
-// 直连 Azure Speech-to-Text 的 REST 短音频接口，通过 Pronunciation-Assessment 请求头
-// 传入评估参数。零第三方依赖，请求从浏览器直接发往 Azure。
+// Pronunciation Assessment.
+// Calls Azure Speech-to-Text's short-audio REST endpoint directly, passing
+// assessment parameters via the Pronunciation-Assessment header. Zero third-party
+// dependencies; requests go straight from the browser to Azure.
 //
-// 接口约定（Azure 官方）：
+// Endpoint contract (official Azure):
 //   POST https://{region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1
 //   ?language={locale}&format=detailed
 //   Header: Ocp-Apim-Subscription-Key, Content-Type: audio/wav; codecs=audio/pcm; samplerate=16000
-//   Header: Pronunciation-Assessment: base64(UTF-8 JSON 配置)
-//   Body: WAV 音频（16kHz/16bit/单声道）
+//   Header: Pronunciation-Assessment: base64(UTF-8 JSON config)
+//   Body: WAV audio (16kHz/16bit/mono)
 
 import { loadCredentials } from './config.js';
 
-/** 将字符串按 UTF-8 编码后转 base64（支持日文等非 ASCII 参考文本）。 */
+/** Encode a string as UTF-8 then base64 (supports non-ASCII reference text like Japanese). */
 function toBase64Utf8(str) {
   const bytes = new TextEncoder().encode(str);
   let binary = '';
@@ -20,11 +21,11 @@ function toBase64Utf8(str) {
 }
 
 /**
- * 对一段录音做发音评估。
- * @param {Blob} wavBlob      16kHz/16bit/单声道 WAV
- * @param {string} referenceText  参考文本（朗读的目标句子）
- * @param {string} locale     例如 'ja-JP' / 'en-US'
- * @returns {Promise<object>} 归一化后的评估结果，见 parseResult
+ * Assess the pronunciation of a recording.
+ * @param {Blob} wavBlob      16kHz/16bit/mono WAV
+ * @param {string} referenceText  reference text (the target sentence being read)
+ * @param {string} locale     e.g. 'ja-JP' / 'en-US'
+ * @returns {Promise<object>} normalized assessment result, see parseResult
  */
 export async function assessPronunciation(wavBlob, referenceText, locale) {
   const creds = loadCredentials();
@@ -75,7 +76,7 @@ export async function assessPronunciation(wavBlob, referenceText, locale) {
 }
 
 /**
- * 把 Azure 原始响应归一化成便于渲染的结构。
+ * Normalize the raw Azure response into a render-friendly structure.
  * @returns {{
  *   status: string,
  *   displayText: string,
@@ -86,17 +87,17 @@ export async function assessPronunciation(wavBlob, referenceText, locale) {
 export function parseResult(json) {
   const status = json && json.RecognitionStatus;
   if (status !== 'Success') {
-    // 常见：NoMatch（没识别到语音）、InitialSilenceTimeout 等
+    // Common: NoMatch (no speech detected), InitialSilenceTimeout, etc.
     throw new Error(`No valid speech recognized (${status || 'unknown status'}). Move closer to the mic, read the full sentence, then score again.`);
   }
 
   const best = json.NBest && json.NBest[0];
   if (!best) throw new Error('Empty result. Please try again.');
 
-  // Azure 有两种返回结构：
-  //   1. 分数嵌套在 PronunciationAssessment 子对象里（较新的 detailed 格式）
-  //   2. 分数直接扁平挂在对象上（conversation 端点常见）
-  // 两种都兼容：优先读嵌套字段，缺失时回退到扁平字段。
+  // Azure returns two shapes:
+  //   1. scores nested under a PronunciationAssessment sub-object (newer detailed format)
+  //   2. scores flat on the object itself (common on the conversation endpoint)
+  // Support both: read the nested field first, fall back to the flat field.
   const bpa = best.PronunciationAssessment || {};
   const overall = {
     accuracy: pickScore(bpa.AccuracyScore, best.AccuracyScore),
@@ -119,7 +120,7 @@ export function parseResult(json) {
             accuracy: pickScore(ppa.AccuracyScore, p.AccuracyScore),
           };
         })
-        // 部分语言（如日语）音素名会返回空串，此时不展示音素明细
+        // Some languages (e.g. Japanese) return empty phoneme names; drop those
         .filter((p) => p.phoneme),
     };
   });
@@ -132,7 +133,7 @@ export function parseResult(json) {
   };
 }
 
-/** 从多个候选中取第一个有效数字（用于兼容嵌套 / 扁平两种字段布局）。 */
+/** Return the first valid number among candidates (to support nested/flat layouts). */
 function pickScore(...values) {
   for (const v of values) {
     if (typeof v === 'number' && !Number.isNaN(v)) return v;

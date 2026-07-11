@@ -1,10 +1,10 @@
-// 语言检测：区分日语（ja）和英语（en）。
-// 策略：只要句子里出现假名（平假名/片假名）或日文汉字，就判为日语；
-// 否则判为英语。对纯汉字（也可能是中文）的情况，此工具场景默认按日语处理，
-// 用户可在界面手动切换覆盖。
+// Language detection: distinguish Japanese (ja) from English (en).
+// Strategy: if a sentence contains kana (hiragana/katakana) or CJK characters,
+// treat it as Japanese; otherwise English. For pure CJK (which could also be
+// Chinese), this tool defaults to Japanese, and the user can override in the UI.
 
-// 平假名 3040–309F、片假名 30A0–30FF、CJK 汉字 4E00–9FFF、
-// 半角片假名 FF66–FF9F、日文标点等。
+// Hiragana 3040–309F, Katakana 30A0–30FF, CJK ideographs 4E00–9FFF,
+// half-width katakana FF66–FF9F, Japanese punctuation, etc.
 const JA_KANA = /[぀-ヿｦ-ﾟ]/;
 const CJK = /[㐀-䶿一-鿿]/;
 
@@ -14,15 +14,15 @@ export const LOCALES = {
 };
 
 /**
- * 检测单句语言。
+ * Detect the language of a single sentence.
  * @param {string} sentence
  * @returns {'ja' | 'en'}
  */
 export function detectLang(sentence) {
   if (!sentence) return 'en';
-  // 有假名 → 一定是日语
+  // Has kana → definitely Japanese
   if (JA_KANA.test(sentence)) return 'ja';
-  // 无假名但有汉字 → 该场景下按日语处理（用户可手动改）
+  // No kana but has CJK → treated as Japanese here (user can change it)
   if (CJK.test(sentence)) return 'ja';
   return 'en';
 }

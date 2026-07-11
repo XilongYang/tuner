@@ -1,17 +1,19 @@
-// AudioWorklet 录音处理器：运行在专用音频线程，不受主线程卡顿影响，
-// 从根本上避免 ScriptProcessorNode 在主线程繁忙时丢帧导致的断音。
+// AudioWorklet recording processor: runs on a dedicated audio thread, immune to
+// main-thread jank, which fundamentally avoids the dropouts caused by
+// ScriptProcessorNode dropping frames when the main thread is busy.
 //
-// 每次 process 拿到一块输入（通常 128 采样），复制后通过 port 发回主线程收集。
+// Each process() call gets one input block (typically 128 samples), copies it,
+// and posts it back to the main thread for collection.
 
 class RecorderProcessor extends AudioWorkletProcessor {
   process(inputs) {
     const input = inputs[0];
-    // 无输入通道时（如流尚未就绪）跳过。
+    // Skip when there is no input channel (e.g. the stream isn't ready yet).
     if (input && input[0]) {
-      // 底层缓冲会被复用，必须复制一份再发送。
+      // The underlying buffer is reused, so a copy must be made before sending.
       this.port.postMessage(input[0].slice(0));
     }
-    // 返回 true 保持处理器存活。
+    // Return true to keep the processor alive.
     return true;
   }
 }

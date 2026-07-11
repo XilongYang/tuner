@@ -1,4 +1,7 @@
-# Read-Aloud & Pronunciation Practice
+# Tuner
+
+Tune your Japanese and English pronunciation against a native reference — read
+aloud, shadow the reference voice, and score how close you got.
 
 A **fully static, backend-free, open and auditable** web tool for read-aloud / shadowing practice and pronunciation scoring in Japanese and English.
 

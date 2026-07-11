@@ -77,7 +77,8 @@ export class Recorder {
     this._audioContext = null;
     this._stream = null;
     this._source = null;
-    this._processor = null;
+    this._workletNode = null;
+    this._scriptNode = null;   // 仅在不支持 AudioWorklet 时使用
     this._silentGain = null;
     this._chunks = [];
     this._recording = false;
@@ -112,26 +113,53 @@ export class Recorder {
 
     // 优先请求 16kHz；若浏览器（如部分 Safari）忽略该参数，用实际采样率并在编码时重采样。
     this._audioContext = new AudioCtx({ sampleRate: TARGET_RATE });
+    // 自动播放策略可能让 context 处于 suspended，需显式恢复。
+    if (this._audioContext.state === 'suspended') {
+      try { await this._audioContext.resume(); } catch { /* 忽略 */ }
+    }
     this._sampleRate = this._audioContext.sampleRate;
-
     this._source = this._audioContext.createMediaStreamSource(this._stream);
-    this._processor = this._audioContext.createScriptProcessor(4096, 1, 1);
     this._chunks = [];
 
-    this._processor.addEventListener('audioprocess', (e) => {
-      if (!this._recording) return;
-      const channel = e.inputBuffer.getChannelData(0);
-      this._chunks.push(new Float32Array(channel));
-    });
-
-    // 经零增益节点接到 destination：既让 ScriptProcessor 持续触发，又不把麦克风回放到扬声器。
-    this._silentGain = this._audioContext.createGain();
-    this._silentGain.gain.value = 0;
-    this._source.connect(this._processor);
-    this._processor.connect(this._silentGain);
-    this._silentGain.connect(this._audioContext.destination);
+    if (this._audioContext.audioWorklet) {
+      await this._startWithWorklet();
+    } else {
+      this._startWithScriptProcessor();
+    }
 
     this._recording = true;
+  }
+
+  /** 首选：AudioWorklet 采集，音频线程处理，不丢帧。 */
+  async _startWithWorklet() {
+    const workletUrl = new URL('./recorder-worklet.js', import.meta.url);
+    await this._audioContext.audioWorklet.addModule(workletUrl);
+
+    this._workletNode = new AudioWorkletNode(this._audioContext, 'recorder-processor');
+    this._workletNode.port.onmessage = (e) => {
+      // e.data 是一块 Float32Array 采样
+      if (this._recording && e.data && e.data.length) {
+        this._chunks.push(e.data);
+      }
+    };
+
+    // worklet 默认输出静音（我们不写 outputs），接到 destination 以保证图被持续拉取。
+    this._source.connect(this._workletNode);
+    this._workletNode.connect(this._audioContext.destination);
+  }
+
+  /** 兜底：老浏览器无 AudioWorklet 时用 ScriptProcessor（可能在主线程繁忙时丢帧）。 */
+  _startWithScriptProcessor() {
+    this._scriptNode = this._audioContext.createScriptProcessor(4096, 1, 1);
+    this._scriptNode.addEventListener('audioprocess', (e) => {
+      if (!this._recording) return;
+      this._chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    });
+    this._silentGain = this._audioContext.createGain();
+    this._silentGain.gain.value = 0;
+    this._source.connect(this._scriptNode);
+    this._scriptNode.connect(this._silentGain);
+    this._silentGain.connect(this._audioContext.destination);
   }
 
   /**
@@ -143,7 +171,11 @@ export class Recorder {
     this._recording = false;
 
     if (this._source) this._source.disconnect();
-    if (this._processor) this._processor.disconnect();
+    if (this._workletNode) {
+      this._workletNode.port.onmessage = null;
+      this._workletNode.disconnect();
+    }
+    if (this._scriptNode) this._scriptNode.disconnect();
     if (this._silentGain) this._silentGain.disconnect();
 
     const pcm = flatten(this._chunks);
@@ -181,7 +213,8 @@ export class Recorder {
       this._objectUrl = null;
     }
     this._source = null;
-    this._processor = null;
+    this._workletNode = null;
+    this._scriptNode = null;
     this._silentGain = null;
     this._chunks = [];
   }

@@ -1,16 +1,18 @@
-// Azure Speech 凭据管理。
-// 关键原则：Key 只保存在浏览器 localStorage，绝不上传到任何服务器。
-// 本工具没有后端，所有请求都从浏览器直接发往 Azure。
+// Azure Speech credential management.
+// Core principle: the key is stored only in the browser's localStorage and is
+// never uploaded to any server. This tool has no backend — every request goes
+// straight from the browser to Azure.
 
 const STORAGE_KEY = 'speak.azure.credentials';
 
-// 每种语言使用的默认 Neural 语音。
+// Default Neural voice per language.
 export const DEFAULT_VOICES = {
   'ja-JP': 'ja-JP-NaokiNeural',
   'en-US': 'en-GB-OllieMultilingualNeural',
 };
 
-// 可选的 Azure Neural 音色（按语言分组）。id 为 Azure 短名，label 供界面展示。
+// Selectable Azure Neural voices, grouped by language. `id` is the Azure short
+// name; `label` is shown in the UI.
 export const VOICE_OPTIONS = {
   'ja-JP': [
     { id: 'ja-JP-NaokiNeural', label: 'Naoki · male' },
@@ -38,7 +40,7 @@ export const VOICE_OPTIONS = {
 
 const VOICES_KEY = 'speak.voices';
 
-/** 读取已保存的音色选择（{ 'ja-JP': id, 'en-US': id }），无则空对象。 */
+/** Load saved voice choices ({ 'ja-JP': id, 'en-US': id }); empty object if none. */
 export function loadVoices() {
   try {
     const raw = localStorage.getItem(VOICES_KEY);
@@ -49,14 +51,14 @@ export function loadVoices() {
   }
 }
 
-/** 取某语言当前选用的音色；未选择或存了已失效的 id 时回退到默认音色。 */
+/** Get the chosen voice for a language; falls back to the default when unset or stale. */
 export function getVoice(locale) {
   const chosen = loadVoices()[locale];
   const isValid = (VOICE_OPTIONS[locale] || []).some((o) => o.id === chosen);
   return isValid ? chosen : (DEFAULT_VOICES[locale] || DEFAULT_VOICES['en-US']);
 }
 
-/** 保存某语言的音色选择。 */
+/** Save the voice choice for a language. */
 export function saveVoice(locale, voiceId) {
   const voices = loadVoices();
   voices[locale] = voiceId;
@@ -64,7 +66,7 @@ export function saveVoice(locale, voiceId) {
 }
 
 /**
- * 读取已保存的凭据。
+ * Load saved credentials.
  * @returns {{ key: string, region: string } | null}
  */
 export function loadCredentials() {
@@ -80,7 +82,7 @@ export function loadCredentials() {
 }
 
 /**
- * 保存凭据到 localStorage。
+ * Save credentials to localStorage.
  * @param {string} key
  * @param {string} region
  */
@@ -90,26 +92,26 @@ export function saveCredentials(key, region) {
   return value;
 }
 
-/** 清除本地保存的凭据。 */
+/** Clear the locally saved credentials. */
 export function clearCredentials() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
-/** 是否已配置凭据。 */
+/** Whether credentials are configured. */
 export function hasCredentials() {
   return loadCredentials() !== null;
 }
 
-// ---- 隐藏正文的全局开关（控制每句独立开关的默认值） ----
+// ---- Global "hide text" switch (default value for each per-sentence toggle) ----
 
 const HIDE_TEXT_KEY = 'speak.hideText';
 
-/** 读取全局「隐藏正文」开关，默认关闭。 */
+/** Read the global "hide text" switch; off by default. */
 export function loadHideText() {
   return localStorage.getItem(HIDE_TEXT_KEY) === '1';
 }
 
-/** 保存全局「隐藏正文」开关。 */
+/** Save the global "hide text" switch. */
 export function saveHideText(on) {
   localStorage.setItem(HIDE_TEXT_KEY, on ? '1' : '0');
 }

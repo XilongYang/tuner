@@ -1,16 +1,17 @@
-// 句子拆分：按日语（。！？）和英语（.!?）的句末标点分句，保留标点。
-// 设计目标：对混合文本足够健壮，同时保持逻辑简单、可审计。
+// Sentence splitting: split on Japanese (。！？) and English (.!?) terminal
+// punctuation, keeping the punctuation.
+// Goal: robust enough for mixed text while staying simple and auditable.
 
-// 句末标点：中日全角 。！？…；英文半角 . ! ?
-// 注意：英文句点会误伤缩写（如 Mr. / U.S.），此处做最小化处理，
-// 后续如有需要再引入更复杂的缩写词典。
+// Terminal punctuation: full-width 。！？… (CJK) and half-width . ! ?
+// Note: an English period also breaks abbreviations (e.g. Mr. / U.S.); this is
+// handled minimally here — a richer abbreviation dictionary can be added later.
 const TERMINATORS = /([。．！？!?…]+|\.(?=\s|$))/g;
 
 /**
- * 将一段文本拆分为句子数组。
- * - 保留句末标点
- * - 按换行也做一次切分（换行视为硬分隔）
- * - 去除首尾空白，过滤空句
+ * Split a block of text into an array of sentences.
+ * - keeps terminal punctuation
+ * - also splits on newlines (a newline is a hard separator)
+ * - trims whitespace and drops empty sentences
  * @param {string} text
  * @returns {string[]}
  */
@@ -19,7 +20,7 @@ export function segment(text) {
 
   const sentences = [];
 
-  // 先按换行拆成段落，段落内再按句末标点拆句。
+  // Split into paragraphs by newline first, then split each by terminal punctuation.
   for (const line of text.split(/\r?\n/)) {
     const trimmedLine = line.trim();
     if (!trimmedLine) continue;
@@ -37,7 +38,7 @@ export function segment(text) {
       lastIndex = end;
     }
 
-    // 段落末尾没有标点的残余部分也作为一句。
+    // Any trailing remainder without punctuation counts as a sentence too.
     const tail = trimmedLine.slice(lastIndex).trim();
     if (tail) sentences.push(tail);
   }

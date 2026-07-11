@@ -2,7 +2,7 @@
 // 主方案：Azure Cognitive Services TTS REST API（Neural 语音）。
 // 降级方案：浏览器自带 speechSynthesis（无 Key 时使用，质量较低）。
 
-import { loadCredentials, DEFAULT_VOICES } from './config.js';
+import { loadCredentials, getVoice } from './config.js';
 
 /** 转义 SSML 中的 XML 特殊字符。 */
 function escapeXml(text) {
@@ -30,7 +30,7 @@ export async function synthesizeAzure(text, locale) {
   const creds = loadCredentials();
   if (!creds) throw new Error('Azure credentials not configured');
 
-  const voice = DEFAULT_VOICES[locale] || DEFAULT_VOICES['en-US'];
+  const voice = getVoice(locale);
   const endpoint =
     `https://${creds.region}.tts.speech.microsoft.com/cognitiveservices/v1`;
 

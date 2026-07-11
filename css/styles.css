@@ -187,6 +187,29 @@ a:hover { color: var(--accent); }
 .key-status[data-state="ok"] { color: var(--text); }
 .key-status[data-state="empty"] { color: var(--text-faint); }
 
+.voice-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.voice-form select {
+  font-family: var(--serif);
+  font-size: 14px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.voice-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ---- 输入区 ---- */
 #input-text {
   width: 100%;
@@ -329,13 +352,15 @@ a:hover { color: var(--accent); }
   border-color: var(--accent);
 }
 
-/* 隐藏正文：逐字符渲染为黑色方块（脱稿跟读练习用） */
-.row-text.is-hidden .ch:not([data-space]) {
-  display: inline-block;
+/* 隐藏正文：每行渲染为一条连续黑条（脱稿跟读练习用）。
+   内联背景会随文本按行断开，box-decoration-break: clone 让每行片段各自带圆角。 */
+.row-text.is-hidden .row-text-inner {
   color: transparent;
   background: var(--text);
-  border-radius: 2px;
-  margin: 0 1px;
+  border-radius: 3px;
+  padding: 0.05em 0.1em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 /* ---- 行内状态 ---- */

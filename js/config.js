@@ -46,3 +46,17 @@ export function clearCredentials() {
 export function hasCredentials() {
   return loadCredentials() !== null;
 }
+
+// ---- 隐藏正文的全局开关（控制每句独立开关的默认值） ----
+
+const HIDE_TEXT_KEY = 'speak.hideText';
+
+/** 读取全局「隐藏正文」开关，默认关闭。 */
+export function loadHideText() {
+  return localStorage.getItem(HIDE_TEXT_KEY) === '1';
+}
+
+/** 保存全局「隐藏正文」开关。 */
+export function saveHideText(on) {
+  localStorage.setItem(HIDE_TEXT_KEY, on ? '1' : '0');
+}

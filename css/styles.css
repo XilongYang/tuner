@@ -95,6 +95,25 @@ a:hover { color: var(--accent); }
 }
 .ghost-btn:hover { color: var(--accent); }
 
+.global-toggle {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.global-toggle input {
+  cursor: pointer;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
 /* ---- Main ---- */
 .app-main {
   max-width: 720px;
@@ -293,6 +312,31 @@ a:hover { color: var(--accent); }
   min-width: 40px;
 }
 .lang-toggle:hover { border-color: var(--text-faint); color: var(--text); }
+
+.hide-toggle {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.hide-toggle:hover { border-color: var(--text-faint); color: var(--text); }
+.hide-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* 隐藏正文：逐字符渲染为黑色方块（脱稿跟读练习用） */
+.row-text.is-hidden .ch:not([data-space]) {
+  display: inline-block;
+  color: transparent;
+  background: var(--text);
+  border-radius: 2px;
+  margin: 0 1px;
+}
 
 /* ---- 行内状态 ---- */
 .row-status {
@@ -514,8 +558,16 @@ a:hover { color: var(--accent); }
 
 /* ---- 响应式 ---- */
 @media (max-width: 560px) {
-  .header-inner { padding: 32px 20px 24px; text-align: center; }
-  .ghost-btn { position: static; display: inline-block; margin-top: 12px; }
+  .header-inner {
+    padding: 20px 20px 24px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .global-toggle, .ghost-btn { position: static; order: 3; }
+  .title-block { order: 1; margin-top: 8px; }
   .title-block h1 { font-size: 27px; }
   .sentence-row { padding: 16px; gap: 12px; }
   .row-index { min-width: 22px; }

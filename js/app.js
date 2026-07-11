@@ -10,13 +10,18 @@ import {
   saveCredentials,
   clearCredentials,
   hasCredentials,
+  loadHideText,
+  saveHideText,
 } from './config.js';
 
 // ---- 全局状态 ----
 
-/** @type {Array<{ id: number, text: string, lang: 'ja'|'en', recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null }>} */
+/** @type {Array<{ id: number, text: string, lang: 'ja'|'en', hidden: boolean, recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null }>} */
 let sentences = [];
 let nextId = 1;
+
+// 全局「隐藏正文」开关，作为每句独立开关的默认值。
+let globalHideText = false;
 
 // 供 TTS 播放复用的 audio 元素
 const ttsAudio = new Audio();
@@ -38,6 +43,7 @@ const els = {
   keyStatus: $('#key-status'),
   toggleKeyPanel: $('#toggle-key-panel'),
   keyPanel: $('#key-panel'),
+  globalHideInput: $('#global-hide-input'),
 };
 
 // ---- 凭据面板 ----
@@ -94,6 +100,7 @@ function handleSplit() {
     id: nextId++,
     text,
     lang: detectLang(text),
+    hidden: globalHideText, // 默认取全局开关
     recorder: new Recorder(),
     recordingUrl: null,
     recordingBlob: null,
@@ -121,6 +128,36 @@ function render() {
   });
 }
 
+/** 把句子文本构造为逐字符 span，以便隐藏时逐字符渲染为黑色方块。 */
+function buildTextEl(sentence) {
+  const el = document.createElement('div');
+  el.className = 'row-text';
+  if (sentence.hidden) el.classList.add('is-hidden');
+  for (const ch of Array.from(sentence.text)) {
+    const span = document.createElement('span');
+    span.className = 'ch';
+    // 空白不涂黑，保留词/句的间隔结构
+    if (ch === ' ' || ch === '　' || ch === '\t') span.dataset.space = '';
+    span.textContent = ch;
+    el.appendChild(span);
+  }
+  return el;
+}
+
+/** 刷新单句隐藏开关按钮的显示。 */
+function paintHidden(sentence) {
+  if (!sentence._hideBtn) return;
+  sentence._hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
+  sentence._hideBtn.setAttribute('aria-pressed', String(sentence.hidden));
+}
+
+/** 设置单句的隐藏状态并同步 DOM。 */
+function applyHidden(sentence, value) {
+  sentence.hidden = value;
+  if (sentence._textEl) sentence._textEl.classList.toggle('is-hidden', value);
+  paintHidden(sentence);
+}
+
 function renderRow(sentence, index) {
   const row = document.createElement('div');
   row.className = 'sentence-row';
@@ -135,9 +172,8 @@ function renderRow(sentence, index) {
   const body = document.createElement('div');
   body.className = 'row-body';
 
-  const textEl = document.createElement('div');
-  textEl.className = 'row-text';
-  textEl.textContent = sentence.text;
+  const textEl = buildTextEl(sentence);
+  sentence._textEl = textEl;
   body.appendChild(textEl);
 
   // 操作区
@@ -158,6 +194,16 @@ function renderRow(sentence, index) {
     paintLang();
   });
   actions.appendChild(langToggle);
+
+  // 每句「隐藏正文」独立开关
+  const hideBtn = document.createElement('button');
+  hideBtn.className = 'hide-toggle';
+  hideBtn.type = 'button';
+  hideBtn.title = 'Toggle hiding this sentence';
+  sentence._hideBtn = hideBtn;
+  paintHidden(sentence);
+  hideBtn.addEventListener('click', () => applyHidden(sentence, !sentence.hidden));
+  actions.appendChild(hideBtn);
 
   // 朗读
   const playBtn = document.createElement('button');
@@ -429,6 +475,16 @@ function buildLegend() {
 
 function init() {
   initKeyPanel();
+
+  // 全局「隐藏正文」开关：读取本地存储，变更时写回并联动所有句子。
+  globalHideText = loadHideText();
+  els.globalHideInput.checked = globalHideText;
+  els.globalHideInput.addEventListener('change', () => {
+    globalHideText = els.globalHideInput.checked;
+    saveHideText(globalHideText);
+    for (const s of sentences) applyHidden(s, globalHideText);
+  });
+
   els.splitBtn.addEventListener('click', handleSplit);
   els.clearInputBtn.addEventListener('click', () => {
     els.input.value = '';

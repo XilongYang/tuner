@@ -27,30 +27,38 @@
     <!-- Azure credentials panel -->
     <section id="key-panel" class="key-panel" hidden>
       <h2 class="section-title">Azure Speech credentials</h2>
-      <p class="notice">
-        Your key is <strong>stored only in this browser (localStorage)</strong> and is never uploaded
-        to any server. This tool has no backend — every request goes
-        <strong>directly from your browser to Azure</strong>. That means your key is visible in the
-        Network panel of the browser dev tools, which is expected
-        (it is your own key, and you are responsible for its usage and billing).
-      </p>
-      <div class="key-form">
-        <label class="field">
-          <span>Subscription Key</span>
-          <input id="azure-key" type="password" autocomplete="off" spellcheck="false"
-                 placeholder="Paste your Azure Speech key">
-        </label>
-        <label class="field">
-          <span>Region</span>
-          <input id="azure-region" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="e.g. eastasia / japaneast">
-        </label>
-        <div class="key-buttons">
-          <button id="save-key-btn" class="btn primary" type="button">Save</button>
-          <button id="clear-key-btn" class="btn" type="button">Clear key</button>
+
+      <!-- 未配置：显示安全说明 + 输入框 + Save -->
+      <div id="key-entry">
+        <p class="notice">
+          Your key is <strong>stored only in this browser (localStorage)</strong> and is never uploaded
+          to any server. This tool has no backend — every request goes
+          <strong>directly from your browser to Azure</strong>. That means your key is visible in the
+          Network panel of the browser dev tools, which is expected
+          (it is your own key, and you are responsible for its usage and billing).
+        </p>
+        <div class="key-form">
+          <label class="field">
+            <span>Subscription Key</span>
+            <input id="azure-key" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="Paste your Azure Speech key">
+          </label>
+          <label class="field">
+            <span>Region</span>
+            <input id="azure-region" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="e.g. eastasia / japaneast">
+          </label>
+          <div class="key-buttons">
+            <button id="save-key-btn" class="btn primary" type="button">Save</button>
+          </div>
         </div>
       </div>
-      <p id="key-status" class="key-status" data-state="empty"></p>
+
+      <!-- 已配置：显示一行提示 + Clear -->
+      <div id="key-saved" class="key-saved" hidden>
+        <p id="key-status" class="key-status" data-state="ok"></p>
+        <button id="clear-key-btn" class="btn" type="button">Clear key</button>
+      </div>
 
       <div class="voice-form">
         <div class="field">

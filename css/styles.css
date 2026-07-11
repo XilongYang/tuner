@@ -35,6 +35,9 @@
 
 * { box-sizing: border-box; }
 
+/* 确保 hidden 属性始终生效，即使元素设了 display（如 flex）。 */
+[hidden] { display: none !important; }
+
 html, body { margin: 0; padding: 0; }
 
 body {
@@ -185,6 +188,14 @@ a:hover { color: var(--accent); }
 }
 .key-status[data-state="ok"] { color: var(--text); }
 .key-status[data-state="empty"] { color: var(--text-faint); }
+
+.key-saved {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.key-saved .key-status { margin: 0; }
 
 .voice-form {
   display: flex;

@@ -153,11 +153,12 @@ function render() {
 }
 
 /** Build the sentence text element; wrap the whole sentence in an inline span so
- *  that when hidden it renders as a continuous black bar per line. */
+ *  that when hidden it renders as a continuous black bar per line.
+ *  The hidden state lives on the row (.sentence-row.is-hidden), so it also drives
+ *  the per-word blocks in the score result. */
 function buildTextEl(sentence) {
   const el = document.createElement('div');
   el.className = 'row-text';
-  if (sentence.hidden) el.classList.add('is-hidden');
   const inner = document.createElement('span');
   inner.className = 'row-text-inner';
   inner.textContent = sentence.text;
@@ -175,13 +176,15 @@ function paintHidden(sentence) {
 /** Set a sentence's hidden state and sync the DOM. */
 function applyHidden(sentence, value) {
   sentence.hidden = value;
-  if (sentence._textEl) sentence._textEl.classList.toggle('is-hidden', value);
+  if (sentence._row) sentence._row.classList.toggle('is-hidden', value);
   paintHidden(sentence);
 }
 
 function renderRow(sentence, index) {
   const row = document.createElement('div');
   row.className = 'sentence-row';
+  if (sentence.hidden) row.classList.add('is-hidden');
+  sentence._row = row;
 
   // Index
   const num = document.createElement('div');
@@ -194,7 +197,6 @@ function renderRow(sentence, index) {
   body.className = 'row-body';
 
   const textEl = buildTextEl(sentence);
-  sentence._textEl = textEl;
   body.appendChild(textEl);
 
   // Actions

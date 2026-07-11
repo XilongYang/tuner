@@ -1,64 +1,65 @@
-# 朗读跟读 · 发音练习工具
+# Read-Aloud & Pronunciation Practice
 
-一个**纯静态、零后端、开源可审计**的网页工具，用于日语和英语的朗读跟读与发音评分练习。
+A **fully static, backend-free, open and auditable** web tool for read-aloud / shadowing practice and pronunciation scoring in Japanese and English.
 
-- 无框架、无 npm 包、无 CDN 依赖，只有原生 HTML / CSS / JavaScript（ES 模块）
-- 可直接部署到 GitHub Pages / Cloudflare Pages
-- 所有 Azure 请求从你的浏览器**直接发往 Azure**，不经过任何中转后端
+- No framework, no npm packages, no CDN dependencies — just plain HTML / CSS / JavaScript (ES modules)
+- Deployable directly to GitHub Pages / Cloudflare Pages
+- All Azure requests go **straight from your browser to Azure** — no relay backend
 
-## 功能
+## Features
 
-1. 粘贴文本 → 点击「拆分」→ 按句末标点（。！？ / .!?）自动分句并编号
-2. 每句自动检测语言（ja / en），可手动切换
-3. 「朗读」：调用 Azure Neural TTS 播放标准发音（未配置 Key 时降级为浏览器内置语音）
-4. 「录音」：用 Web Audio API 采集 16kHz WAV 录制跟读，「回放」试听
-5. 「评分」：直连 Azure Pronunciation Assessment（REST），返回综合 / 准确度 / 流利度 / 完整度四项分数，并对每个词按准确度着色，标出漏读 / 多读，悬停可看逐音素分数
+1. Paste text → click **Split** → it is broken into numbered sentences by sentence boundaries (`。！？` / `.!?`)
+2. Each sentence's language is auto-detected (ja / en) and can be switched manually
+3. **Speak**: play reference audio via Azure Neural TTS (falls back to the browser's built-in voice when no key is set)
+4. **Record**: capture your shadowing as 16 kHz WAV via the Web Audio API; **Playback** to listen
+5. **Score**: call Azure Pronunciation Assessment (REST) directly for Overall / Accuracy / Fluency / Completeness scores, with each word colored by accuracy, omissions / insertions flagged, and per-phoneme scores on hover
 
-## 使用方式
+## Usage
 
-1. 在 [Azure Portal](https://portal.azure.com/) 创建一个 **Speech Service** 资源，获取 **Key** 和 **Region**（如 `eastasia`、`japaneast`）。
-2. 打开页面，点右上角「Azure 设置」，填入 Key 和 Region 并保存。
-3. 粘贴文本 → 拆分 → 逐句朗读 / 录音跟读。
+1. Create a **Speech Service** resource in the [Azure Portal](https://portal.azure.com/) and get its **Key** and **Region** (e.g. `eastasia`, `japaneast`).
+2. Open the page, click **Azure settings** in the top-right, enter the Key and Region, and save.
+3. Paste text → Split → Speak / Record / Score per sentence.
 
-> 不填 Key 也能用：朗读会自动降级为浏览器内置语音（`speechSynthesis`），质量较低。
+> You can use it without a key: **Speak** automatically falls back to the browser's built-in voice (`speechSynthesis`), at lower quality.
 
-## 关于你的 Key（请务必了解）
+## About your key (please read)
 
-- Key **仅保存在浏览器 localStorage**，不会上传到任何服务器。
-- 本工具没有后端，请求直接从浏览器发往 Azure，因此在开发者工具的 **Network 面板中能看到你的 Key** —— 这是预期行为。这是你自己的 Key，由你自己负责调用与计费。
-- 页面提供「清除 Key」按钮，随时可从本地删除。
+- The key is **stored only in the browser's localStorage** and is never uploaded to any server.
+- This tool has no backend; requests go straight from the browser to Azure, so **your key is visible in the Network panel of the browser dev tools** — this is expected. It is your own key, and you are responsible for its usage and billing.
+- A **Clear key** button lets you remove it from local storage at any time.
 
-## 本地运行
+## Running locally
 
-因为使用了 ES 模块，需要通过 HTTP 服务打开（不能直接 `file://`）：
+Because it uses ES modules, serve it over HTTP (not via `file://`):
 
 ```bash
-# 任选其一
+# either one
 python3 -m http.server 8000
 npx serve
 ```
 
-然后访问 `http://localhost:8000`。
+Then open `http://localhost:8000`.
 
-## 目录结构
+## Project layout
 
 ```
-index.html          页面结构
-css/styles.css      设计系统（低饱和冷灰 + 克制橙色强调）
-js/segment.js       句子拆分
-js/lang.js          语言检测（ja / en）
-js/config.js        Azure 凭据管理（localStorage）
-js/tts.js           TTS（Azure REST + 浏览器降级）
-js/recorder.js      录音（Web Audio → 16kHz WAV）
-js/pron.js          发音评估（Azure Pronunciation Assessment REST）
-js/app.js           主应用逻辑
+index.html          page structure
+css/styles.css       design system
+js/segment.js        sentence splitting
+js/lang.js           language detection (ja / en)
+js/config.js         Azure credential management (localStorage)
+js/tts.js            TTS (Azure REST + browser fallback)
+js/recorder.js       recording (Web Audio → 16 kHz WAV)
+js/recorder-worklet.js  AudioWorklet capture processor
+js/pron.js           pronunciation assessment (Azure REST)
+js/app.js            main application logic
 ```
 
-## 浏览器要求
+## Browser requirements
 
-- 现代浏览器（Chrome / Edge / Safari）
-- 录音需要麦克风权限；`getUserMedia` 通常要求 HTTPS 或 `localhost`
+- A modern browser (Chrome / Edge / Safari)
+- Recording needs microphone permission; `getUserMedia` generally requires HTTPS or `localhost`
 
-## 许可
+## License
 
 MIT

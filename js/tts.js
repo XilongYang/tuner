@@ -28,7 +28,7 @@ function buildSsml(text, locale, voice) {
  */
 export async function synthesizeAzure(text, locale) {
   const creds = loadCredentials();
-  if (!creds) throw new Error('未配置 Azure 凭据');
+  if (!creds) throw new Error('Azure credentials not configured');
 
   const voice = DEFAULT_VOICES[locale] || DEFAULT_VOICES['en-US'];
   const endpoint =
@@ -47,17 +47,17 @@ export async function synthesizeAzure(text, locale) {
       body: buildSsml(text, locale, voice),
     });
   } catch (networkErr) {
-    throw new Error('网络请求失败，请检查网络连接或 Region 是否正确');
+    throw new Error('Network request failed. Check your connection or that the Region is correct.');
   }
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Key 无效或无权限（401/403），请检查你的 Key 和 Region');
+      throw new Error('Invalid key or no permission (401/403). Check your Key and Region.');
     }
     if (response.status === 429) {
-      throw new Error('请求过于频繁或超出配额（429），请稍后再试');
+      throw new Error('Too many requests or quota exceeded (429). Try again later.');
     }
-    throw new Error(`TTS 请求失败：HTTP ${response.status}`);
+    throw new Error(`TTS request failed: HTTP ${response.status}`);
   }
 
   return await response.blob();
@@ -72,14 +72,14 @@ export async function synthesizeAzure(text, locale) {
 export function speakWithBrowser(text, locale) {
   return new Promise((resolve, reject) => {
     if (!('speechSynthesis' in window)) {
-      reject(new Error('当前浏览器不支持内置语音合成'));
+      reject(new Error('This browser does not support built-in speech synthesis'));
       return;
     }
     window.speechSynthesis.cancel();
     const utter = new SpeechSynthesisUtterance(text);
     utter.lang = locale;
     utter.onend = () => resolve();
-    utter.onerror = () => reject(new Error('内置语音合成失败'));
+    utter.onerror = () => reject(new Error('Built-in speech synthesis failed'));
     window.speechSynthesis.speak(utter);
   });
 }

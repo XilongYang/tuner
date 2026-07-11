@@ -1,73 +1,74 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>朗读跟读 · 发音练习工具</title>
+  <title>Read-Aloud &amp; Pronunciation Practice</title>
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
   <header class="app-header">
     <div class="header-inner">
       <div class="title-block">
-        <h1>朗读跟读练习</h1>
-        <p class="subtitle">日语 / 英语 · TTS 标准发音 · 录音跟读 · Azure 发音评分</p>
+        <h1>Read-Aloud Practice</h1>
+        <p class="subtitle">Japanese / English · reference TTS · shadowing · Azure pronunciation scoring</p>
       </div>
       <button id="toggle-key-panel" class="ghost-btn" type="button" aria-expanded="false">
-        Azure 设置
+        Azure settings
       </button>
     </div>
   </header>
 
   <main class="app-main">
-    <!-- Azure 凭据面板 -->
+    <!-- Azure credentials panel -->
     <section id="key-panel" class="key-panel" hidden>
-      <h2 class="section-title">Azure Speech 凭据</h2>
+      <h2 class="section-title">Azure Speech credentials</h2>
       <p class="notice">
-        你的 Key <strong>仅保存在本地浏览器（localStorage）</strong>，不会上传到任何服务器。
-        本工具没有后端，所有请求都从你的浏览器<strong>直接发往 Azure</strong>。
-        因此开发者工具的 Network 面板中能看到你的 Key，这是预期行为
-        （这是你自己的 Key，由你自己负责调用与计费）。
+        Your key is <strong>stored only in this browser (localStorage)</strong> and is never uploaded
+        to any server. This tool has no backend — every request goes
+        <strong>directly from your browser to Azure</strong>. That means your key is visible in the
+        Network panel of the browser dev tools, which is expected
+        (it is your own key, and you are responsible for its usage and billing).
       </p>
       <div class="key-form">
         <label class="field">
           <span>Subscription Key</span>
           <input id="azure-key" type="password" autocomplete="off" spellcheck="false"
-                 placeholder="粘贴你的 Azure Speech Key">
+                 placeholder="Paste your Azure Speech key">
         </label>
         <label class="field">
           <span>Region</span>
           <input id="azure-region" type="text" autocomplete="off" spellcheck="false"
-                 placeholder="例如 eastasia / japaneast">
+                 placeholder="e.g. eastasia / japaneast">
         </label>
         <div class="key-buttons">
-          <button id="save-key-btn" class="btn primary" type="button">保存</button>
-          <button id="clear-key-btn" class="btn" type="button">清除 Key</button>
+          <button id="save-key-btn" class="btn primary" type="button">Save</button>
+          <button id="clear-key-btn" class="btn" type="button">Clear key</button>
         </div>
       </div>
       <p id="key-status" class="key-status" data-state="empty"></p>
     </section>
 
-    <!-- 输入区 -->
+    <!-- Input -->
     <section class="input-section">
-      <label class="section-title" for="input-text">练习文本</label>
+      <label class="section-title" for="input-text">Practice text</label>
       <textarea id="input-text" rows="6" spellcheck="false"
-        placeholder="在此粘贴日语或英语文本（可混合）。点击「拆分」后按句子边界自动分句并编号。"></textarea>
+        placeholder="Paste Japanese or English text (mixed is fine). Click Split to break it into numbered sentences by sentence boundaries."></textarea>
       <div class="input-actions">
-        <button id="split-btn" class="btn primary" type="button">拆分</button>
-        <button id="clear-input-btn" class="btn" type="button">清空</button>
+        <button id="split-btn" class="btn primary" type="button">Split</button>
+        <button id="clear-input-btn" class="btn" type="button">Clear</button>
         <span id="sentence-count" class="sentence-count"></span>
       </div>
     </section>
 
-    <!-- 句子列表 -->
+    <!-- Sentence list -->
     <section class="list-section">
       <div id="sentence-list" class="sentence-list"></div>
     </section>
   </main>
 
   <footer class="app-footer">
-    <p>纯静态 · 零后端 · 开源可审计 · Key 仅存于本地浏览器</p>
+    <p>Fully static · no backend · open &amp; auditable · key stays in your browser</p>
   </footer>
 
   <script type="module" src="js/app.js"></script>

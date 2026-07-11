@@ -45,10 +45,10 @@ const els = {
 function refreshKeyStatus() {
   const creds = loadCredentials();
   if (creds) {
-    els.keyStatus.textContent = `已保存：Region = ${creds.region}（Key 已隐藏）`;
+    els.keyStatus.textContent = `Saved: Region = ${creds.region} (key hidden)`;
     els.keyStatus.dataset.state = 'ok';
   } else {
-    els.keyStatus.textContent = '未配置：将使用浏览器内置语音（降级方案）';
+    els.keyStatus.textContent = "Not configured: falling back to the browser's built-in voice";
     els.keyStatus.dataset.state = 'empty';
   }
 }
@@ -61,7 +61,7 @@ function initKeyPanel() {
     const key = els.keyInput.value.trim();
     const region = els.regionInput.value.trim();
     if (!key || !region) {
-      alert('请同时填写 Key 和 Region');
+      alert('Please enter both Key and Region');
       return;
     }
     saveCredentials(key, region);
@@ -105,13 +105,13 @@ function handleSplit() {
 function render() {
   els.list.innerHTML = '';
   els.count.textContent = sentences.length
-    ? `${sentences.length} 句`
+    ? `${sentences.length} ${sentences.length > 1 ? 'sentences' : 'sentence'}`
     : '';
 
   if (sentences.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'empty-hint';
-    empty.textContent = '粘贴文本后点击「拆分」，句子会在这里逐条显示。';
+    empty.textContent = 'Paste text and click Split; sentences will appear here, one per line.';
     els.list.appendChild(empty);
     return;
   }
@@ -150,7 +150,7 @@ function renderRow(sentence, index) {
   langToggle.type = 'button';
   const paintLang = () => {
     langToggle.textContent = sentence.lang;
-    langToggle.title = '点击切换语言（ja / en）';
+    langToggle.title = 'Click to switch language (ja / en)';
   };
   paintLang();
   langToggle.addEventListener('click', () => {
@@ -163,21 +163,21 @@ function renderRow(sentence, index) {
   const playBtn = document.createElement('button');
   playBtn.className = 'btn';
   playBtn.type = 'button';
-  playBtn.textContent = '朗读';
+  playBtn.textContent = 'Speak';
   actions.appendChild(playBtn);
 
   // 录音
   const recordBtn = document.createElement('button');
   recordBtn.className = 'btn';
   recordBtn.type = 'button';
-  recordBtn.textContent = '录音';
+  recordBtn.textContent = 'Record';
   actions.appendChild(recordBtn);
 
   // 回放
   const playbackBtn = document.createElement('button');
   playbackBtn.className = 'btn';
   playbackBtn.type = 'button';
-  playbackBtn.textContent = '回放';
+  playbackBtn.textContent = 'Playback';
   playbackBtn.hidden = !sentence.recordingUrl;
   actions.appendChild(playbackBtn);
 
@@ -185,7 +185,7 @@ function renderRow(sentence, index) {
   const scoreBtn = document.createElement('button');
   scoreBtn.className = 'btn';
   scoreBtn.type = 'button';
-  scoreBtn.textContent = '评分';
+  scoreBtn.textContent = 'Score';
   scoreBtn.hidden = !sentence.recordingBlob;
   actions.appendChild(scoreBtn);
 
@@ -227,7 +227,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
   playBtn.addEventListener('click', async () => {
     const locale = LOCALES[sentence.lang];
     playBtn.disabled = true;
-    setStatus(status, '正在合成语音…', 'info');
+    setStatus(status, 'Synthesizing speech…', 'info');
     try {
       if (hasCredentials()) {
         const blob = await synthesizeAzure(sentence.text, locale);
@@ -236,10 +236,10 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
         setStatus(status, '', 'info');
       } else {
         await speakWithBrowser(sentence.text, locale);
-        setStatus(status, '（使用浏览器内置语音，配置 Azure Key 可获得更自然的发音）', 'info');
+        setStatus(status, "(Using the browser's built-in voice — add an Azure key for more natural speech.)", 'info');
       }
     } catch (err) {
-      setStatus(status, '朗读失败：' + err.message, 'error');
+      setStatus(status, 'Speak failed: ' + err.message, 'error');
     } finally {
       playBtn.disabled = false;
     }
@@ -253,13 +253,13 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
         const { url, blob } = await sentence.recorder.stop();
         sentence.recordingUrl = url;
         sentence.recordingBlob = blob;
-        recordBtn.textContent = '录音';
+        recordBtn.textContent = 'Record';
         row.classList.remove('is-recording');
         playbackBtn.hidden = false;
         scoreBtn.hidden = false;
-        setStatus(status, '录音完成，可点击「回放」试听，或点「评分」评估发音。', 'info');
+        setStatus(status, 'Recording done. Click Playback to listen, or Score to assess pronunciation.', 'info');
       } catch (err) {
-        setStatus(status, '停止录音失败：' + err.message, 'error');
+        setStatus(status, 'Failed to stop recording: ' + err.message, 'error');
       } finally {
         recordBtn.disabled = false;
       }
@@ -267,11 +267,11 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
       setStatus(status, '', 'info');
       try {
         await sentence.recorder.start();
-        recordBtn.textContent = '停止';
+        recordBtn.textContent = 'Stop';
         row.classList.add('is-recording');
-        setStatus(status, '● 录音中…再次点击「停止」结束。', 'recording');
+        setStatus(status, '● Recording… click Stop to finish.', 'recording');
       } catch (err) {
-        setStatus(status, '无法录音：' + err.message, 'error');
+        setStatus(status, 'Cannot record: ' + err.message, 'error');
       }
     }
   });
@@ -281,19 +281,19 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
     if (!sentence.recordingUrl) return;
     const audio = new Audio(sentence.recordingUrl);
     audio.play().catch((err) => {
-      setStatus(status, '回放失败：' + err.message, 'error');
+      setStatus(status, 'Playback failed: ' + err.message, 'error');
     });
   });
 
   // 评分
   scoreBtn.addEventListener('click', async () => {
     if (!sentence.recordingBlob) {
-      setStatus(status, '请先录音再评分。', 'error');
+      setStatus(status, 'Please record before scoring.', 'error');
       return;
     }
     scoreBtn.disabled = true;
     result.hidden = true;
-    setStatus(status, '正在评估发音…', 'info');
+    setStatus(status, 'Assessing pronunciation…', 'info');
     try {
       const locale = LOCALES[sentence.lang];
       const assessment = await assessPronunciation(
@@ -301,7 +301,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
       renderAssessment(result, assessment);
       setStatus(status, '', 'info');
     } catch (err) {
-      setStatus(status, '评分失败：' + err.message, 'error');
+      setStatus(status, 'Scoring failed: ' + err.message, 'error');
     } finally {
       scoreBtn.disabled = false;
     }
@@ -317,12 +317,12 @@ function accuracyLevel(score) {
 
 const ERROR_LABELS = {
   None: '',
-  Mispronunciation: '发音不准',
-  Omission: '漏读',
-  Insertion: '多读',
-  UnexpectedBreak: '不当停顿',
-  MissingBreak: '缺少停顿',
-  Monotone: '语调平淡',
+  Mispronunciation: 'mispronounced',
+  Omission: 'omission',
+  Insertion: 'insertion',
+  UnexpectedBreak: 'unexpected break',
+  MissingBreak: 'missing break',
+  Monotone: 'monotone',
 };
 
 /** 渲染评分结果：总分 + 逐词着色。 */
@@ -334,10 +334,10 @@ function renderAssessment(container, a) {
   const scores = document.createElement('div');
   scores.className = 'score-grid';
   const items = [
-    ['综合', a.overall.pron],
-    ['准确度', a.overall.accuracy],
-    ['流利度', a.overall.fluency],
-    ['完整度', a.overall.completeness],
+    ['Overall', a.overall.pron],
+    ['Accuracy', a.overall.accuracy],
+    ['Fluency', a.overall.fluency],
+    ['Completeness', a.overall.completeness],
   ];
   for (const [label, value] of items) {
     const chip = document.createElement('div');
@@ -360,16 +360,16 @@ function renderAssessment(container, a) {
 
     if (w.errorType === 'Omission') {
       span.dataset.error = 'omission';
-      span.appendChild(buildWordTip('漏读 · 参考文本中有，但没读出来', '', null));
+      span.appendChild(buildWordTip('Omission · in the reference but not spoken', '', null));
     } else if (w.errorType === 'Insertion') {
       span.dataset.error = 'insertion';
-      span.appendChild(buildWordTip('多读 · 读了参考文本以外的内容', '', null));
+      span.appendChild(buildWordTip('Insertion · spoken but not in the reference', '', null));
     } else {
       const level = accuracyLevel(w.accuracy);
       span.dataset.level = level;
       const errLabel = ERROR_LABELS[w.errorType] || '';
       const head =
-        `${w.word} · 准确度 ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
+        `${w.word} · accuracy ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
       span.appendChild(buildWordTip(head, level, w.phonemes));
     }
     wordsWrap.appendChild(span);
@@ -416,12 +416,12 @@ function buildLegend() {
   const legend = document.createElement('div');
   legend.className = 'legend';
   legend.innerHTML =
-    '<span class="legend-item"><i data-level="good"></i>良好 ≥80</span>' +
-    '<span class="legend-item"><i data-level="mid"></i>一般 60–79</span>' +
-    '<span class="legend-item"><i data-level="bad"></i>较差 &lt;60</span>' +
-    '<span class="legend-item"><i data-error="omission"></i>漏读</span>' +
-    '<span class="legend-item"><i data-error="insertion"></i>多读</span>' +
-    '<span class="legend-hint">悬停单词可看逐音素分数</span>';
+    '<span class="legend-item"><i data-level="good"></i>Good ≥80</span>' +
+    '<span class="legend-item"><i data-level="mid"></i>Fair 60–79</span>' +
+    '<span class="legend-item"><i data-level="bad"></i>Poor &lt;60</span>' +
+    '<span class="legend-item"><i data-error="omission"></i>Omission</span>' +
+    '<span class="legend-item"><i data-error="insertion"></i>Insertion</span>' +
+    '<span class="legend-hint">Hover a word for per-phoneme scores</span>';
   return legend;
 }
 

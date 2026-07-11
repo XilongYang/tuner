@@ -44,6 +44,8 @@ const els = {
   saveKeyBtn: $('#save-key-btn'),
   clearKeyBtn: $('#clear-key-btn'),
   keyStatus: $('#key-status'),
+  keyEntry: $('#key-entry'),
+  keySaved: $('#key-saved'),
   toggleKeyPanel: $('#toggle-key-panel'),
   keyPanel: $('#key-panel'),
   globalHideInput: $('#global-hide-input'),
@@ -53,21 +55,18 @@ const els = {
 
 // ---- 凭据面板 ----
 
-function refreshKeyStatus() {
+// 两态互斥：有 Key → 显示一行提示 + Clear；无 Key → 显示输入框 + Save。
+function updateKeyPanel() {
   const creds = loadCredentials();
-  if (creds) {
-    els.keyStatus.textContent = `Saved: Region = ${creds.region} (key hidden)`;
-    els.keyStatus.dataset.state = 'ok';
-  } else {
-    els.keyStatus.textContent = "Not configured: falling back to the browser's built-in voice";
-    els.keyStatus.dataset.state = 'empty';
+  const has = !!creds;
+  els.keyEntry.hidden = has;
+  els.keySaved.hidden = !has;
+  if (has) {
+    els.keyStatus.textContent = `Key saved · Region = ${creds.region}`;
   }
 }
 
 function initKeyPanel() {
-  const creds = loadCredentials();
-  if (creds) els.regionInput.value = creds.region;
-
   els.saveKeyBtn.addEventListener('click', () => {
     const key = els.keyInput.value.trim();
     const region = els.regionInput.value.trim();
@@ -77,13 +76,14 @@ function initKeyPanel() {
     }
     saveCredentials(key, region);
     els.keyInput.value = '';
-    refreshKeyStatus();
+    updateKeyPanel();
   });
 
   els.clearKeyBtn.addEventListener('click', () => {
     clearCredentials();
     els.keyInput.value = '';
-    refreshKeyStatus();
+    els.regionInput.value = '';
+    updateKeyPanel();
   });
 
   els.toggleKeyPanel.addEventListener('click', () => {
@@ -92,7 +92,7 @@ function initKeyPanel() {
   });
 
   initVoiceSelectors();
-  refreshKeyStatus();
+  updateKeyPanel();
 }
 
 /** 填充并绑定音色下拉框，选择写入本地存储。 */

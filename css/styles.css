@@ -56,7 +56,6 @@ a:hover { color: var(--accent); }
 
 /* ---- Header（居中报头，呼应主站 masthead） ---- */
 .app-header {
-  border-bottom: 1px solid var(--border);
   background: transparent;
 }
 .header-inner {
@@ -384,12 +383,12 @@ a:hover { color: var(--accent); }
 /* ---- 评分结果 ---- */
 .row-result {
   margin-top: 4px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+/* display:flex 会覆盖 hidden 属性的默认 display:none，需显式还原 */
+.row-result[hidden] { display: none; }
 .score-grid {
   display: flex;
   flex-wrap: wrap;
@@ -570,7 +569,6 @@ a:hover { color: var(--accent); }
 
 /* ---- Footer ---- */
 .app-footer {
-  border-top: 1px solid var(--border);
   padding: 22px 24px;
   text-align: center;
 }

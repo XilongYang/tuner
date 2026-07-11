@@ -503,9 +503,12 @@ function init() {
   // cascade to all sentences.
   globalHideText = loadHideText();
   els.globalHideInput.checked = globalHideText;
+  els.input.classList.toggle('input-masked', globalHideText);
   els.globalHideInput.addEventListener('change', () => {
     globalHideText = els.globalHideInput.checked;
     saveHideText(globalHideText);
+    // Cover the practice textarea with a solid black block in hidden mode.
+    els.input.classList.toggle('input-masked', globalHideText);
     for (const s of sentences) applyHidden(s, globalHideText);
   });
 

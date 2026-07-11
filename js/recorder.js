@@ -101,8 +101,16 @@ export class Recorder {
     }
 
     try {
+      // 关闭浏览器的 WebRTC 音频处理：这些为实时通话设计的模块（降噪、自动增益、
+      // 回声消除）会把气口、轻辅音等误判为噪声而压低甚至门限掉，造成断音，
+      // 也会改变音色。发音评分需要的是原始未处理音频。
       this._stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        audio: {
+          channelCount: 1,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
       });
     } catch (err) {
       if (err && err.name === 'NotAllowedError') {
@@ -111,8 +119,13 @@ export class Recorder {
       throw new Error('无法访问麦克风：' + (err && err.message ? err.message : err));
     }
 
-    // 优先请求 16kHz；若浏览器（如部分 Safari）忽略该参数，用实际采样率并在编码时重采样。
-    this._audioContext = new AudioCtx({ sampleRate: TARGET_RATE });
+    // 优先请求 16kHz；部分浏览器（如老 Safari）不支持指定采样率会抛错，
+    // 此时退回默认采样率，编码时再重采样到 16kHz。
+    try {
+      this._audioContext = new AudioCtx({ sampleRate: TARGET_RATE });
+    } catch {
+      this._audioContext = new AudioCtx();
+    }
     // 自动播放策略可能让 context 处于 suspended，需显式恢复。
     if (this._audioContext.state === 'suspended') {
       try { await this._audioContext.resume(); } catch { /* 忽略 */ }

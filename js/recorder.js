@@ -29,9 +29,26 @@ function writeString(view, offset, str) {
   }
 }
 
+/**
+ * 峰值归一化：把整段录音等比放大到接近满幅，解决原始麦克风音量过小的问题。
+ * 因为是录完后对整段做统一缩放，不像 autoGainControl 那样动态调整，故不会产生泵感/断音。
+ * maxGain 上限避免把近乎静音的底噪放大到爆。
+ */
+function normalize(samples, targetPeak = 0.95, maxGain = 30) {
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i]);
+    if (a > peak) peak = a;
+  }
+  if (peak === 0) return samples;
+  const gain = Math.min(targetPeak / peak, maxGain);
+  for (let i = 0; i < samples.length; i++) samples[i] *= gain;
+  return samples;
+}
+
 /** 将 Float32 PCM 编码为 16kHz/16bit/单声道 WAV，返回 ArrayBuffer。 */
 function encodeWav(float32, inputRate) {
-  const pcm = resampleTo16k(float32, inputRate);
+  const pcm = normalize(resampleTo16k(float32, inputRate));
   const numSamples = pcm.length;
   const buffer = new ArrayBuffer(44 + numSamples * 2);
   const view = new DataView(buffer);

@@ -15,8 +15,10 @@ function escapeXml(text) {
 }
 
 function buildSsml(text, locale, voice) {
-  return `<speak version="1.0" xml:lang="${locale}">` +
-    `<voice xml:lang="${locale}" name="${voice}">${escapeXml(text)}</voice>` +
+  // 标准 Azure SSML：xml:lang 只放在 <speak> 上，<voice> 只带 name。
+  // （非标准的 <voice xml:lang> 会被较新的多语言音色严格校验拒绝，返回 400。）
+  return `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${locale}">` +
+    `<voice name="${voice}">${escapeXml(text)}</voice>` +
     `</speak>`;
 }
 
@@ -57,7 +59,14 @@ export async function synthesizeAzure(text, locale) {
     if (response.status === 429) {
       throw new Error('Too many requests or quota exceeded (429). Try again later.');
     }
-    throw new Error(`TTS request failed: HTTP ${response.status}`);
+    let detail = '';
+    try { detail = (await response.text()).trim(); } catch { /* 忽略 */ }
+    const extra = detail ? ` — ${detail.slice(0, 300)}` : '';
+    if (response.status === 400) {
+      throw new Error(
+        `TTS bad request (400)${extra}. The selected voice may be misspelled or not available in your region.`);
+    }
+    throw new Error(`TTS request failed: HTTP ${response.status}${extra}`);
   }
 
   return await response.blob();

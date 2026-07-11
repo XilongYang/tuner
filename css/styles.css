@@ -179,7 +179,7 @@ a:hover { color: var(--accent); }
 }
 .field input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text-muted);
 }
 .key-buttons { display: flex; gap: 10px; }
 .key-status {
@@ -218,7 +218,7 @@ a:hover { color: var(--accent); }
 }
 .voice-form select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text-muted);
 }
 
 /* ---- Input area ---- */
@@ -236,7 +236,7 @@ a:hover { color: var(--accent); }
 }
 #input-text:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--text-muted);
 }
 .input-actions {
   display: flex;
@@ -365,7 +365,7 @@ a:hover { color: var(--accent); }
 
 /* Hidden text: render one continuous black bar per line (for from-memory shadowing).
    The inline background breaks per line, and box-decoration-break: clone rounds each line fragment. */
-.row-text.is-hidden .row-text-inner {
+.sentence-row.is-hidden .row-text-inner {
   color: transparent;
   background: var(--text);
   border-radius: 3px;
@@ -457,6 +457,20 @@ a:hover { color: var(--accent); }
   color: var(--accent);
   border-bottom: 2px dashed var(--accent);
 }
+
+/* Hidden mode: each scored word (morpheme) becomes a solid color block in its
+   level color; the hover tooltip still shows normally. */
+.sentence-row.is-hidden .word {
+  color: transparent;
+  border-radius: 3px;
+  text-decoration: none;
+  border-bottom: none;
+}
+.sentence-row.is-hidden .word[data-level="good"] { background: var(--good); }
+.sentence-row.is-hidden .word[data-level="mid"] { background: var(--mid); }
+.sentence-row.is-hidden .word[data-level="bad"] { background: var(--accent); }
+.sentence-row.is-hidden .word[data-error="omission"] { background: var(--text-faint); }
+.sentence-row.is-hidden .word[data-error="insertion"] { background: var(--accent); }
 
 /* ---- Word hover tooltip (paper card, shown instantly) ---- */
 .word-tip {

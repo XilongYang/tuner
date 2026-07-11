@@ -7,7 +7,7 @@ const STORAGE_KEY = 'speak.azure.credentials';
 // 每种语言使用的默认 Neural 语音。
 export const DEFAULT_VOICES = {
   'ja-JP': 'ja-JP-NaokiNeural',
-  'en-US': 'en-US-OllieMultilingualNeural',
+  'en-US': 'en-GB-OllieMultilingualNeural',
 };
 
 // 可选的 Azure Neural 音色（按语言分组）。id 为 Azure 短名，label 供界面展示。
@@ -22,7 +22,7 @@ export const VOICE_OPTIONS = {
     { id: 'ja-JP-ShioriNeural', label: 'Shiori · female' },
   ],
   'en-US': [
-    { id: 'en-US-OllieMultilingualNeural', label: 'Ollie · male · multilingual' },
+    { id: 'en-GB-OllieMultilingualNeural', label: 'Ollie · en-GB · multilingual' },
     { id: 'en-US-JennyNeural', label: 'Jenny · female' },
     { id: 'en-US-AriaNeural', label: 'Aria · female' },
     { id: 'en-US-SaraNeural', label: 'Sara · female' },
@@ -49,10 +49,11 @@ export function loadVoices() {
   }
 }
 
-/** 取某语言当前选用的音色，未选择时回退到默认音色。 */
+/** 取某语言当前选用的音色；未选择或存了已失效的 id 时回退到默认音色。 */
 export function getVoice(locale) {
   const chosen = loadVoices()[locale];
-  return chosen || DEFAULT_VOICES[locale] || DEFAULT_VOICES['en-US'];
+  const isValid = (VOICE_OPTIONS[locale] || []).some((o) => o.id === chosen);
+  return isValid ? chosen : (DEFAULT_VOICES[locale] || DEFAULT_VOICES['en-US']);
 }
 
 /** 保存某语言的音色选择。 */

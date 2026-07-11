@@ -356,27 +356,63 @@ function renderAssessment(container, a) {
   for (const w of a.words) {
     const span = document.createElement('span');
     span.className = 'word';
-    span.textContent = w.word;
+    span.appendChild(document.createTextNode(w.word));
 
     if (w.errorType === 'Omission') {
       span.dataset.error = 'omission';
-      span.title = '漏读（参考文本中有，但没读出来）';
+      span.appendChild(buildWordTip('漏读 · 参考文本中有，但没读出来', '', null));
     } else if (w.errorType === 'Insertion') {
       span.dataset.error = 'insertion';
-      span.title = '多读（读了参考文本以外的内容）';
+      span.appendChild(buildWordTip('多读 · 读了参考文本以外的内容', '', null));
     } else {
-      span.dataset.level = accuracyLevel(w.accuracy);
+      const level = accuracyLevel(w.accuracy);
+      span.dataset.level = level;
       const errLabel = ERROR_LABELS[w.errorType] || '';
-      const phonemeText = w.phonemes.length
-        ? ' · ' + w.phonemes.map((p) => `${p.phoneme}${Math.round(p.accuracy)}`).join(' ')
-        : '';
-      span.title = `准确度 ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}${phonemeText}`;
+      const head =
+        `${w.word} · 准确度 ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
+      span.appendChild(buildWordTip(head, level, w.phonemes));
     }
     wordsWrap.appendChild(span);
   }
   container.appendChild(wordsWrap);
 
   // 图例
+  const legend = buildLegend();
+  container.appendChild(legend);
+}
+
+/** 构造单词的悬停提示：标题行 + 逐音素色块。鼠标移上即时显示（纯 CSS）。 */
+function buildWordTip(head, headLevel, phonemes) {
+  const tip = document.createElement('span');
+  tip.className = 'word-tip';
+
+  const h = document.createElement('span');
+  h.className = 'tip-head';
+  if (headLevel) h.dataset.level = headLevel;
+  h.textContent = head;
+  tip.appendChild(h);
+
+  if (phonemes && phonemes.length) {
+    const pw = document.createElement('span');
+    pw.className = 'tip-phonemes';
+    for (const p of phonemes) {
+      const chip = document.createElement('span');
+      chip.className = 'ph';
+      chip.dataset.level = accuracyLevel(p.accuracy);
+      const name = document.createElement('b');
+      name.textContent = p.phoneme;
+      const score = document.createElement('i');
+      score.textContent = Math.round(p.accuracy);
+      chip.appendChild(name);
+      chip.appendChild(score);
+      pw.appendChild(chip);
+    }
+    tip.appendChild(pw);
+  }
+  return tip;
+}
+
+function buildLegend() {
   const legend = document.createElement('div');
   legend.className = 'legend';
   legend.innerHTML =
@@ -386,7 +422,7 @@ function renderAssessment(container, a) {
     '<span class="legend-item"><i data-error="omission"></i>漏读</span>' +
     '<span class="legend-item"><i data-error="insertion"></i>多读</span>' +
     '<span class="legend-hint">悬停单词可看逐音素分数</span>';
-  container.appendChild(legend);
+  return legend;
 }
 
 // ---- 初始化 ----

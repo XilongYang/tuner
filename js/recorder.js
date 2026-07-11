@@ -7,18 +7,33 @@
 
 const TARGET_RATE = 16000;
 
-/** 将采集到的 Float32 采样按线性插值重采样到 16kHz。 */
+/** 将采集到的 Float32 采样重采样到 16kHz。 */
 function resampleTo16k(input, inputRate) {
   if (inputRate === TARGET_RATE) return input;
   const ratio = inputRate / TARGET_RATE;
   const newLen = Math.round(input.length / ratio);
   const out = new Float32Array(newLen);
-  for (let i = 0; i < newLen; i++) {
-    const idx = i * ratio;
-    const i0 = Math.floor(idx);
-    const i1 = Math.min(i0 + 1, input.length - 1);
-    const frac = idx - i0;
-    out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+
+  if (ratio > 1) {
+    // 下采样（如 48k/44.1k → 16k）：对每个输出样本取输入窗口的平均，
+    // 兼作抗混叠低通，避免朴素抽点带来的混叠。
+    for (let i = 0; i < newLen; i++) {
+      const start = Math.floor(i * ratio);
+      const end = Math.min(Math.floor((i + 1) * ratio), input.length);
+      let sum = 0;
+      let n = 0;
+      for (let j = start; j < end; j++) { sum += input[j]; n++; }
+      out[i] = n ? sum / n : 0;
+    }
+  } else {
+    // 上采样：线性插值
+    for (let i = 0; i < newLen; i++) {
+      const idx = i * ratio;
+      const i0 = Math.floor(idx);
+      const i1 = Math.min(i0 + 1, input.length - 1);
+      const frac = idx - i0;
+      out[i] = input[i0] * (1 - frac) + input[i1] * frac;
+    }
   }
   return out;
 }
@@ -118,15 +133,13 @@ export class Recorder {
     }
 
     try {
-      // 关闭浏览器的 WebRTC 音频处理：这些为实时通话设计的模块（降噪、自动增益、
-      // 回声消除）会把气口、轻辅音等误判为噪声而压低甚至门限掉，造成断音，
-      // 也会改变音色。发音评分需要的是原始未处理音频。
+      // 使用浏览器自带的音频增强（回声消除 / 降噪 / 自动增益）。
       this._stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
       });
     } catch (err) {
@@ -136,13 +149,11 @@ export class Recorder {
       throw new Error('Cannot access microphone: ' + (err && err.message ? err.message : err));
     }
 
-    // 优先请求 16kHz；部分浏览器（如老 Safari）不支持指定采样率会抛错，
-    // 此时退回默认采样率，编码时再重采样到 16kHz。
-    try {
-      this._audioContext = new AudioCtx({ sampleRate: TARGET_RATE });
-    } catch {
-      this._audioContext = new AudioCtx();
-    }
+    // 使用设备原生采样率创建 AudioContext。
+    // 不再强制 16kHz：强制非原生采样率会触发音频设备重配置，导致麦克风采集
+    // 中途中断（录音图标闪断）与断音。原生采样率采集，录完在 encodeWav 里统一
+    // 重采样到 16kHz（Azure REST 所需格式）。
+    this._audioContext = new AudioCtx();
     // 自动播放策略可能让 context 处于 suspended，需显式恢复。
     if (this._audioContext.state === 'suspended') {
       try { await this._audioContext.resume(); } catch { /* 忽略 */ }

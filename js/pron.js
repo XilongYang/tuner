@@ -28,7 +28,7 @@ function toBase64Utf8(str) {
  */
 export async function assessPronunciation(wavBlob, referenceText, locale) {
   const creds = loadCredentials();
-  if (!creds) throw new Error('发音评估需要 Azure 凭据，请先在「Azure 设置」中填入 Key 和 Region');
+  if (!creds) throw new Error('Pronunciation scoring requires Azure credentials. Add your Key and Region under Azure settings first.');
 
   const config = {
     ReferenceText: referenceText,
@@ -57,17 +57,17 @@ export async function assessPronunciation(wavBlob, referenceText, locale) {
       body: wavBlob,
     });
   } catch (networkErr) {
-    throw new Error('网络请求失败，请检查网络连接或 Region 是否正确');
+    throw new Error('Network request failed. Check your connection or that the Region is correct.');
   }
 
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Key 无效或无权限（401/403），请检查你的 Key 和 Region');
+      throw new Error('Invalid key or no permission (401/403). Check your Key and Region.');
     }
     if (response.status === 429) {
-      throw new Error('请求过于频繁或超出配额（429），请稍后再试');
+      throw new Error('Too many requests or quota exceeded (429). Try again later.');
     }
-    throw new Error(`发音评估请求失败：HTTP ${response.status}`);
+    throw new Error(`Scoring request failed: HTTP ${response.status}`);
   }
 
   const json = await response.json();
@@ -87,11 +87,11 @@ export function parseResult(json) {
   const status = json && json.RecognitionStatus;
   if (status !== 'Success') {
     // 常见：NoMatch（没识别到语音）、InitialSilenceTimeout 等
-    throw new Error(`未能识别到有效语音（${status || '未知状态'}），请靠近麦克风、读完整句后再评分`);
+    throw new Error(`No valid speech recognized (${status || 'unknown status'}). Move closer to the mic, read the full sentence, then score again.`);
   }
 
   const best = json.NBest && json.NBest[0];
-  if (!best) throw new Error('评估结果为空，请重试');
+  if (!best) throw new Error('Empty result. Please try again.');
 
   // Azure 有两种返回结构：
   //   1. 分数嵌套在 PronunciationAssessment 子对象里（较新的 detailed 格式）

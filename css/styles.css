@@ -3,31 +3,32 @@
    数字（句子编号、评分）保留等宽字体作为「数据」呈现。 */
 
 :root {
-  /* 纸张暖白与近黑文字 */
-  --bg: #faf8f4;
-  --surface: #fffdf9;
-  --surface-2: #f2efe7;
-  --border: #e6e1d6;
-  --border-strong: #d3ccbe;
+  /* 冷调近白背景与近黑文字 */
+  --bg: hsl(210, 20%, 98%);
+  --surface: #ffffff;
+  --surface-2: hsl(210, 18%, 95.5%);
+  --border: hsl(210, 16%, 90%);
+  --border-strong: hsl(210, 14%, 80%);
 
-  --text: #1a1a18;
-  --text-muted: #6f6a61;
-  --text-faint: #9c968a;
+  --text: hsl(210, 15%, 12%);
+  --text-muted: hsl(210, 9%, 42%);
+  --text-faint: hsl(210, 12%, 62%);
 
-  /* 强调色：克制的砖色，仅用于录音中 / 错误 / 较差发音等关键节点 */
-  --accent: #9c5a2f;
-  --accent-soft: #eee2d5;
-  --accent-text: #7a4321;
+  /* 强调色：红色，仅用于录音中 / 错误 / 较差发音等关键节点 */
+  --accent: #ee5555;
+  --accent-soft: hsl(0, 78%, 95%);
+  --accent-text: hsl(0, 62%, 45%);
 
-  /* 评分等级色（低饱和，与纸张风格协调） */
-  --good: #4f7a5c;
-  --good-soft: #e5ece6;
-  --mid: #9c7733;
-  --mid-soft: #ede4d1;
+  /* 评分等级色（bad 复用红色强调） */
+  --good: hsl(145, 32%, 38%);
+  --good-soft: hsl(145, 30%, 93%);
+  --mid: hsl(38, 58%, 42%);
+  --mid-soft: hsl(40, 52%, 90%);
 
   --radius: 4px;
-  /* 衬线栈：优先 Latin Modern（若本机装了），回退到通用衬线与中文宋体 */
+  /* 衬线栈：优先 Latin Modern（若本机装了），回退到通用衬线与中日文明朝/宋体 */
   --serif: "Latin Modern Roman", Georgia, "Times New Roman",
+           "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP",
            "Songti SC", "Noto Serif SC", STSong, "SimSun", serif;
   --mono: "Latin Modern Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -391,7 +392,7 @@ a:hover { color: var(--accent); }
   color: var(--text);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(60, 50, 30, 0.16);
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.14);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
@@ -455,7 +456,7 @@ a:hover { color: var(--accent); }
 .ph[data-level="good"] i { color: var(--good); }
 .ph[data-level="mid"] { box-shadow: inset 0 0 0 1px rgba(156, 119, 51, 0.4); }
 .ph[data-level="mid"] i { color: var(--mid); }
-.ph[data-level="bad"] { box-shadow: inset 0 0 0 1px rgba(156, 90, 47, 0.45); }
+.ph[data-level="bad"] { box-shadow: inset 0 0 0 1px rgba(238, 85, 85, 0.45); }
 .ph[data-level="bad"] i { color: var(--accent); }
 
 .legend {

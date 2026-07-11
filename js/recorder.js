@@ -110,11 +110,11 @@ export class Recorder {
   /** 开始录音。若浏览器不支持或用户拒绝授权会抛错。 */
   async start() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      throw new Error('当前浏览器不支持录音（getUserMedia 不可用）');
+      throw new Error('This browser does not support recording (getUserMedia unavailable)');
     }
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) {
-      throw new Error('当前浏览器不支持 Web Audio API');
+      throw new Error('This browser does not support the Web Audio API');
     }
 
     try {
@@ -131,9 +131,9 @@ export class Recorder {
       });
     } catch (err) {
       if (err && err.name === 'NotAllowedError') {
-        throw new Error('麦克风权限被拒绝，请在浏览器中允许麦克风访问');
+        throw new Error('Microphone permission denied. Please allow microphone access in your browser.');
       }
-      throw new Error('无法访问麦克风：' + (err && err.message ? err.message : err));
+      throw new Error('Cannot access microphone: ' + (err && err.message ? err.message : err));
     }
 
     // 优先请求 16kHz；部分浏览器（如老 Safari）不支持指定采样率会抛错，
@@ -197,7 +197,7 @@ export class Recorder {
    * @returns {Promise<{ blob: Blob, url: string }>}
    */
   async stop() {
-    if (!this._recording) throw new Error('尚未开始录音');
+    if (!this._recording) throw new Error('Recording has not started');
     this._recording = false;
 
     if (this._source) this._source.disconnect();

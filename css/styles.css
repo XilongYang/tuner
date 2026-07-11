@@ -238,6 +238,14 @@ a:hover { color: var(--accent); }
   outline: none;
   border-color: var(--text-muted);
 }
+/* Hidden mode: cover the whole practice textarea with a solid black block. */
+#input-text.input-masked {
+  color: transparent;
+  background: var(--text);
+  caret-color: transparent;
+}
+#input-text.input-masked::placeholder { color: transparent; }
+#input-text.input-masked::selection { color: transparent; background: transparent; }
 .input-actions {
   display: flex;
   align-items: center;

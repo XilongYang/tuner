@@ -285,6 +285,13 @@ a:hover { color: var(--accent); }
   background: #000;
   border-color: #000;
 }
+/* Active playback state (Speak / Playback currently playing; click to stop) */
+.btn.is-playing,
+.btn.is-playing:hover:not(:disabled) {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
 
 /* ---- Sentence list ---- */
 .sentence-list {

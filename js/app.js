@@ -30,6 +30,43 @@ let globalHideText = false;
 // Reusable audio element for TTS playback
 const ttsAudio = new Audio();
 
+// Global playback controller: only one clip plays at a time. Marks the triggering
+// button active while it plays, and enforces mutual exclusion across Speak / Playback.
+const player = {
+  audio: null,
+  button: null,
+  _onEnded: null,
+  /** Stop the current playback (if any) and clear its active button. */
+  stop() {
+    if (this.audio) {
+      if (this._onEnded) this.audio.removeEventListener('ended', this._onEnded);
+      this.audio.pause();
+      this.audio = null;
+      this._onEnded = null;
+    }
+    if (this.button) {
+      this.button.classList.remove('is-playing');
+      this.button = null;
+    }
+    // Also stop the browser speechSynthesis fallback, if any is speaking.
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  },
+  /** Start playing `audio`, marking `button` active; stops whatever was playing first. */
+  start(audio, button) {
+    this.stop();
+    this.audio = audio;
+    this.button = button;
+    if (button) button.classList.add('is-playing');
+    this._onEnded = () => this.stop();
+    audio.addEventListener('ended', this._onEnded);
+    return audio.play();
+  },
+  /** Whether `button` is the one currently playing. */
+  isActive(button) {
+    return this.button === button && !!this.audio;
+  },
+};
+
 // ---- DOM references ----
 const $ = (sel) => document.querySelector(sel);
 
@@ -294,14 +331,21 @@ function setStatus(statusEl, message, kind = 'info') {
 function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, status, result }) {
   // Speak
   playBtn.addEventListener('click', async () => {
+    // Toggle: clicking while it's playing stops it.
+    if (player.isActive(playBtn)) {
+      player.stop();
+      setStatus(status, '', 'info');
+      return;
+    }
     const locale = LOCALES[sentence.lang];
+    player.stop(); // stop any other playback first
     playBtn.disabled = true;
     setStatus(status, 'Synthesizing speech…', 'info');
     try {
       if (hasCredentials()) {
         const blob = await synthesizeAzure(sentence.text, locale);
         ttsAudio.src = URL.createObjectURL(blob);
-        await ttsAudio.play();
+        await player.start(ttsAudio, playBtn);
         setStatus(status, '', 'info');
       } else {
         await speakWithBrowser(sentence.text, locale);
@@ -333,6 +377,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
         recordBtn.disabled = false;
       }
     } else {
+      player.stop(); // stop any playback before recording
       setStatus(status, '', 'info');
       try {
         await sentence.recorder.start();
@@ -347,9 +392,14 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, sta
 
   // Playback
   playbackBtn.addEventListener('click', () => {
+    // Toggle: clicking while it's playing stops it.
+    if (player.isActive(playbackBtn)) {
+      player.stop();
+      return;
+    }
     if (!sentence.recordingUrl) return;
     const audio = new Audio(sentence.recordingUrl);
-    audio.play().catch((err) => {
+    player.start(audio, playbackBtn).catch((err) => {
       setStatus(status, 'Playback failed: ' + err.message, 'error');
     });
   });

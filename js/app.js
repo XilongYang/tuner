@@ -461,7 +461,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
       const assessment = await assessPronunciation(
         sentence.recordingBlob, sentence.text, locale);
       sentence.assessment = assessment;
-      renderAssessment(result, assessment);
+      renderAssessment(result, assessment, sentence);
       exportBtn.hidden = false; // export becomes available once scored
       setStatus(status, '', 'info');
     } catch (err) {
@@ -549,7 +549,7 @@ const ERROR_LABELS = {
 };
 
 /** Render the assessment: overall scores + per-word coloring. */
-function renderAssessment(container, a) {
+function renderAssessment(container, a, sentence) {
   container.innerHTML = '';
   container.hidden = false;
 
@@ -573,7 +573,7 @@ function renderAssessment(container, a) {
   }
   container.appendChild(scores);
 
-  // Per-word
+  // Per-word: click a word to open its scores panel and hear it read aloud.
   const wordsWrap = document.createElement('div');
   wordsWrap.className = 'words-line';
   for (const w of a.words) {
@@ -595,6 +595,16 @@ function renderAssessment(container, a) {
         `${w.word} · accuracy ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
       span.appendChild(buildWordTip(head, level, w.phonemes));
     }
+
+    span.addEventListener('click', () => {
+      const wasOpen = span.classList.contains('is-open');
+      // Only one word panel open at a time.
+      wordsWrap.querySelectorAll('.word.is-open').forEach((el) => el.classList.remove('is-open'));
+      if (wasOpen) return; // toggle closed
+      span.classList.add('is-open');
+      if (w.word) playWord(w.word, sentence); // play just this word (best-effort)
+    });
+
     wordsWrap.appendChild(span);
   }
   container.appendChild(wordsWrap);
@@ -604,7 +614,17 @@ function renderAssessment(container, a) {
   container.appendChild(legend);
 }
 
-/** Build a word's hover tooltip: a heading line + per-phoneme chips. Shows instantly on hover (pure CSS). */
+/** Play the reference TTS audio of a single word (best-effort; needs credentials). */
+async function playWord(text, sentence) {
+  if (!hasCredentials()) return;
+  try {
+    const entry = await getTtsEntry(text, LOCALES[sentence.lang]);
+    ttsAudio.src = entry.url;
+    await player.start(ttsAudio, null);
+  } catch { /* ignore per-word playback errors */ }
+}
+
+/** Build a word's popover: a heading line + per-phoneme chips. Shown on click (via .word.is-open). */
 function buildWordTip(head, headLevel, phonemes) {
   const tip = document.createElement('span');
   tip.className = 'word-tip';
@@ -671,6 +691,14 @@ function init() {
     els.input.value = '';
     els.input.focus();
   });
+
+  // Clicking anywhere outside a word closes its open scores panel.
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.word')) {
+      document.querySelectorAll('.word.is-open').forEach((el) => el.classList.remove('is-open'));
+    }
+  });
+
   render();
 }
 

@@ -459,7 +459,7 @@ a:hover { color: var(--accent); }
   position: relative;
   padding: 1px 4px;
   border-radius: var(--radius);
-  cursor: default;
+  cursor: pointer;
 }
 .word[data-level="good"] { color: var(--good); }
 .word[data-level="mid"] { color: var(--mid); background: var(--mid-soft); }
@@ -487,7 +487,7 @@ a:hover { color: var(--accent); }
 .sentence-row.is-hidden .word[data-error="omission"] { background: var(--text-faint); }
 .sentence-row.is-hidden .word[data-error="insertion"] { background: var(--accent); }
 
-/* ---- Word hover tooltip (paper card, shown instantly) ---- */
+/* ---- Word popover (paper card, shown on click) ---- */
 .word-tip {
   position: absolute;
   bottom: calc(100% + 9px);
@@ -505,10 +505,10 @@ a:hover { color: var(--accent); }
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  /* No enter delay: appears immediately on hover, with only a very short fade */
+  /* Short fade in/out when toggled open/closed */
   transition: opacity 0.09s ease, transform 0.09s ease;
 }
-.word:hover .word-tip {
+.word.is-open .word-tip {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) translateY(0);

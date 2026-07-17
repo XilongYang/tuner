@@ -252,6 +252,21 @@ a:hover { color: var(--accent); }
   gap: 12px;
   margin-top: 16px;
 }
+.split-mode {
+  font-family: var(--serif);
+  font-size: 13px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.split-mode:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+
 .sentence-count {
   font-family: var(--mono);
   font-size: 13px;

@@ -45,3 +45,14 @@ export function segment(text) {
 
   return sentences;
 }
+
+/**
+ * Manual split: break the text on '/' delimiters.
+ * Each piece is trimmed; empty pieces are dropped.
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function splitBySlash(text) {
+  if (!text) return [];
+  return text.split('/').map((s) => s.trim()).filter(Boolean);
+}

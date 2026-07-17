@@ -1,7 +1,7 @@
 // Main application logic: wires the modules together and manages the sentence
 // list and UI interactions.
 
-import { segment } from './segment.js';
+import { segment, splitBySlash } from './segment.js';
 import { detectLang, LOCALES } from './lang.js';
 import { synthesizeAzure, speakWithBrowser } from './tts.js';
 import { assessPronunciation } from './pron.js';
@@ -107,6 +107,7 @@ const els = {
   input: $('#input-text'),
   splitBtn: $('#split-btn'),
   clearInputBtn: $('#clear-input-btn'),
+  splitMode: $('#split-mode'),
   list: $('#sentence-list'),
   count: $('#sentence-count'),
   // Credentials panel
@@ -186,7 +187,9 @@ function initVoiceSelectors() {
 // ---- Sentence list ----
 
 function handleSplit() {
-  const parts = segment(els.input.value);
+  const parts = els.splitMode.value === 'manual'
+    ? splitBySlash(els.input.value)
+    : segment(els.input.value);
   // Release resources from the previous recordings
   for (const s of sentences) s.recorder.dispose();
 

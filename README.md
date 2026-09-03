@@ -39,12 +39,12 @@ Practice history lives only in the current browser's IndexedDB by default — cl
 1. In the [Azure Portal](https://portal.azure.com/), create (or reuse) a **Storage account**, then a **Blob container** inside it (Private access level is fine).
 2. Enable CORS for the storage account so your browser is allowed to call it: **Storage account → Settings → Resource sharing (CORS)** → *Blob service* tab → add a rule with:
    - Allowed origins: the origin you serve Tuner from (e.g. `http://localhost:8000`, or your GitHub/Cloudflare Pages URL) — must match exactly (scheme + host + port, no trailing slash)
-   - Allowed methods: `GET`, `PUT`, `OPTIONS`
+   - Allowed methods: `GET`, `PUT`, `DELETE`, `OPTIONS`
    - Allowed headers: `*` (Tuner sends `Content-Type`, `x-ms-blob-type`, `x-ms-version` — an empty Allowed headers column will fail every request with a 403 on preflight)
    - Exposed headers: `*`
    - Max age: `3600` (or any value)
    - Don't forget to click **Save** at the top of the page — filling the row alone doesn't persist it.
-3. Generate a **SAS URL scoped to the container**: open the container → **Shared access tokens** (or **Generate SAS** at the container level) → grant **Read**, **Write**, and **Create** permissions, pick an expiry far enough in the future, and copy the resulting URL (it looks like `https://<account>.blob.core.windows.net/<container>?sv=...&sig=...`).
+3. Generate a **SAS URL scoped to the container**: open the container → **Shared access tokens** (or **Generate SAS** at the container level) → grant **Read**, **Write**, **Create**, **List**, and **Delete** permissions (List + Delete let Backup clean up recordings for sessions you've since deleted locally; without them, backup/restore still work, just without that cleanup), pick an expiry far enough in the future, and copy the resulting URL (it looks like `https://<account>.blob.core.windows.net/<container>?sv=...&sig=...`).
 
 **2. Connect it in Tuner**
 
@@ -54,8 +54,8 @@ Practice history lives only in the current browser's IndexedDB by default — cl
 
 **Notes / limitations**
 
-- Backup always does a full re-upload of the manifest and every current recording; it does not diff against what's already on Azure.
-- Anyone with the SAS URL can read/write your container until it expires, so treat it like a password (it's stored unencrypted in localStorage, same caveat as the Speech key above).
+- Backup always does a full re-upload of the manifest and every current recording; it does not diff against what's already on Azure. It also removes any recording on Azure that's no longer referenced locally (e.g. you deleted that session since the last backup) — this needs the SAS token's **List** and **Delete** permissions in addition to Read/Write/Create; without them, backup still succeeds, it just leaves those orphaned files in place and says so in the status line.
+- Anyone with the SAS URL can read/write (and, with List+Delete granted, remove) your container until it expires, so treat it like a password (it's stored unencrypted in localStorage, same caveat as the Speech key above).
 - A **Clear SAS URL** button removes it from local storage at any time; it does not delete anything already backed up on Azure.
 
 ## Running locally

@@ -1381,7 +1381,26 @@ function sessionToManifestEntry(session, uploads) {
 }
 
 const BLOB_MANIFEST_PATH = 'tuner/manifest.json';
-const blobRecordingPath = (sessionId, sentenceId) => `tuner/recordings/${sessionId}/${sentenceId}.wav`;
+const BLOB_RECORDINGS_PREFIX = 'tuner/recordings/';
+const blobRecordingPath = (sessionId, sentenceId) => `${BLOB_RECORDINGS_PREFIX}${sessionId}/${sentenceId}.wav`;
+
+/**
+ * Delete any recording blob on Azure that the current backup no longer references
+ * (e.g. its session was deleted locally since the last backup). Best-effort: a
+ * missing List/Delete permission on the SAS token, or any other failure, is left
+ * for the caller to report as a warning rather than fail the whole backup — the
+ * manifest + recording uploads before this point already succeeded.
+ */
+async function cleanupOrphanRecordings(sasUrl, referencedPaths) {
+  const allBlobs = await blobStore.listBlobs(sasUrl, BLOB_RECORDINGS_PREFIX);
+  const referenced = new Set(referencedPaths);
+  const orphans = allBlobs.filter((name) => !referenced.has(name));
+  for (let i = 0; i < orphans.length; i++) {
+    setBlobActionStatus(`Removing orphaned recording ${i + 1} / ${orphans.length}\u2026`, 'info');
+    await blobStore.deleteBlob(sasUrl, orphans[i]);
+  }
+  return orphans.length;
+}
 
 /** Upload everything (folders, sessions, recordings) to Azure, overwriting the existing backup. */
 async function backupToAzure() {
@@ -1412,9 +1431,24 @@ async function backupToAzure() {
     setBlobActionStatus('Uploading manifest\u2026', 'info');
     await blobStore.uploadJson(sasUrl, BLOB_MANIFEST_PATH, manifest);
 
+    // Best-effort: remove recordings on Azure that no local session references
+    // any more (deleted locally since the last backup). Never fails the backup
+    // itself — the manifest + recordings above are already safely uploaded.
+    let cleanedCount = 0;
+    let cleanupWarning = '';
+    try {
+      const referencedPaths = uploads.map(({ sessionId, sentenceId }) => blobRecordingPath(sessionId, sentenceId));
+      cleanedCount = await cleanupOrphanRecordings(sasUrl, referencedPaths);
+    } catch (err) {
+      cleanupWarning = ` (orphan cleanup skipped: ${err.message})`;
+      console.warn('Orphan recording cleanup skipped:', err);
+    }
+
     setBlobActionStatus(
-      `Backup complete \u2014 ${sessions.length} session(s), ${uploads.length} recording(s).`,
-      'recording',
+      `Backup complete \u2014 ${sessions.length} session(s), ${uploads.length} recording(s)` +
+      (cleanedCount ? `, ${cleanedCount} orphan recording(s) removed` : '') +
+      `.${cleanupWarning}`,
+      cleanupWarning ? 'error' : 'recording',
     );
   } catch (err) {
     setBlobActionStatus('Backup failed: ' + err.message, 'error');

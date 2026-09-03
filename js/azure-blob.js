@@ -2,7 +2,9 @@
 // Same principle as the Speech key elsewhere in this app: zero backend,
 // requests go straight from this browser to Azure using a credential the
 // user pastes in and that is stored only in localStorage. Requires the
-// storage account's CORS settings to allow this origin (GET, PUT, OPTIONS).
+// storage account's CORS settings to allow this origin (GET, PUT, DELETE, OPTIONS).
+// Listing and deleting (used to clean up orphaned recordings) need the SAS token's
+// List ("l") and Delete ("d") permissions in addition to Read/Write.
 
 const API_VERSION = '2021-08-06';
 
@@ -20,6 +22,17 @@ function blobUrl(sasUrl, path) {
   const { root, query } = splitSasUrl(sasUrl);
   const encodedPath = path.split('/').map(encodeURIComponent).join('/');
   return `${root}/${encodedPath}${query ? '?' + query : ''}`;
+}
+
+/** Build the URL for a "List Blobs" call against the container root, optionally paginated. */
+function listUrl(sasUrl, prefix, marker) {
+  const { root, query } = splitSasUrl(sasUrl);
+  const params = new URLSearchParams();
+  params.set('restype', 'container');
+  params.set('comp', 'list');
+  if (prefix) params.set('prefix', prefix);
+  if (marker) params.set('marker', marker);
+  return `${root}?${params.toString()}${query ? '&' + query : ''}`;
 }
 
 async function checkResponse(response, action) {
@@ -81,4 +94,50 @@ export async function downloadBytes(sasUrl, path) {
 export async function downloadJson(sasUrl, path) {
   const blob = await downloadBytes(sasUrl, path);
   return JSON.parse(await blob.text());
+}
+
+/**
+ * List every blob name under `prefix` in the container (handles pagination
+ * transparently). Requires the SAS token's List ("l") permission.
+ */
+export async function listBlobs(sasUrl, prefix) {
+  const names = [];
+  let marker = '';
+  do {
+    let response;
+    try {
+      response = await fetch(listUrl(sasUrl, prefix, marker), {
+        method: 'GET',
+        headers: { 'x-ms-version': API_VERSION },
+      });
+    } catch (err) {
+      throw new Error(`Listing blobs under "${prefix}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+    }
+    await checkResponse(response, `Listing blobs under "${prefix}"`);
+    const xmlText = await response.text();
+    const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+    if (doc.querySelector('parsererror')) {
+      throw new Error(`Listing blobs under "${prefix}" failed: could not parse the response from Azure.`);
+    }
+    for (const nameEl of doc.querySelectorAll('Blobs > Blob > Name')) {
+      names.push(nameEl.textContent);
+    }
+    marker = doc.querySelector('NextMarker')?.textContent || '';
+  } while (marker);
+  return names;
+}
+
+/** Delete one blob. Treats "already gone" (404) as success. Requires the SAS token's Delete ("d") permission. */
+export async function deleteBlob(sasUrl, path) {
+  let response;
+  try {
+    response = await fetch(blobUrl(sasUrl, path), {
+      method: 'DELETE',
+      headers: { 'x-ms-version': API_VERSION },
+    });
+  } catch (err) {
+    throw new Error(`Delete of "${path}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+  }
+  if (response.status === 404) return;
+  await checkResponse(response, `Delete of "${path}"`);
 }

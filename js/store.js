@@ -54,14 +54,16 @@ function wrap(request) {
 // ---- Sessions ----
 
 /**
- * Create a new session and return its id.
- * @param {{ inputText: string, splitMode: string, sentences: Array, folderId?: number|null, name?: string|null }} data
- * @returns {Promise<number>}
+ * Create a new session and return its id (a UUID, so it stays globally unique
+ * across browsers/devices -- this is what a recording's Azure blob path is
+ * keyed on, e.g. tuner/recordings/<sessionId>/<sentenceId>.wav).
+ * @param {{ inputText: string, splitMode: string, sentences: Array, folderId?: number|string|null, name?: string|null }} data
+ * @returns {Promise<string>}
  */
 export async function createSession(data) {
   const store = await getStore('readwrite');
   const now = Date.now();
-  return wrap(store.add({ folderId: null, name: null, ...data, createdAt: now, updatedAt: now }));
+  return wrap(store.add({ folderId: null, name: null, ...data, id: crypto.randomUUID(), createdAt: now, updatedAt: now }));
 }
 
 /** Merge `patch` into an existing session and bump updatedAt. No-op if the id is gone. */
@@ -102,6 +104,49 @@ export async function listSessions() {
 export async function deleteSession(id) {
   const store = await getStore('readwrite');
   await wrap(store.delete(id));
+}
+
+function isUuidId(id) {
+  return typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+/**
+ * One-time housekeeping: give every local session (and its sentences) that
+ * still has a legacy numeric id -- left over from before ids were switched to
+ * UUIDs -- a fresh UUID instead, preserving everything else (recordings,
+ * scores, folder placement, timestamps). A session's id is what a recording's
+ * Azure blob path is keyed on, so this also means the *next* Backup now will
+ * re-upload those recordings under their new UUID paths; the old
+ * numerically-named blobs on Azure become orphans and get swept up by the
+ * existing orphan-recording cleanup on that same backup.
+ *
+ * IndexedDB keys are immutable in place, so migrating means delete-old +
+ * insert-new. A session that's already UUID-keyed is left untouched (this is
+ * safe to call on every startup -- it's a fast no-op once nothing is legacy).
+ *
+ * @returns {Promise<number>} how many sessions were migrated.
+ */
+export async function migrateSessionIdsToUuid() {
+  const sessions = await listSessions();
+  const legacy = sessions.filter((s) => !isUuidId(s.id));
+  if (!legacy.length) return 0;
+
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const objectStore = tx.objectStore(STORE);
+    for (const session of legacy) {
+      const migratedSentences = session.sentences.map((s) => (
+        s && !isUuidId(s.id) ? { ...s, id: crypto.randomUUID() } : s
+      ));
+      objectStore.delete(session.id);
+      objectStore.put({ ...session, id: crypto.randomUUID(), sentences: migratedSentences });
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  return legacy.length;
 }
 
 // ---- Folders ----

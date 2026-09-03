@@ -29,9 +29,8 @@ import {
 
 // ---- Global state ----
 
-/** @type {Array<{ id: number, text: string, lang: 'ja'|'en', hidden: boolean, recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null, assessment: object|null }>} */
+/** @type {Array<{ id: string, text: string, lang: 'ja'|'en', hidden: boolean, recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null, assessment: object|null }>} */
 let sentences = [];
-let nextId = 1;
 
 // Global "hide text" switch; the default value for each per-sentence toggle.
 let globalHideText = false;
@@ -254,7 +253,7 @@ async function handleSplit() {
   for (const s of sentences) s.recorder.dispose();
 
   sentences = parts.map((text) => ({
-    id: nextId++,
+    id: crypto.randomUUID(),
     text,
     lang: detectLang(text),
     hidden: globalHideText, // defaults to the global switch
@@ -1281,7 +1280,10 @@ function openSession(item) {
   if (item.splitMode) els.splitMode.value = item.splitMode;
 
   sentences = (item.sentences || []).map((s) => ({
-    id: nextId++,
+    // Keep the sentence's original id stable across reopens: it's what ties a
+    // saved recording to its blob path on Azure (tuner/recordings/<sessionId>/<sentenceId>.wav).
+    // Reassigning a fresh one here would orphan the old blob on the next backup.
+    id: s.id ?? crypto.randomUUID(),
     text: s.text,
     lang: s.lang,
     hidden: s.hidden,
@@ -1560,10 +1562,23 @@ function initBlobPanel() {
 
 // ---- Initialization ----
 
-function init() {
+async function init() {
   initKeyPanel();
-  initHistoryPanel();
   initBlobPanel();
+
+  // One-time housekeeping: give any session left over from before ids were
+  // switched to UUIDs a fresh one. Awaited before the history sidebar can
+  // possibly render, so it never shows a stale legacy id.
+  if (store.isSupported()) {
+    try {
+      const migrated = await store.migrateSessionIdsToUuid();
+      if (migrated) console.info(`Migrated ${migrated} legacy session(s) to UUID ids.`);
+    } catch (err) {
+      console.warn('Legacy session id migration skipped:', err);
+    }
+  }
+
+  initHistoryPanel();
   if (loadHistoryOpen()) openHistorySidebar();
 
   // Global "hide text" switch: load from localStorage, write back on change and

@@ -57,6 +57,7 @@ Practice history lives only in the current browser's IndexedDB by default — cl
 - Backup always does a full re-upload of the manifest and every current recording; it does not diff against what's already on Azure. It also removes any recording on Azure that's no longer referenced locally (e.g. you deleted that session since the last backup) — this needs the SAS token's **List** and **Delete** permissions in addition to Read/Write/Create; without them, backup still succeeds, it just leaves those orphaned files in place and says so in the status line.
 - Anyone with the SAS URL can read/write (and, with List+Delete granted, remove) your container until it expires, so treat it like a password (it's stored unencrypted in localStorage, same caveat as the Speech key above).
 - A **Clear SAS URL** button removes it from local storage at any time; it does not delete anything already backed up on Azure.
+- Sessions and recordings are keyed by a UUID (not a small counter), so their Azure blob path stays unique and stable even across browsers/devices. Any session saved before this was the case gets migrated to a UUID automatically, once, the next time you load the page — you'll see `Migrated N legacy session(s) to UUID ids.` in the browser console when that happens. The next Backup now after that re-uploads those recordings under their new path and cleans up the old one (needs List+Delete, per above).
 
 ## Running locally
 

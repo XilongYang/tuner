@@ -13,6 +13,7 @@ A **fully static, backend-free, open and auditable** web tool for read-aloud / s
 3. **Speak**: play reference audio via Azure Neural TTS (falls back to the browser's built-in voice when no key is set)
 4. **Record**: capture your shadowing as 16 kHz WAV via the Web Audio API; **Playback** to listen
 5. **Score**: call Azure Pronunciation Assessment (REST) directly for Overall / Accuracy / Fluency / Completeness scores, with each word colored by accuracy, omissions / insertions flagged, and per-phoneme scores on hover
+6. **History**: every Split is auto-saved to your browser's local storage (IndexedDB), including recordings and scores. Browse, rename, and organize past sessions into nested folders (via menu or drag-and-drop) from the **History** sidebar
 
 ## Usage
 
@@ -52,6 +53,7 @@ js/tts.js            TTS (Azure REST + browser fallback)
 js/recorder.js       recording (Web Audio → 16 kHz WAV)
 js/recorder-worklet.js  AudioWorklet capture processor
 js/pron.js           pronunciation assessment (Azure REST)
+js/store.js          local history persistence (IndexedDB: sessions + folders)
 js/app.js            main application logic
 ```
 

@@ -115,3 +115,17 @@ export function loadHideText() {
 export function saveHideText(on) {
   localStorage.setItem(HIDE_TEXT_KEY, on ? '1' : '0');
 }
+
+// ---- History sidebar open/closed state (so it stays as you left it) ----
+
+const HISTORY_OPEN_KEY = 'speak.historyOpen';
+
+/** Read whether the History sidebar was left open; closed by default. */
+export function loadHistoryOpen() {
+  return localStorage.getItem(HISTORY_OPEN_KEY) === '1';
+}
+
+/** Save the History sidebar's open/closed state. */
+export function saveHistoryOpen(on) {
+  localStorage.setItem(HISTORY_OPEN_KEY, on ? '1' : '0');
+}

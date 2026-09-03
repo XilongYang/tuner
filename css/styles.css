@@ -226,6 +226,15 @@ a:hover { color: var(--accent); }
   border-color: var(--text-muted);
 }
 
+.blob-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
 /* ---- Input area ---- */
 #input-text {
   width: 100%;

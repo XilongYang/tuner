@@ -8,6 +8,7 @@ import { assessPronunciation } from './pron.js';
 import { Recorder } from './recorder.js';
 import { makeZip } from './zip.js';
 import * as store from './store.js';
+import * as blobStore from './azure-blob.js';
 import {
   loadCredentials,
   saveCredentials,
@@ -20,6 +21,10 @@ import {
   VOICE_OPTIONS,
   getVoice,
   saveVoice,
+  loadBlobSasUrl,
+  saveBlobSasUrl,
+  clearBlobSasUrl,
+  hasBlobSasUrl,
 } from './config.js';
 
 // ---- Global state ----
@@ -167,6 +172,18 @@ const els = {
   newFolderBtn: $('#new-folder-btn'),
   clearHistoryBtn: $('#clear-history-btn'),
   historyTree: $('#history-tree'),
+  // Cloud backup panel
+  toggleBlobPanel: $('#toggle-blob-panel'),
+  blobPanel: $('#blob-panel'),
+  blobSasInput: $('#blob-sas-url'),
+  saveBlobBtn: $('#save-blob-btn'),
+  clearBlobBtn: $('#clear-blob-btn'),
+  blobEntry: $('#blob-entry'),
+  blobSaved: $('#blob-saved'),
+  blobStatus: $('#blob-status'),
+  backupNowBtn: $('#backup-now-btn'),
+  restoreNowBtn: $('#restore-now-btn'),
+  blobActionStatus: $('#blob-action-status'),
 };
 
 // ---- Credentials panel ----
@@ -206,7 +223,10 @@ function initKeyPanel() {
   els.toggleKeyPanel.addEventListener('click', () => {
     els.keyPanel.hidden = !els.keyPanel.hidden;
     els.toggleKeyPanel.setAttribute('aria-expanded', String(!els.keyPanel.hidden));
-    if (!els.keyPanel.hidden) closeHistorySidebar();
+    if (!els.keyPanel.hidden) {
+      closeHistorySidebar();
+      closeBlobPanel();
+    }
   });
 
   initVoiceSelectors();
@@ -759,6 +779,7 @@ function openHistorySidebar() {
   els.toggleHistoryPanel.setAttribute('aria-expanded', 'true');
   els.keyPanel.hidden = true;
   els.toggleKeyPanel.setAttribute('aria-expanded', 'false');
+  closeBlobPanel();
   saveHistoryOpen(true);
   renderHistoryTree();
 }
@@ -1305,11 +1326,231 @@ function initHistoryPanel() {
   });
 }
 
+// ---- Cloud backup (Azure Blob Storage) ----
+
+// Two mutually exclusive states: has a SAS URL -> one-line status + Clear;
+// no SAS URL -> input field + Save. Mirrors updateKeyPanel().
+function updateBlobPanel() {
+  const url = loadBlobSasUrl();
+  const has = !!url;
+  els.blobEntry.hidden = has;
+  els.blobSaved.hidden = !has;
+  if (has) {
+    let host = url;
+    try { host = new URL(url).hostname; } catch { /* keep raw value if unparsable */ }
+    els.blobStatus.textContent = `SAS URL saved \u00b7 ${host}`;
+  }
+}
+
+function closeBlobPanel() {
+  els.blobPanel.hidden = true;
+  els.toggleBlobPanel.setAttribute('aria-expanded', 'false');
+}
+
+function setBlobActionStatus(text, kind) {
+  els.blobActionStatus.hidden = !text;
+  els.blobActionStatus.textContent = text;
+  if (kind) els.blobActionStatus.dataset.kind = kind;
+  else delete els.blobActionStatus.dataset.kind;
+}
+
+/** Reduce a saved session to the manifest shape (recordings uploaded separately). */
+function sessionToManifestEntry(session, uploads) {
+  const sentences = (session.sentences || []).map((s) => {
+    const hasRecording = !!s.recordingBlob;
+    if (hasRecording) uploads.push({ sessionId: session.id, sentenceId: s.id, blob: s.recordingBlob });
+    return {
+      id: s.id,
+      text: s.text,
+      lang: s.lang,
+      hidden: s.hidden,
+      assessment: s.assessment || null,
+      hasRecording,
+    };
+  });
+  return {
+    id: session.id,
+    folderId: session.folderId,
+    name: session.name,
+    inputText: session.inputText,
+    splitMode: session.splitMode,
+    createdAt: session.createdAt,
+    updatedAt: session.updatedAt,
+    sentences,
+  };
+}
+
+const BLOB_MANIFEST_PATH = 'tuner/manifest.json';
+const blobRecordingPath = (sessionId, sentenceId) => `tuner/recordings/${sessionId}/${sentenceId}.wav`;
+
+/** Upload everything (folders, sessions, recordings) to Azure, overwriting the existing backup. */
+async function backupToAzure() {
+  const sasUrl = loadBlobSasUrl();
+  if (!sasUrl) { alert('Please save a container SAS URL first.'); return; }
+
+  els.backupNowBtn.disabled = true;
+  els.restoreNowBtn.disabled = true;
+  try {
+    setBlobActionStatus('Reading local data\u2026', 'info');
+    const { folders, sessions } = await store.exportAll();
+
+    const uploads = [];
+    const manifestSessions = sessions.map((session) => sessionToManifestEntry(session, uploads));
+    const manifest = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      folders,
+      sessions: manifestSessions,
+    };
+
+    for (let i = 0; i < uploads.length; i++) {
+      const { sessionId, sentenceId, blob } = uploads[i];
+      setBlobActionStatus(`Uploading recording ${i + 1} / ${uploads.length}\u2026`, 'info');
+      await blobStore.uploadBytes(sasUrl, blobRecordingPath(sessionId, sentenceId), blob, 'audio/wav');
+    }
+
+    setBlobActionStatus('Uploading manifest\u2026', 'info');
+    await blobStore.uploadJson(sasUrl, BLOB_MANIFEST_PATH, manifest);
+
+    setBlobActionStatus(
+      `Backup complete \u2014 ${sessions.length} session(s), ${uploads.length} recording(s).`,
+      'recording',
+    );
+  } catch (err) {
+    setBlobActionStatus('Backup failed: ' + err.message, 'error');
+  } finally {
+    els.backupNowBtn.disabled = false;
+    els.restoreNowBtn.disabled = false;
+  }
+}
+
+/** Replace ALL local history with whatever is currently backed up on Azure. */
+async function restoreFromAzure() {
+  const sasUrl = loadBlobSasUrl();
+  if (!sasUrl) { alert('Please save a container SAS URL first.'); return; }
+  if (!confirm(
+    'This replaces ALL local practice history in this browser with the backup stored on Azure. ' +
+    'This cannot be undone. Continue?',
+  )) return;
+
+  els.backupNowBtn.disabled = true;
+  els.restoreNowBtn.disabled = true;
+  try {
+    setBlobActionStatus('Downloading manifest\u2026', 'info');
+    let manifest;
+    try {
+      manifest = await blobStore.downloadJson(sasUrl, BLOB_MANIFEST_PATH);
+    } catch (err) {
+      if (err.notFound) {
+        setBlobActionStatus('No backup found on Azure yet \u2014 run "Backup now" first.', 'error');
+        return;
+      }
+      throw err;
+    }
+
+    const manifestSessions = manifest.sessions || [];
+    const totalRecordings = manifestSessions.reduce(
+      (sum, session) => sum + (session.sentences || []).filter((s) => s.hasRecording).length,
+      0,
+    );
+
+    let downloaded = 0;
+    const sessionsOut = [];
+    for (const session of manifestSessions) {
+      const sentencesOut = [];
+      for (const s of session.sentences || []) {
+        let recordingBlob = null;
+        if (s.hasRecording) {
+          downloaded++;
+          setBlobActionStatus(`Downloading recording ${downloaded} / ${totalRecordings}\u2026`, 'info');
+          recordingBlob = await blobStore.downloadBytes(sasUrl, blobRecordingPath(session.id, s.id));
+        }
+        sentencesOut.push({
+          id: s.id,
+          text: s.text,
+          lang: s.lang,
+          hidden: s.hidden,
+          assessment: s.assessment || null,
+          recordingBlob,
+        });
+      }
+      sessionsOut.push({
+        id: session.id,
+        folderId: session.folderId,
+        name: session.name,
+        inputText: session.inputText,
+        splitMode: session.splitMode,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        sentences: sentencesOut,
+      });
+    }
+
+    setBlobActionStatus('Writing to local storage\u2026', 'info');
+    await store.restoreSnapshot({ folders: manifest.folders || [], sessions: sessionsOut });
+
+    // The restored data lives in IndexedDB now; clear the live screen state
+    // (any recordings held only in memory are gone) and let the user pick a
+    // session from the (now refreshed) history tree.
+    for (const s of sentences) s.recorder.dispose();
+    sentences = [];
+    currentSessionId = null;
+    els.input.value = '';
+    render();
+    refreshHistoryTreeIfOpen();
+
+    setBlobActionStatus(
+      `Restore complete \u2014 ${sessionsOut.length} session(s), ${totalRecordings} recording(s).`,
+      'recording',
+    );
+  } catch (err) {
+    setBlobActionStatus('Restore failed: ' + err.message, 'error');
+  } finally {
+    els.backupNowBtn.disabled = false;
+    els.restoreNowBtn.disabled = false;
+  }
+}
+
+function initBlobPanel() {
+  els.saveBlobBtn.addEventListener('click', () => {
+    const url = els.blobSasInput.value.trim();
+    if (!url) {
+      alert('Please paste a container SAS URL');
+      return;
+    }
+    saveBlobSasUrl(url);
+    els.blobSasInput.value = '';
+    updateBlobPanel();
+  });
+
+  els.clearBlobBtn.addEventListener('click', () => {
+    clearBlobSasUrl();
+    els.blobSasInput.value = '';
+    updateBlobPanel();
+  });
+
+  els.toggleBlobPanel.addEventListener('click', () => {
+    els.blobPanel.hidden = !els.blobPanel.hidden;
+    els.toggleBlobPanel.setAttribute('aria-expanded', String(!els.blobPanel.hidden));
+    if (!els.blobPanel.hidden) {
+      els.keyPanel.hidden = true;
+      els.toggleKeyPanel.setAttribute('aria-expanded', 'false');
+      closeHistorySidebar();
+    }
+  });
+
+  els.backupNowBtn.addEventListener('click', backupToAzure);
+  els.restoreNowBtn.addEventListener('click', restoreFromAzure);
+
+  updateBlobPanel();
+}
+
 // ---- Initialization ----
 
 function init() {
   initKeyPanel();
   initHistoryPanel();
+  initBlobPanel();
   if (loadHistoryOpen()) openHistorySidebar();
 
   // Global "hide text" switch: load from localStorage, write back on change and

@@ -24,6 +24,9 @@
         <button id="toggle-key-panel" class="ghost-btn" type="button" aria-expanded="false">
           Azure settings
         </button>
+        <button id="toggle-blob-panel" class="ghost-btn" type="button" aria-expanded="false">
+          Cloud backup
+        </button>
       </div>
     </div>
   </header>
@@ -75,6 +78,44 @@
           <select id="voice-en" aria-label="English voice"></select>
         </div>
       </div>
+    </section>
+
+    <!-- Azure Blob Storage backup (optional) -->
+    <section id="blob-panel" class="key-panel" hidden>
+      <h2 class="section-title">Cloud backup (Azure Blob Storage)</h2>
+
+      <div id="blob-entry">
+        <p class="notice">
+          Backs up your saved history (text, scores, and recordings) straight from
+          this browser to an Azure Blob Storage container you control &mdash; still no
+          backend. You'll need a Storage Account with <strong>CORS enabled</strong> for
+          this page's origin (allow GET, PUT, OPTIONS) and a <strong>container-level
+          SAS URL</strong> with read/write permission. The SAS is stored only in
+          this browser and is visible in the Network panel when used, same as your Speech
+          key above. Storage and requests are billed on your Azure account.
+        </p>
+        <div class="key-form">
+          <label class="field" style="flex-basis: 100%;">
+            <span>Container SAS URL</span>
+            <input id="blob-sas-url" type="password" autocomplete="off" spellcheck="false"
+                   placeholder="https://&lt;account&gt;.blob.core.windows.net/&lt;container&gt;?sv=...&amp;sig=...">
+          </label>
+          <div class="key-buttons">
+            <button id="save-blob-btn" class="btn primary" type="button">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="blob-saved" class="key-saved" hidden>
+        <p id="blob-status" class="key-status" data-state="ok"></p>
+        <button id="clear-blob-btn" class="btn" type="button">Clear SAS URL</button>
+      </div>
+
+      <div class="blob-actions">
+        <button id="backup-now-btn" class="btn primary" type="button">Backup now</button>
+        <button id="restore-now-btn" class="btn" type="button">Restore from Azure</button>
+      </div>
+      <p id="blob-action-status" class="row-status" hidden></p>
     </section>
 
     <!-- Input -->

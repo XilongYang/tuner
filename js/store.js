@@ -170,3 +170,32 @@ export async function clearAll() {
   const s2 = await getStore('readwrite', FOLDERS_STORE);
   await wrap(s2.clear());
 }
+
+// ---- Full snapshot export / restore (for cloud backup) ----
+
+/** Read everything — every folder and session, recordings included — for a full backup. */
+export async function exportAll() {
+  const [folders, sessions] = await Promise.all([listFolders(), listSessions()]);
+  return { folders, sessions };
+}
+
+/**
+ * Replace the ENTIRE local database with `snapshot`, preserving each record's
+ * original `id` exactly (so parentId/folderId references stay valid) — used to
+ * restore a backup. This wipes whatever is currently stored.
+ */
+export async function restoreSnapshot({ folders = [], sessions = [] } = {}) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction([STORE, FOLDERS_STORE], 'readwrite');
+    const sessionsStore = tx.objectStore(STORE);
+    const foldersStore = tx.objectStore(FOLDERS_STORE);
+    sessionsStore.clear();
+    foldersStore.clear();
+    for (const f of folders) foldersStore.put(f);
+    for (const s of sessions) sessionsStore.put(s);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}

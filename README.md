@@ -14,6 +14,7 @@ A **fully static, backend-free, open and auditable** web tool for read-aloud / s
 4. **Record**: capture your shadowing as 16 kHz WAV via the Web Audio API; **Playback** to listen
 5. **Score**: call Azure Pronunciation Assessment (REST) directly for Overall / Accuracy / Fluency / Completeness scores, with each word colored by accuracy, omissions / insertions flagged, and per-phoneme scores on hover
 6. **History**: every Split is auto-saved to your browser's local storage (IndexedDB), including recordings and scores. Browse, rename, and organize past sessions into nested folders (via menu or drag-and-drop) from the **History** sidebar
+7. **Cloud backup** (optional): back up your entire local history — including recordings — to your own Azure Blob Storage container, and restore it on another browser/device. See [Cloud backup](#cloud-backup-optional) below
 
 ## Usage
 
@@ -28,6 +29,34 @@ A **fully static, backend-free, open and auditable** web tool for read-aloud / s
 - The key is **stored only in the browser's localStorage** and is never uploaded to any server.
 - This tool has no backend; requests go straight from the browser to Azure, so **your key is visible in the Network panel of the browser dev tools** — this is expected. It is your own key, and you are responsible for its usage and billing.
 - A **Clear key** button lets you remove it from local storage at any time.
+
+## Cloud backup (optional)
+
+Practice history lives only in the current browser's IndexedDB by default — clearing site data, switching browsers, or switching devices loses it. If you want a copy that survives that, or that you can carry to another device, you can back it up to your own **Azure Blob Storage** container. This is a **manual, on-demand** backup (there is no automatic background sync) and, like the Speech key above, it works with **zero backend**: your browser talks to Azure directly using a credential you paste in and that stays only in localStorage.
+
+**1. Create a container and a SAS URL**
+
+1. In the [Azure Portal](https://portal.azure.com/), create (or reuse) a **Storage account**, then a **Blob container** inside it (Private access level is fine).
+2. Enable CORS for the storage account so your browser is allowed to call it: **Storage account → Settings → Resource sharing (CORS)** → *Blob service* tab → add a rule with:
+   - Allowed origins: the origin you serve Tuner from (e.g. `http://localhost:8000`, or your GitHub/Cloudflare Pages URL) — must match exactly (scheme + host + port, no trailing slash)
+   - Allowed methods: `GET`, `PUT`, `OPTIONS`
+   - Allowed headers: `*` (Tuner sends `Content-Type`, `x-ms-blob-type`, `x-ms-version` — an empty Allowed headers column will fail every request with a 403 on preflight)
+   - Exposed headers: `*`
+   - Max age: `3600` (or any value)
+   - Don't forget to click **Save** at the top of the page — filling the row alone doesn't persist it.
+3. Generate a **SAS URL scoped to the container**: open the container → **Shared access tokens** (or **Generate SAS** at the container level) → grant **Read**, **Write**, and **Create** permissions, pick an expiry far enough in the future, and copy the resulting URL (it looks like `https://<account>.blob.core.windows.net/<container>?sv=...&sig=...`).
+
+**2. Connect it in Tuner**
+
+1. Click **Cloud backup** in the top-right, paste the container SAS URL, and **Save**. It's stored only in this browser's localStorage, same as the Speech key.
+2. **Backup now** uploads a manifest (folders, session metadata, scores) plus every recording (`.wav`) currently in your local history to the container, overwriting whatever backup was there before.
+3. **Restore from Azure** downloads that backup and **replaces all local history in this browser** with it (you'll be asked to confirm, since this is destructive to whatever is only local).
+
+**Notes / limitations**
+
+- Backup always does a full re-upload of the manifest and every current recording; it does not diff against what's already on Azure.
+- Anyone with the SAS URL can read/write your container until it expires, so treat it like a password (it's stored unencrypted in localStorage, same caveat as the Speech key above).
+- A **Clear SAS URL** button removes it from local storage at any time; it does not delete anything already backed up on Azure.
 
 ## Running locally
 
@@ -48,12 +77,13 @@ index.html          page structure
 css/styles.css       design system
 js/segment.js        sentence splitting
 js/lang.js           language detection (ja / en)
-js/config.js         Azure credential management (localStorage)
+js/config.js         Azure credential + Blob SAS URL storage (localStorage)
 js/tts.js            TTS (Azure REST + browser fallback)
 js/recorder.js       recording (Web Audio → 16 kHz WAV)
 js/recorder-worklet.js  AudioWorklet capture processor
 js/pron.js           pronunciation assessment (Azure REST)
 js/store.js          local history persistence (IndexedDB: sessions + folders)
+js/azure-blob.js     Azure Blob Storage REST client (backup/restore)
 js/app.js            main application logic
 ```
 

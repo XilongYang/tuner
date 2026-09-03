@@ -129,3 +129,31 @@ export function loadHistoryOpen() {
 export function saveHistoryOpen(on) {
   localStorage.setItem(HISTORY_OPEN_KEY, on ? '1' : '0');
 }
+
+// ---- Azure Blob Storage backup (container SAS URL) ----
+
+const BLOB_SAS_KEY = 'speak.azureBlob.sasUrl';
+
+/** Load the saved container SAS URL; '' if none is set. */
+export function loadBlobSasUrl() {
+  try {
+    return localStorage.getItem(BLOB_SAS_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Save the container SAS URL used for cloud backup/restore. */
+export function saveBlobSasUrl(url) {
+  localStorage.setItem(BLOB_SAS_KEY, url.trim());
+}
+
+/** Clear the saved SAS URL. */
+export function clearBlobSasUrl() {
+  localStorage.removeItem(BLOB_SAS_KEY);
+}
+
+/** Whether a SAS URL is configured. */
+export function hasBlobSasUrl() {
+  return !!loadBlobSasUrl();
+}

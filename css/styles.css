@@ -226,13 +226,32 @@ a:hover { color: var(--accent); }
   border-color: var(--text-muted);
 }
 
+/* A secondary section nested inside a .key-panel (e.g. Cloud backup under
+   Azure settings) -- same border-top separator as .voice-form, one level down. */
+.panel-subsection {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.subsection-title {
+  display: block;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
 .blob-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
   margin-top: 18px;
-  padding-top: 18px;
-  border-top: 1px solid var(--border);
+}
+
+#blob-action-status {
+  margin-top: 12px;
 }
 
 /* ---- Input area ---- */

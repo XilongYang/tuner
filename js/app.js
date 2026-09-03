@@ -172,9 +172,7 @@ const els = {
   newFolderBtn: $('#new-folder-btn'),
   clearHistoryBtn: $('#clear-history-btn'),
   historyTree: $('#history-tree'),
-  // Cloud backup panel
-  toggleBlobPanel: $('#toggle-blob-panel'),
-  blobPanel: $('#blob-panel'),
+  // Cloud backup (nested inside the Azure settings panel)
   blobSasInput: $('#blob-sas-url'),
   saveBlobBtn: $('#save-blob-btn'),
   clearBlobBtn: $('#clear-blob-btn'),
@@ -223,10 +221,7 @@ function initKeyPanel() {
   els.toggleKeyPanel.addEventListener('click', () => {
     els.keyPanel.hidden = !els.keyPanel.hidden;
     els.toggleKeyPanel.setAttribute('aria-expanded', String(!els.keyPanel.hidden));
-    if (!els.keyPanel.hidden) {
-      closeHistorySidebar();
-      closeBlobPanel();
-    }
+    if (!els.keyPanel.hidden) closeHistorySidebar();
   });
 
   initVoiceSelectors();
@@ -779,7 +774,6 @@ function openHistorySidebar() {
   els.toggleHistoryPanel.setAttribute('aria-expanded', 'true');
   els.keyPanel.hidden = true;
   els.toggleKeyPanel.setAttribute('aria-expanded', 'false');
-  closeBlobPanel();
   saveHistoryOpen(true);
   renderHistoryTree();
 }
@@ -1342,11 +1336,6 @@ function updateBlobPanel() {
   }
 }
 
-function closeBlobPanel() {
-  els.blobPanel.hidden = true;
-  els.toggleBlobPanel.setAttribute('aria-expanded', 'false');
-}
-
 function setBlobActionStatus(text, kind) {
   els.blobActionStatus.hidden = !text;
   els.blobActionStatus.textContent = text;
@@ -1561,16 +1550,6 @@ function initBlobPanel() {
     clearBlobSasUrl();
     els.blobSasInput.value = '';
     updateBlobPanel();
-  });
-
-  els.toggleBlobPanel.addEventListener('click', () => {
-    els.blobPanel.hidden = !els.blobPanel.hidden;
-    els.toggleBlobPanel.setAttribute('aria-expanded', String(!els.blobPanel.hidden));
-    if (!els.blobPanel.hidden) {
-      els.keyPanel.hidden = true;
-      els.toggleKeyPanel.setAttribute('aria-expanded', 'false');
-      closeHistorySidebar();
-    }
   });
 
   els.backupNowBtn.addEventListener('click', backupToAzure);

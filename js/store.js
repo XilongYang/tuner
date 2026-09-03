@@ -66,13 +66,38 @@ export async function createSession(data) {
   return wrap(store.add({ folderId: null, name: null, ...data, id: crypto.randomUUID(), createdAt: now, updatedAt: now }));
 }
 
+/**
+ * A Blob read back out of IndexedDB can't always be handed straight back into
+ * a later `put()` as-is -- Chromium has a long-standing bug ("Error preparing
+ * Blob/File data to be stored in object store") when an already-stored Blob
+ * is re-serialized into a *different* transaction, which is exactly what
+ * every read-then-write in this file below does (rename, move, reparent on
+ * folder delete). Rewrapping it as a fresh in-memory Blob first sidesteps it;
+ * this is cheap (no data is copied/read eagerly) and a no-op for blobs that
+ * were never touched.
+ */
+function refreshSentenceBlobs(sentences) {
+  if (!Array.isArray(sentences)) return sentences;
+  return sentences.map((s) => (
+    s && s.recordingBlob
+      ? { ...s, recordingBlob: new Blob([s.recordingBlob], { type: s.recordingBlob.type }) }
+      : s
+  ));
+}
+
 /** Merge `patch` into an existing session and bump updatedAt. No-op if the id is gone. */
 export async function updateSession(id, patch) {
   const readStore = await getStore('readonly');
   const existing = await wrap(readStore.get(id));
   if (!existing) return null;
   const writeStore = await getStore('readwrite');
-  const updated = { ...existing, ...patch, id, updatedAt: Date.now() };
+  const updated = {
+    ...existing,
+    ...patch,
+    id,
+    updatedAt: Date.now(),
+    sentences: refreshSentenceBlobs(patch.sentences || existing.sentences),
+  };
   await wrap(writeStore.put(updated));
   return updated;
 }
@@ -136,7 +161,7 @@ export async function migrateSessionIdsToUuid() {
     const tx = db.transaction(STORE, 'readwrite');
     const objectStore = tx.objectStore(STORE);
     for (const session of legacy) {
-      const migratedSentences = session.sentences.map((s) => (
+      const migratedSentences = refreshSentenceBlobs(session.sentences).map((s) => (
         s && !isUuidId(s.id) ? { ...s, id: crypto.randomUUID() } : s
       ));
       objectStore.delete(session.id);

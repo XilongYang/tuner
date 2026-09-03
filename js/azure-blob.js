@@ -8,6 +8,39 @@
 
 const API_VERSION = '2021-08-06';
 
+// Large recordings can legitimately take a while to upload/download on a slow
+// connection, so those get a longer budget than the small metadata calls
+// (list/delete). Without any timeout, a stalled connection would otherwise
+// hang the UI forever with no error at all -- fetch() has no default one.
+const TRANSFER_TIMEOUT_MS = 60000;
+const METADATA_TIMEOUT_MS = 20000;
+
+/** fetch() with a hard timeout: aborts and rejects with a clear, `.timedOut = true` error. */
+async function fetchWithTimeout(url, opts, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      const timeoutErr = new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`);
+      timeoutErr.timedOut = true;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Build a friendly message for a failed fetch, distinguishing a timeout from any other network failure. */
+function networkErrorMessage(action, err) {
+  if (err?.timedOut) {
+    return `${action} failed: ${err.message}. Check your network connection and the SAS URL.`;
+  }
+  return `${action} failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`;
+}
+
 /** Split a container SAS URL into its container root and its SAS query string. */
 function splitSasUrl(sasUrl) {
   const qIndex = sasUrl.indexOf('?');
@@ -54,7 +87,7 @@ async function checkResponse(response, action) {
 export async function uploadBytes(sasUrl, path, data, contentType = 'application/octet-stream') {
   let response;
   try {
-    response = await fetch(blobUrl(sasUrl, path), {
+    response = await fetchWithTimeout(blobUrl(sasUrl, path), {
       method: 'PUT',
       headers: {
         'x-ms-blob-type': 'BlockBlob',
@@ -62,9 +95,9 @@ export async function uploadBytes(sasUrl, path, data, contentType = 'application
         'Content-Type': contentType,
       },
       body: data,
-    });
+    }, TRANSFER_TIMEOUT_MS);
   } catch (err) {
-    throw new Error(`Upload of "${path}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+    throw new Error(networkErrorMessage(`Upload of "${path}"`, err));
   }
   await checkResponse(response, `Upload of "${path}"`);
 }
@@ -79,12 +112,12 @@ export function uploadJson(sasUrl, path, value) {
 export async function downloadBytes(sasUrl, path) {
   let response;
   try {
-    response = await fetch(blobUrl(sasUrl, path), {
+    response = await fetchWithTimeout(blobUrl(sasUrl, path), {
       method: 'GET',
       headers: { 'x-ms-version': API_VERSION },
-    });
+    }, TRANSFER_TIMEOUT_MS);
   } catch (err) {
-    throw new Error(`Download of "${path}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+    throw new Error(networkErrorMessage(`Download of "${path}"`, err));
   }
   await checkResponse(response, `Download of "${path}"`);
   return response.blob();
@@ -106,12 +139,12 @@ export async function listBlobs(sasUrl, prefix) {
   do {
     let response;
     try {
-      response = await fetch(listUrl(sasUrl, prefix, marker), {
+      response = await fetchWithTimeout(listUrl(sasUrl, prefix, marker), {
         method: 'GET',
         headers: { 'x-ms-version': API_VERSION },
-      });
+      }, METADATA_TIMEOUT_MS);
     } catch (err) {
-      throw new Error(`Listing blobs under "${prefix}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+      throw new Error(networkErrorMessage(`Listing blobs under "${prefix}"`, err));
     }
     await checkResponse(response, `Listing blobs under "${prefix}"`);
     const xmlText = await response.text();
@@ -131,12 +164,12 @@ export async function listBlobs(sasUrl, prefix) {
 export async function deleteBlob(sasUrl, path) {
   let response;
   try {
-    response = await fetch(blobUrl(sasUrl, path), {
+    response = await fetchWithTimeout(blobUrl(sasUrl, path), {
       method: 'DELETE',
       headers: { 'x-ms-version': API_VERSION },
-    });
+    }, METADATA_TIMEOUT_MS);
   } catch (err) {
-    throw new Error(`Delete of "${path}" failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+    throw new Error(networkErrorMessage(`Delete of "${path}"`, err));
   }
   if (response.status === 404) return;
   await checkResponse(response, `Delete of "${path}"`);

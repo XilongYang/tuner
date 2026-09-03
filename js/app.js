@@ -220,7 +220,6 @@ function initKeyPanel() {
   els.toggleKeyPanel.addEventListener('click', () => {
     els.keyPanel.hidden = !els.keyPanel.hidden;
     els.toggleKeyPanel.setAttribute('aria-expanded', String(!els.keyPanel.hidden));
-    if (!els.keyPanel.hidden) closeHistorySidebar();
   });
 
   initVoiceSelectors();
@@ -771,8 +770,6 @@ function openHistorySidebar() {
   historyPanelOpen = true;
   els.historySidebar.classList.add('is-open');
   els.toggleHistoryPanel.setAttribute('aria-expanded', 'true');
-  els.keyPanel.hidden = true;
-  els.toggleKeyPanel.setAttribute('aria-expanded', 'false');
   saveHistoryOpen(true);
   renderHistoryTree();
 }

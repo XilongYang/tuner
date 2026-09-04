@@ -99,6 +99,56 @@ export function encodeWav(float32, inputRate) {
   return buffer;
 }
 
+/**
+ * Decode a WAV file back into Float32 PCM + its sample rate -- the inverse of
+ * encodeWav() above, and only supports what encodeWav produces (PCM, mono,
+ * 16-bit): used to splice together multiple imported reference clips when
+ * merging sentences (split.js's mergeSelectedSentences()), without needing to
+ * open an AudioContext just to decode audio this app wrote itself. Scans
+ * chunks by id rather than assuming encodeWav's exact fixed layout, so it
+ * still works if that ever changes to include extra chunks.
+ */
+export function decodeWavPcm16(arrayBuffer) {
+  const view = new DataView(arrayBuffer);
+  if (view.getUint32(0, false) !== 0x52494646 /* 'RIFF' */ || view.getUint32(8, false) !== 0x57415645 /* 'WAVE' */) {
+    throw new Error('Not a WAV file');
+  }
+  let offset = 12;
+  let sampleRate = null;
+  let numChannels = null;
+  let bitsPerSample = null;
+  let dataOffset = null;
+  let dataLength = null;
+  while (offset + 8 <= view.byteLength) {
+    const id = String.fromCharCode(
+      view.getUint8(offset), view.getUint8(offset + 1), view.getUint8(offset + 2), view.getUint8(offset + 3),
+    );
+    const size = view.getUint32(offset + 4, true);
+    const body = offset + 8;
+    if (id === 'fmt ') {
+      numChannels = view.getUint16(body + 2, true);
+      sampleRate = view.getUint32(body + 4, true);
+      bitsPerSample = view.getUint16(body + 14, true);
+    } else if (id === 'data') {
+      dataOffset = body;
+      dataLength = size;
+    }
+    offset = body + size + (size % 2); // chunks are word-aligned
+  }
+  if (dataOffset == null || sampleRate == null) {
+    throw new Error('Malformed WAV file (missing fmt/data chunk)');
+  }
+  if (numChannels !== 1 || bitsPerSample !== 16) {
+    throw new Error('Unsupported WAV format (expected mono 16-bit PCM)');
+  }
+  const numSamples = Math.floor(dataLength / 2);
+  const samples = new Float32Array(numSamples);
+  for (let i = 0; i < numSamples; i++) {
+    samples[i] = view.getInt16(dataOffset + i * 2, true) / 0x8000;
+  }
+  return { samples, sampleRate };
+}
+
 /** Concatenate multiple Float32Array chunks. */
 function flatten(chunks) {
   let total = 0;

@@ -20,6 +20,8 @@ const $ = (sel) => document.querySelector(sel);
 
 export const els = {
   input: $('#input-text'),
+  inputLabel: $('#input-label'),
+  inputMaskWrap: $('#input-mask-wrap'),
   splitBtn: $('#split-btn'),
   clearInputBtn: $('#clear-input-btn'),
   list: $('#sentence-list'),
@@ -28,6 +30,10 @@ export const els = {
   audioImportInput: $('#audio-import-input'),
   audioImportStatus: $('#audio-import-status'),
   inputMaskOverlay: $('#input-mask-overlay'),
+  mergeBar: $('#merge-bar'),
+  mergeBarLabel: $('#merge-bar-label'),
+  mergeBtn: $('#merge-btn'),
+  mergeCancelBtn: $('#merge-cancel-btn'),
   // Credentials panel
   keyInput: $('#azure-key'),
   regionInput: $('#azure-region'),
@@ -132,6 +138,22 @@ export function setCurrentSessionId(id) { currentSessionId = id; }
 export let currentSplitMode = 'auto';
 export function setCurrentSplitMode(mode) { currentSplitMode = mode || 'auto'; }
 
+// The ORIGINAL audio file an audio-imported session was sliced from, kept
+// around (session-level, not per-sentence -- every sentence in one import
+// shares the same source file) so a later Split/Merge (sentence-panel/
+// split.js) can re-slice straight from it instead of compounding error
+// through an already-derived clip. null for a plain text-split session, or
+// before any session has been opened/imported yet. sourceAudioHash is
+// computed once at import time (audio-import.js) and just carried through
+// from here on -- see its doc comment in store/sessions.js's updateSession()
+// for why it's never re-hashed on every save the way a recording is.
+export let sourceAudioBlob = null;
+export let sourceAudioHash = null;
+export function setSourceAudio(blob, hash) {
+  sourceAudioBlob = blob || null;
+  sourceAudioHash = hash || null;
+}
+
 /** Reduce a sentence to the fields worth persisting (drop the live Recorder). */
 export function sentenceToRecord(s) {
   return {
@@ -155,16 +177,49 @@ export function sentenceToRecord(s) {
     referenceBlob: s.referenceBlob || null,
     referenceHash: s.referenceHash || null,
     referenceSource: s.referenceSource || null,
+    // Where in sourceAudioBlob (above) this sentence's reference clip was cut
+    // from -- only meaningful when referenceSource === 'import'. Carried
+    // through so Split/Merge can keep re-slicing losslessly from the source
+    // no matter how many times a sentence gets divided/recombined.
+    sourceOffsetMs: s.sourceOffsetMs ?? null,
+    sourceDurationMs: s.sourceDurationMs ?? null,
+    // Azure's own per-word timestamps within this sentence's own text/audio
+    // range (re-based at import time, and re-partitioned/re-based on every
+    // later Split/Merge -- see sentence-panel/split.js), and any extra split
+    // points the user has manually confirmed via the audio fine-tune UI.
+    // Both null when this sentence has no usable word-level timing (a plain
+    // text Split, a recording, or an import where Azure returned no
+    // per-word data). Drive the clickable split-point triangles drawn above
+    // the sentence text (split.js's getSplitPointers()/buildTextEl()).
+    words: s.words || null,
+    manualPoints: s.manualPoints || null,
   };
 }
 
 /** Save the current input text + sentences into the active session, if any. */
 export function persistSession() {
   if (currentSessionId == null) return;
+  // els.input is only the source of truth for inputText in 'auto' mode --
+  // an audio-imported session locks it read-only (applyAudioSessionLock() in
+  // sentence-panel/split.js) and never writes into it, so its .value stays
+  // whatever it was before the import (usually empty). Persisting that
+  // verbatim on every post-import edit (a triangle-click Split, Merge, a
+  // hide toggle, ...) was overwriting the session's real inputText -- set
+  // once at import time from the sentence texts (handleAudioImport() in
+  // sentence-panel/audio-import.js) -- with an empty string, which is what
+  // made an audio session's History entry show "(empty)" the moment
+  // anything on screen changed after import. Recompute the same way instead,
+  // so it stays in sync with whatever the sentences currently say (e.g.
+  // after a Split/Merge changes them).
+  const inputText = currentSplitMode === 'audio'
+    ? sentences.map((s) => s.text).join('\n')
+    : els.input.value;
   store.updateSession(currentSessionId, {
-    inputText: els.input.value,
+    inputText,
     splitMode: currentSplitMode,
     sentences: sentences.map(sentenceToRecord),
+    sourceAudioBlob,
+    sourceAudioHash,
   }).then(() => scheduleAutoSync())
     .catch((err) => console.warn('Failed to save session locally:', err));
 }

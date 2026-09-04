@@ -7,8 +7,11 @@ import { assessPronunciation } from '../pron.js';
 import { makeZip } from '../zip.js';
 import { hasCredentials, getVoice } from '../config.js';
 import { persistSession, markSentenceBusy, unmarkSentenceBusy } from '../state.js';
-import { getTtsEntry, player, ttsAudio } from '../tts-player.js';
-import { buildTextEl, paintHidden, applyHidden } from './split.js';
+import { getTtsEntry, ensureTtsWords, player, ttsAudio } from '../tts-player.js';
+import {
+  buildTextEl, paintHidden, applyHidden, toggleRowSelection,
+  refreshRowText, splitAtPointer,
+} from './split.js';
 import { renderAssessment } from './assessment.js';
 import { slugify, downloadBlob } from './export-utils.js';
 
@@ -18,17 +21,33 @@ export function renderRow(sentence, index) {
   if (sentence.hidden) row.classList.add('is-hidden');
   sentence._row = row;
 
-  // Index
-  const num = document.createElement('div');
-  num.className = 'row-index';
+  // Index (+ the checkbox used to select this row for merging -- see
+  // toggleRowSelection()/mergeSelectedSentences() in split.js)
+  const indexCol = document.createElement('div');
+  indexCol.className = 'row-index';
+
+  const selectCb = document.createElement('input');
+  selectCb.type = 'checkbox';
+  selectCb.className = 'row-select-checkbox';
+  selectCb.title = 'Select for merging';
+  selectCb.setAttribute('aria-label', `Select sentence ${index + 1} for merging`);
+  sentence._selectCheckbox = selectCb;
+  selectCb.addEventListener('change', () => toggleRowSelection(sentence));
+  indexCol.appendChild(selectCb);
+
+  const num = document.createElement('span');
+  num.className = 'row-index-num';
   num.textContent = String(index + 1).padStart(2, '0');
-  row.appendChild(num);
+  indexCol.appendChild(num);
+
+  row.appendChild(indexCol);
 
   // Body
   const body = document.createElement('div');
   body.className = 'row-body';
 
   const textEl = buildTextEl(sentence);
+  sentence._textEl = textEl;
   body.appendChild(textEl);
 
   // Actions
@@ -57,7 +76,19 @@ export function renderRow(sentence, index) {
       sentence.referenceUrl = null;
       sentence.referenceHash = null;
       sentence.referenceSource = null;
+      // Any words[] here (see tts-player.js's ensureTtsWords()) are exact
+      // Azure timestamps for the OLD-language clip just discarded above --
+      // meaningless once that audio is gone, and about to be silently wrong
+      // (drawing "exact Azure word boundary" triangles for audio that no
+      // longer exists) if left in place until the next Speak re-synthesizes.
+      sentence.words = null;
     }
+    // A sentence with no real word/manual pointers picks its synthetic split
+    // triangles' granularity from sentence.lang (textSplitPoints() in
+    // split.js: every character for Japanese, every word gap otherwise) --
+    // redraw so switching languages doesn't leave stale triangles from the
+    // old language on screen until something else happens to re-render.
+    refreshRowText(sentence);
     persistSession();
   });
   actions.appendChild(langToggle);
@@ -74,6 +105,25 @@ export function renderRow(sentence, index) {
     persistSession();
   });
   actions.appendChild(hideBtn);
+
+  // Click-to-split: every splittable position already carries its own
+  // clickable triangle (buildTextEl() in split.js, off getSplitPointers()
+  // there -- a real Azure word boundary, a manually-confirmed Merge seam, or,
+  // for a sentence with neither, textSplitPoints()'s synthetic fallback --
+  // which always has something to offer, so there's a triangle at literally
+  // every position). Clicking one splits immediately; there's no separate
+  // click-anywhere-in-the-text marker/hint step to find one first.
+  body.addEventListener('click', (e) => {
+    const tri = e.target.closest('.split-pointer');
+    if (!tri) return;
+    const charIndex = Number(tri.dataset.charIndex);
+    const ms = Number(tri.dataset.ms);
+    tri.disabled = true;
+    splitAtPointer(sentence, charIndex, ms).catch((err) => {
+      console.warn('Split failed:', err);
+      tri.disabled = false;
+    });
+  });
 
   // Speak
   const playBtn = document.createElement('button');
@@ -151,6 +201,68 @@ function setStatus(statusEl, message, kind = 'info') {
   statusEl.dataset.kind = kind;
 }
 
+/**
+ * Karaoke-style highlight while `audio` plays: uses sentence.words[] (real
+ * Azure timestamps, either from an audio import or tts-player.js's
+ * ensureTtsWords()) to toggle `.is-speaking` on the `.row-char` spans
+ * (buildTextEl() in split.js, each tagged with its own data-char-index) that
+ * fall under the word currently playing. Snapshots sentence.words once, at
+ * playback start -- if alignment is still in flight (ensureTtsWords() hasn't
+ * resolved yet for a first-ever Speak on this sentence), this play simply
+ * has no highlight; the next one will, once it's landed and persisted.
+ * Cleans itself up on 'pause' (covers both a natural stop and player.stop()
+ * pausing this same audio to start something else) and 'ended'.
+ *
+ * Timeline base: for a 'tts' sentence, `audio` IS the exact clip Azure just
+ * transcribed, so w.offsetMilliseconds is already 0-based relative to it.
+ * For an 'import' sentence, w.offsetMilliseconds is instead absolute within
+ * the ORIGINAL uploaded recording (audio-import.js's resegmentByPunctuation()
+ * never rebases it, only charStart/charEnd -- getSplitPointers()/
+ * splitAtPointer() need that absolute value to re-slice from the pristine
+ * source), while `audio` here plays sentence.referenceUrl, a clip already
+ * sliced out starting at sentence.sourceOffsetMs -- so audio.currentTime
+ * runs 0-based within just this sentence's slice, not the original
+ * recording. Subtracting sourceOffsetMs re-bases the word timestamps onto
+ * that same 0-based clip timeline; sourceOffsetMs is null for 'tts' (no
+ * separate source file), so the subtraction is a no-op there.
+ */
+function wireWordHighlight(audio, sentence, row) {
+  const words = sentence.words;
+  if (!words || !words.length) return;
+  const base = sentence.sourceOffsetMs || 0;
+  const charEls = new Map();
+  row.querySelectorAll('.row-char[data-char-index]').forEach((el) => {
+    charEls.set(Number(el.dataset.charIndex), el);
+  });
+  let active = [];
+  const clear = () => {
+    for (const el of active) el.classList.remove('is-speaking');
+    active = [];
+  };
+  const onTimeUpdate = () => {
+    const ms = audio.currentTime * 1000;
+    const word = words.find((w) => {
+      const offset = w.offsetMilliseconds - base;
+      return ms >= offset && ms < offset + w.durationMilliseconds;
+    });
+    clear();
+    if (!word) return;
+    for (let i = word.charStart; i < word.charEnd; i++) {
+      const el = charEls.get(i);
+      if (el) { el.classList.add('is-speaking'); active.push(el); }
+    }
+  };
+  const stop = () => {
+    audio.removeEventListener('timeupdate', onTimeUpdate);
+    audio.removeEventListener('pause', stop);
+    audio.removeEventListener('ended', stop);
+    clear();
+  };
+  audio.addEventListener('timeupdate', onTimeUpdate);
+  audio.addEventListener('pause', stop);
+  audio.addEventListener('ended', stop);
+}
+
 function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exportBtn, status, result }) {
   // Speak
   playBtn.addEventListener('click', async () => {
@@ -169,6 +281,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
       // below) -- so play that directly instead of hitting TTS again.
       if (sentence.referenceBlob && sentence.referenceUrl) {
         const audio = new Audio(sentence.referenceUrl);
+        wireWordHighlight(audio, sentence, row);
         await player.start(audio, playBtn);
         setStatus(status, '', 'info');
         return;
@@ -185,7 +298,21 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
         sentence.referenceUrl = entry.url;
         sentence.referenceSource = 'tts';
         persistSession();
+        // Best-effort, not awaited: re-transcribing the clip to recover real
+        // word timestamps (tts-player.js's ensureTtsWords()) takes its own
+        // round trip and must never delay Speak actually starting. Guarded
+        // against a stale landing -- by the time this resolves, the sentence
+        // may have moved on (language toggled, split/merged, Speak clicked
+        // again for a different clip).
+        ensureTtsWords(entry, sentence.text, sentence.lang).then((words) => {
+          if (!words || !words.length) return;
+          if (sentence.referenceUrl !== entry.url) return;
+          sentence.words = words;
+          refreshRowText(sentence);
+          persistSession();
+        });
         ttsAudio.src = entry.url;
+        wireWordHighlight(ttsAudio, sentence, row);
         await player.start(ttsAudio, playBtn);
         setStatus(status, '', 'info');
       } else {

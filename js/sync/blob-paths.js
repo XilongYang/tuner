@@ -1,8 +1,8 @@
-// Blob path helpers for the three content kinds sync stores individually
-// (recordings / assessments / input text -- see the big comment on
-// syncWithAzure() in ./azure-sync.js for why), the manifest path, the
-// in-memory manifest-ETag cache, and best-effort orphan-blob cleanup shared
-// by all three kinds.
+// Blob path helpers for the content kinds sync stores individually
+// (recordings / references / assessments / input text / a session's source
+// audio -- see the big comment on syncWithAzure() in ./azure-sync.js for
+// why), the manifest path, the in-memory manifest-ETag cache, and
+// best-effort orphan-blob cleanup shared by all of them.
 
 import * as blobStore from '../azure-blob.js';
 import { setBlobActionStatus } from './panel.js';
@@ -47,11 +47,20 @@ export const blobAssessmentPath = (sessionId, sentenceId) => `${BLOB_ASSESSMENTS
 export const BLOB_INPUTTEXT_PREFIX = 'tuner/inputtext/';
 export const blobInputTextPath = (sessionId) => `${BLOB_INPUTTEXT_PREFIX}${sessionId}.txt`;
 
+// An audio-imported session's original source file (session.sourceAudioBlob
+// -- see its doc comment in state.js), kept around so Split/Merge can always
+// re-slice a fresh, lossless clip instead of compounding error through an
+// already-derived one. One per session (not per sentence), syncs exactly
+// like inputText above: a single content-addressed blob, only its hash
+// living in the manifest.
+export const BLOB_SOURCEAUDIO_PREFIX = 'tuner/sourceaudio/';
+export const blobSourceAudioPath = (sessionId) => `${BLOB_SOURCEAUDIO_PREFIX}${sessionId}.audio`;
+
 /**
  * Delete any blob under `prefix` that the current sync no longer references
  * (e.g. its session was deleted, or a sentence's recording/assessment/a
  * session's inputText was replaced by a newer take since the last sync).
- * Shared by all three content kinds above -- same cleanup logic, just a
+ * Shared by every content kind above -- same cleanup logic, just a
  * different prefix and reference set each time. Best-effort: a missing
  * List/Delete permission on the SAS token, or any other failure, is left for
  * the caller to report as a warning rather than fail the whole sync -- the

@@ -448,6 +448,24 @@ a:hover { color: var(--accent); }
   flex-direction: column;
   gap: 14px;
 }
+/* Appears once 1+ sentence rows are checked for merging; the Merge button
+   itself only shows once there are 2+ (see updateSelectionUI() in
+   sentence-panel/split.js). */
+.merge-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+.merge-bar-label {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text-muted);
+}
 .empty-hint {
   color: var(--text-faint);
   font-size: 15px;
@@ -468,14 +486,38 @@ a:hover { color: var(--accent); }
   border-color: var(--accent);
   box-shadow: inset 3px 0 0 var(--accent);
 }
+/* Checked via its row-select-checkbox, for Merge (see the merge-bar rules
+   below and toggleRowSelection()/mergeSelectedSentences() in split.js). */
+.sentence-row.is-selected {
+  border-color: var(--text);
+  box-shadow: inset 3px 0 0 var(--text);
+  background: var(--surface-2);
+}
 .row-index {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+  min-width: 26px;
+  user-select: none;
+}
+.row-index-num {
   font-family: var(--mono);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-faint);
-  padding-top: 4px;
-  min-width: 26px;
-  user-select: none;
+}
+.row-select-checkbox {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--text);
+}
+.row-select-checkbox:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
 }
 .row-body {
   flex: 1;
@@ -489,7 +531,89 @@ a:hover { color: var(--accent); }
   line-height: 1.7;
   color: var(--text);
   word-break: break-word;
+  cursor: text;
 }
+/* Karaoke-style Speak highlight (row.js's wireWordHighlight()): only ever
+   applied to .row-char spans, which cover one word's worth of characters at
+   a time per sentence.words[]'s [charStart, charEnd) -- see that function's
+   doc comment for when real timestamps are and aren't available. */
+.row-char.is-speaking {
+  color: var(--accent-text);
+}
+/* Split-point triangles (split.js's buildTextEl()/getSplitPointers()): one
+   per known-exact split point, floating above the character gap it sits at.
+   Word-boundary pointers (from Azure) and manually-confirmed ones (from a
+   prior Merge's seam -- see mergeSelectedSentences() in split.js) are
+   visually distinguished so it's clear which is which.
+   .split-pointer-anchor is a zero-size inline placeholder spliced right
+   into the text flow at that exact character gap, so it never disturbs
+   character spacing or line wrapping; the actual triangle button is positioned absolutely off of it,
+   floating above the text instead of sitting inline within it. Its `top` is
+   a fixed px value rather than `em`: an `em` offset here is relative to the
+   BUTTON's own font-size (10px), not .row-text's (18px/1.7 line-height) --
+   using `em` left the triangle only ~16px above its anchor, well short of
+   clearing the text line, so it visually sat mid-line instead of floating
+   above it. -26px was measured (via getBoundingClientRect() on a live
+   .split-pointer vs. the nearest .row-char, across a sentence that actually
+   wraps to 2+ lines) as the best available compromise, not a value that
+   clears the text with room to spare: .row-text's line-height (30.6px for
+   an 18px font) leaves only ~5.6px of gap between two wrapped lines, but
+   the triangle itself is ~10px tall -- there is no offset that both floats
+   fully above the current line AND stays clear of the wrapped line above
+   it, so this leans toward the wrapped-line side (a few px of overlap into
+   the current line's own leading, which is empty space above the glyphs'
+   ink and so isn't visually intrusive, vs. sitting on top of a previous
+   line's actual characters, which was). A larger negative value (this used
+   to be -32px) floats more cleanly above the current line but visibly
+   overlaps the wrapped line above it in multi-line text. If .row-text's
+   font-size or line-height ever changes, re-measure rather than guessing a
+   new value. */
+.split-pointer-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
+  vertical-align: baseline;
+}
+.split-pointer {
+  position: absolute;
+  left: 0;
+  top: -26px;
+  transform: translateX(-50%);
+  width: auto;
+  padding: 0 2px;
+  margin: 0;
+  border: none;
+  background: none;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-faint);
+  z-index: 1;
+}
+.split-pointer:hover {
+  color: var(--accent);
+  transform: translateX(-50%) scale(1.4);
+}
+.split-pointer-manual {
+  color: var(--mid);
+}
+.split-pointer-manual:hover {
+  color: var(--accent);
+}
+/* textSplitPoints()'s fallback in split.js: a plain character/word boundary
+   with no Azure timing behind it at all (a plain text Split, or an import
+   Azure returned no per-word data for). Same shape and click behavior as a
+   real word pointer, just dimmed to signal it's a lower-confidence guess at
+   *where* to cut, not a verified timestamp. */
+.split-pointer-text {
+  opacity: 0.55;
+}
+.split-pointer-text:hover {
+  opacity: 1;
+  color: var(--accent);
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
@@ -545,6 +669,14 @@ a:hover { color: var(--accent); }
   inset: 0;
   color: var(--text);
   text-align: center;
+}
+/* Speak highlight (.row-char.is-speaking, above) sets `color` on the
+   .row-char span itself -- invisible here, since the span's own text is
+   painted transparent in hidden mode and what's actually seen is the "#"
+   placeholder drawn by ::after with its own separate color. Recolor the
+   placeholder instead so the highlight still reads while text is hidden. */
+.sentence-row.is-hidden .row-char.is-speaking::after {
+  color: var(--accent-text);
 }
 
 /* ---- Row status ---- */

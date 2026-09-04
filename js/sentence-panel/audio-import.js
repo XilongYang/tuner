@@ -10,6 +10,7 @@
 import { Recorder, encodeWav } from '../recorder.js';
 import { TERMINATORS } from '../segment.js';
 import * as store from '../store/index.js';
+import { hashBlob } from '../store/hashing.js';
 import { loadCredentials } from '../config.js';
 import {
   els,
@@ -19,6 +20,7 @@ import {
   setCurrentSplitMode,
   globalHideText,
   sentenceToRecord,
+  setSourceAudio,
 } from '../state.js';
 import { refreshHistoryTreeIfOpen } from '../history-panel/index.js';
 import { scheduleAutoSync } from '../sync/index.js';
@@ -30,9 +32,11 @@ const API_VERSION = '2025-10-15';
 // time range. Azure's own phrase boundaries (the pause-based segmentation this
 // re-splits) already carry natural lead-in/lead-out silence; a bare word's own
 // offset/duration is tighter than that and can clip the very start/end of speech,
-// so this restores a small margin. Clamped to the file's bounds, not to
-// neighboring sentences -- a little silence/soft onset bleeding between two
-// adjacent clips is inaudible and not worth the extra bookkeeping to avoid.
+// so this restores a small margin. Clamped to the file's bounds AND to at most
+// half the gap to the neighboring word on that side (see resegmentByPunctuation()
+// below) -- a full, un-clamped 120ms on both sides of two closely-spoken
+// sentences can overlap and pull a bit of the neighbor's speech into this
+// clip, audible as a "tail" (尾巴) at the sentence's start/end.
 const SLICE_PAD_MS = 120;
 
 function setStatus(text, kind) {
@@ -53,6 +57,37 @@ function sliceSamples(channelData, sampleRate, offsetMs, durationMs) {
   const start = Math.max(0, Math.round((offsetMs / 1000) * sampleRate));
   const end = Math.min(channelData.length, Math.round(((offsetMs + durationMs) / 1000) * sampleRate));
   return channelData.slice(start, Math.max(start, end));
+}
+
+/**
+ * Decode a source audio Blob (the original file a session was imported from,
+ * kept around as session.sourceAudioBlob -- see its doc comment in
+ * state.js) into raw Float32 samples + sample rate. Exported so split.js can
+ * re-slice a fresh clip straight from this pristine source on every
+ * Split/Merge, rather than resampling/renormalizing an already-derived
+ * per-sentence clip over and over and compounding that error -- the whole
+ * point of keeping this original file around at all.
+ */
+export async function decodeSourceAudio(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const audioCtx = new AudioCtx();
+  try {
+    const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+    return { channelData: audioBuffer.getChannelData(0), sampleRate: audioBuffer.sampleRate };
+  } finally {
+    audioCtx.close().catch(() => {});
+  }
+}
+
+/**
+ * Cut one [offsetMs, offsetMs + durationMs) reference clip out of a decoded
+ * source (decodeSourceAudio() above) and encode it the same way the initial
+ * import does -- a mono/16-bit/16kHz WAV Blob (encodeWav() in recorder.js).
+ */
+export function sliceReferenceClip({ channelData, sampleRate }, offsetMs, durationMs) {
+  const samples = sliceSamples(channelData, sampleRate, offsetMs, durationMs);
+  return new Blob([encodeWav(samples, sampleRate)], { type: 'audio/wav' });
 }
 
 function localeToLang(locale) {
@@ -132,21 +167,64 @@ export function resegmentByPunctuation(phrases, totalDurationMs) {
     const last = spanWords[spanWords.length - 1];
     const rawOffset = first.offsetMilliseconds;
     const rawEndMs = last.offsetMilliseconds + last.durationMilliseconds;
-    const offsetMilliseconds = Math.max(0, rawOffset - SLICE_PAD_MS);
-    const endMs = totalDurationMs != null ? Math.min(totalDurationMs, rawEndMs + SLICE_PAD_MS) : rawEndMs + SLICE_PAD_MS;
+
+    // How much of the SLICE_PAD_MS margin each edge can actually use without
+    // reaching into the neighboring word (which, at a sentence boundary, is
+    // the neighboring sentence's own speech): at most half of the real gap
+    // to that word, so two sentences padding toward each other from opposite
+    // sides can meet at the gap's midpoint but never overlap. `words` is the
+    // full chronological timeline (buildWordTimeline() above), so the word
+    // immediately before/after this span's own words -- found by reference,
+    // not by span/character position -- is the true neighbor regardless of
+    // which sentence it ends up in.
+    const firstIdx = words.indexOf(first);
+    const lastIdx = words.indexOf(last);
+    const prevWord = firstIdx > 0 ? words[firstIdx - 1] : null;
+    const nextWord = lastIdx < words.length - 1 ? words[lastIdx + 1] : null;
+    const leftGapMs = prevWord
+      ? Math.max(0, rawOffset - (prevWord.offsetMilliseconds + prevWord.durationMilliseconds))
+      : Infinity;
+    const rightGapMs = nextWord ? Math.max(0, nextWord.offsetMilliseconds - rawEndMs) : Infinity;
+    const leftPadMs = Math.min(SLICE_PAD_MS, leftGapMs / 2);
+    const rightPadMs = Math.min(SLICE_PAD_MS, rightGapMs / 2);
+
+    const offsetMilliseconds = Math.max(0, rawOffset - leftPadMs);
+    const endMs = totalDurationMs != null ? Math.min(totalDurationMs, rawEndMs + rightPadMs) : rawEndMs + rightPadMs;
     const jaWordCount = spanWords.filter((w) => w.lang === 'ja').length;
+
+    // Keep each word's own timestamp + its position within THIS sentence's
+    // own (trimmed) text, re-based from the full-transcript character index
+    // (w.start/w.end) to a 0-based offset into `trimmed` -- this is what
+    // later lets the Split UI (sentence-panel/split.js) draw a clickable
+    // triangle at every real Azure word boundary instead of only ever
+    // guessing a cut point from the character ratio of the whole sentence.
+    // Clamped defensively in case a word straddles the punctuation-trim
+    // boundary by a character or two.
+    const spanWordPointers = spanWords.map((w) => ({
+      offsetMilliseconds: w.offsetMilliseconds,
+      durationMilliseconds: w.durationMilliseconds,
+      charStart: Math.max(0, Math.min(trimmed.length, w.start - start)),
+      charEnd: Math.max(0, Math.min(trimmed.length, w.end - start)),
+    }));
 
     parts.push({
       text: trimmed,
       lang: jaWordCount * 2 >= spanWords.length ? 'ja' : 'en',
       offsetMilliseconds,
       durationMilliseconds: Math.max(0, endMs - offsetMilliseconds),
+      words: spanWordPointers,
     });
   }
   return parts;
 }
 
-async function transcribe(file, creds) {
+/**
+ * Exported so tts-player.js's alignWordsForClip() can reuse the exact same
+ * Fast Transcription call to re-transcribe a synthesized TTS clip and
+ * recover real word-level timestamps for it -- see that module's doc
+ * comment for why this is safe to do generically for any audio Blob.
+ */
+export async function transcribe(file, creds) {
   const endpoint = `https://${creds.resourceName}.cognitiveservices.azure.com/speechtotext/transcriptions:transcribe?api-version=${API_VERSION}`;
   const form = new FormData();
   form.append('audio', file);
@@ -183,17 +261,7 @@ export async function handleAudioImport(file) {
     }
 
     setStatus('Decoding audio…', 'info');
-    const arrayBuffer = await file.arrayBuffer();
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const audioCtx = new AudioCtx();
-    let audioBuffer;
-    try {
-      audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-    } finally {
-      audioCtx.close().catch(() => {});
-    }
-    const channelData = audioBuffer.getChannelData(0);
-    const sampleRate = audioBuffer.sampleRate;
+    const decodedSource = await decodeSourceAudio(file);
 
     setStatus('Re-segmenting by punctuation…', 'info');
     let segments = resegmentByPunctuation(phrases, result.durationMilliseconds);
@@ -209,12 +277,26 @@ export async function handleAudioImport(file) {
     }
 
     setStatus('Slicing and encoding clips…', 'info');
-    const parts = segments.map((segment) => {
-      const samples = sliceSamples(channelData, sampleRate, segment.offsetMilliseconds, segment.durationMilliseconds);
-      const wavBuffer = encodeWav(samples, sampleRate);
-      const blob = new Blob([wavBuffer], { type: 'audio/wav' });
-      return { text: segment.text, lang: segment.lang, blob };
-    });
+    const parts = segments.map((segment) => ({
+      text: segment.text,
+      lang: segment.lang,
+      offsetMilliseconds: segment.offsetMilliseconds,
+      durationMilliseconds: segment.durationMilliseconds,
+      blob: sliceReferenceClip(decodedSource, segment.offsetMilliseconds, segment.durationMilliseconds),
+      // Only the punctuation-resegmented path (resegmentByPunctuation above)
+      // carries real per-word timestamps; the raw-phrase fallback has none,
+      // which just means this sentence gets no split-point triangles later
+      // (sentence-panel/split.js falls back to a plain text-only split for
+      // it) -- see the "no Azure data" case in that module's doc comments.
+      words: segment.words || [],
+    }));
+
+    setStatus('Fingerprinting source audio…', 'info');
+    // Hashed once, here, and then just carried through on every later save
+    // (state.js's sourceAudioHash/persistSession()) -- see the doc comment on
+    // sourceAudioHash in store/sessions.js's updateSession() for why this
+    // potentially-multi-MB file is never re-hashed on every subsequent save.
+    const sourceAudioHash = await hashBlob(file);
 
     stopActiveWordRetest();
     // Release resources from the previous recordings, same as a text Split.
@@ -223,6 +305,10 @@ export async function handleAudioImport(file) {
     // Before render(): it reads this to lock the practice text box read-only
     // and hide Clear for an audio-imported session (see split.js).
     setCurrentSplitMode('audio');
+    // The original file itself, kept around (state.js's sourceAudioBlob) so
+    // Split/Merge can always re-slice a fresh, lossless clip straight from
+    // it -- see decodeSourceAudio()/sliceReferenceClip() above.
+    setSourceAudio(file, sourceAudioHash);
     setSentences(parts.map((part) => ({
       id: crypto.randomUUID(),
       text: part.text,
@@ -246,6 +332,16 @@ export async function handleAudioImport(file) {
       referenceBlob: part.blob,
       referenceHash: null,
       referenceSource: 'import',
+      // Where this clip sits in sourceAudioBlob -- see its doc comment in
+      // state.js.
+      sourceOffsetMs: part.offsetMilliseconds,
+      sourceDurationMs: part.durationMilliseconds,
+      // This sentence's own Azure word timestamps (re-based to its own
+      // text), if any -- see resegmentByPunctuation() above and
+      // sentence-panel/split.js's getSplitPointers(). No user-confirmed
+      // manual split points exist yet on a freshly imported sentence.
+      words: part.words && part.words.length ? part.words : null,
+      manualPoints: null,
     })));
 
     render();
@@ -259,6 +355,8 @@ export async function handleAudioImport(file) {
           inputText: sentences.map((s) => s.text).join('\n'),
           splitMode: 'audio',
           sentences: sentences.map(sentenceToRecord),
+          sourceAudioBlob: file,
+          sourceAudioHash,
         }));
         refreshHistoryTreeIfOpen();
         scheduleAutoSync();

@@ -29,9 +29,32 @@ import {
   BLOB_REFERENCES_PREFIX, blobReferencePath,
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
+  BLOB_SOURCEAUDIO_PREFIX, blobSourceAudioPath,
   cleanupOrphanBlobs,
 } from './blob-paths.js';
 import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
+
+/**
+ * Which of `sessions` had their LOCAL copy change since `localUpdatedAtAtStart`
+ * was captured (syncWithAzure()'s snapshot at the very start of a sync run) --
+ * i.e. a local edit (Split, Merge, a recording, anything calling
+ * persistSession()) landed while this sync's network round-trip was still in
+ * flight, making this sync's already-computed merge stale for that one
+ * session. `getSessionFn` is `store.getSession` in production, injectable
+ * here so this can be unit-tested without IndexedDB. A session absent from
+ * `localUpdatedAtAtStart` is new to local as of this sync round (nothing to
+ * race against) and is never considered stale.
+ */
+export async function findSessionsChangedSinceSnapshot(sessions, localUpdatedAtAtStart, getSessionFn) {
+  const staleIds = new Set();
+  for (const session of sessions) {
+    const startedAt = localUpdatedAtAtStart.get(session.id);
+    if (startedAt === undefined) continue;
+    const fresh = await getSessionFn(session.id);
+    if (!fresh || fresh.updatedAt !== startedAt) staleIds.add(session.id);
+  }
+  return staleIds;
+}
 
 export async function syncWithAzure() {
   const sasUrl = loadBlobSasUrl();
@@ -42,6 +65,18 @@ export async function syncWithAzure() {
   try {
     setBlobActionStatus('Reading local data…', 'info');
     const { folders: localFolders, sessions: localSessions, tombstones: localTombstones } = await store.exportAll();
+    // Snapshot of each session's `updatedAt` at the moment THIS sync started
+    // reading -- checked again right before writing the merge result back
+    // (see the "Saving merged data locally" step below). A sync round-trips
+    // through the network (can take several seconds), so a local edit made
+    // WHILE one is in flight -- a Split, a Merge, a recording, anything that
+    // calls persistSession() -- is invisible to the merge this sync already
+    // computed from the STALE snapshot read here. Without this check, that
+    // in-flight sync finishes moments later and overwrites both IndexedDB
+    // and the live screen with its now-stale result, silently reverting the
+    // edit the user just made -- confirmed in practice: splitting a sentence
+    // right as an auto-sync/heartbeat round was already underway.
+    const localUpdatedAtAtStart = new Map(localSessions.map((s) => [s.id, s.updatedAt]));
 
     setBlobActionStatus('Checking remote backup…', 'info');
     // Key order matches the manifest built below (version, folders,
@@ -73,18 +108,25 @@ export async function syncWithAzure() {
     const tombstoneById = new Map(mergedTombstones.map((t) => [t.id, t]));
 
     // What we already hold, keyed by "sessionId/sentenceId" (or just
-    // sessionId for inputText) -- used below to avoid re-downloading content
-    // we already have, and to find the actual bytes for something we won
-    // and need to upload. Three separate maps, one per content kind, all
+    // sessionId for inputText/sourceAudio) -- used below to avoid
+    // re-downloading content we already have, and to find the actual bytes
+    // for something we won and need to upload. One map per content kind, all
     // synced the same way (content-addressed by hash, fetched only when the
     // merge decides this device still needs it).
     const localRecordingById = new Map();
     const localReferenceById = new Map();
     const localAssessmentById = new Map();
     const localInputTextBySession = new Map();
+    const localSourceAudioBySession = new Map();
     for (const session of localSessions) {
       if (session.inputText) {
         localInputTextBySession.set(session.id, { text: session.inputText, hash: session.inputTextHash || null });
+      }
+      if (session.sourceAudioBlob) {
+        // Same "materialize into a fresh, self-contained Blob right now"
+        // reasoning as the recording/reference reads just below.
+        const freshBlob = new Blob([await session.sourceAudioBlob.arrayBuffer()], { type: session.sourceAudioBlob.type });
+        localSourceAudioBySession.set(session.id, { blob: freshBlob, hash: session.sourceAudioHash || null });
       }
       for (const s of session.sentences || []) {
         // Read the bytes out right now, before any of the (possibly slow)
@@ -114,7 +156,12 @@ export async function syncWithAzure() {
     }
 
     const mergedFolders = mergeById(localFolders, remoteFolders, mergeFolder);
-    const mergedSessions = mergeById(localSessions, remoteSessions, mergeSession);
+    // tombstoneById also lets mergeSession() (via mergeSentences() in
+    // ./merge.js) drop a sentence that Merge/Split replaced, instead of a
+    // sync landing before every device saw the replacement pulling the old
+    // sentence right back in alongside the new one -- see mergeSentences()'s
+    // doc comment.
+    const mergedSessions = mergeById(localSessions, remoteSessions, (l, r) => mergeSession(l, r, tombstoneById));
 
     // Apply deletions: a tombstone beats a folder's/session's own `updatedAt`
     // unless something edited it again after the delete (see
@@ -142,7 +189,8 @@ export async function syncWithAzure() {
       const sentenceDownloads = (s.sentences || [])
         .filter((x) => x.__from === 'remote' && (x.recordingHash || x.referenceHash || x.assessmentHash)).length;
       const inputTextDownload = s.__metaFrom === 'remote' && s.inputTextHash ? 1 : 0;
-      return sum + sentenceDownloads + inputTextDownload;
+      const sourceAudioDownload = s.__metaFrom === 'remote' && s.sourceAudioHash ? 1 : 0;
+      return sum + sentenceDownloads + inputTextDownload + sourceAudioDownload;
     }, 0);
 
     let downloadCount = 0;
@@ -150,6 +198,7 @@ export async function syncWithAzure() {
     const referenceUploads = [];
     const assessmentUploads = [];
     const inputTextUploads = [];
+    const sourceAudioUploads = [];
     const finalSessions = [];
     for (const session of survivingSessions) {
       // Session-level content (inputText) -- resolved once per session, not per sentence.
@@ -172,6 +221,32 @@ export async function syncWithAzure() {
             setBlobActionStatus(`Downloading practice text ${downloadCount} / ${totalMaybeDownloads}…`, 'info');
             const blob = await blobStore.downloadBytes(sasUrl, blobInputTextPath(session.id));
             inputText = await blob.text();
+          }
+        }
+      }
+
+      // Session-level content (the original audio an import-mode session was
+      // sliced from -- state.js's sourceAudioBlob) -- same
+      // resolve-once-per-session pattern as inputText just above.
+      let sourceAudioBlobResolved = null;
+      if (session.sourceAudioHash) {
+        if (session.__metaFrom === 'local') {
+          const localEntry = localSourceAudioBySession.get(session.id);
+          sourceAudioBlobResolved = localEntry ? localEntry.blob : null;
+          const remoteSession = remoteSessions.find((rs) => rs.id === session.id);
+          const alreadyOnAzure = remoteSession && remoteSession.sourceAudioHash === session.sourceAudioHash;
+          if (!alreadyOnAzure && sourceAudioBlobResolved) {
+            sourceAudioUploads.push({ sessionId: session.id, blob: sourceAudioBlobResolved });
+          }
+        } else {
+          const localEntry = localSourceAudioBySession.get(session.id);
+          if (localEntry && localEntry.hash === session.sourceAudioHash) {
+            // Remote won, but we already hold this exact file (likely: ours from an earlier sync).
+            sourceAudioBlobResolved = localEntry.blob;
+          } else {
+            downloadCount++;
+            setBlobActionStatus(`Downloading source audio ${downloadCount} / ${totalMaybeDownloads}…`, 'info');
+            sourceAudioBlobResolved = await blobStore.downloadBytes(sasUrl, blobSourceAudioPath(session.id));
           }
         }
       }
@@ -246,7 +321,9 @@ export async function syncWithAzure() {
         sentencesOut.push({ ...cleanSentence, recordingBlob, referenceBlob, assessment });
       }
       const { __metaFrom, ...cleanSession } = session;
-      finalSessions.push({ ...cleanSession, inputText, sentences: sentencesOut });
+      finalSessions.push({
+        ...cleanSession, inputText, sentences: sentencesOut, sourceAudioBlob: sourceAudioBlobResolved,
+      });
     }
 
     for (let i = 0; i < recordingUploads.length; i++) {
@@ -268,6 +345,11 @@ export async function syncWithAzure() {
       const { sessionId, text } = inputTextUploads[i];
       setBlobActionStatus(`Uploading practice text ${i + 1} / ${inputTextUploads.length}…`, 'info');
       await blobStore.uploadBytes(sasUrl, blobInputTextPath(sessionId), new TextEncoder().encode(text), 'text/plain; charset=utf-8');
+    }
+    for (let i = 0; i < sourceAudioUploads.length; i++) {
+      const { sessionId, blob } = sourceAudioUploads[i];
+      setBlobActionStatus(`Uploading source audio ${i + 1} / ${sourceAudioUploads.length}…`, 'info');
+      await blobStore.uploadBytes(sasUrl, blobSourceAudioPath(sessionId), blob, blob.type || 'application/octet-stream');
     }
 
     // The manifest itself now only carries hashes for these three content
@@ -291,6 +373,8 @@ export async function syncWithAzure() {
         metaUpdatedAt: session.metaUpdatedAt,
         hasInputText: !!session.inputTextHash,
         inputTextHash: session.inputTextHash || null,
+        hasSourceAudio: !!session.sourceAudioHash,
+        sourceAudioHash: session.sourceAudioHash || null,
         sentences: (session.sentences || []).map((s) => ({
           id: s.id,
           text: s.text,
@@ -303,6 +387,19 @@ export async function syncWithAzure() {
           hasReference: !!s.referenceHash,
           referenceHash: s.referenceHash || null,
           referenceSource: s.referenceSource || null,
+          // Where this clip sits in the session's sourceAudioBlob (small
+          // plain values, so -- unlike the blob-backed fields above -- they
+          // travel directly in the manifest rather than as their own
+          // content-addressed blob; see state.js's doc comment).
+          sourceOffsetMs: s.sourceOffsetMs ?? null,
+          sourceDurationMs: s.sourceDurationMs ?? null,
+          // Azure's per-word timestamps (re-based to this sentence's own
+          // text) and any manually-confirmed extra split points -- small
+          // plain values like sourceOffsetMs/sourceDurationMs above, so they
+          // travel directly in the manifest too. See state.js's doc comment
+          // and sentence-panel/split.js's getSplitPointers().
+          words: s.words || null,
+          manualPoints: s.manualPoints || null,
           updatedAt: s.updatedAt,
         })),
       })),
@@ -344,10 +441,14 @@ export async function syncWithAzure() {
       const inputTextPaths = manifest.sessions
         .filter((session) => session.hasInputText)
         .map((session) => blobInputTextPath(session.id));
+      const sourceAudioPaths = manifest.sessions
+        .filter((session) => session.hasSourceAudio)
+        .map((session) => blobSourceAudioPath(session.id));
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_RECORDINGS_PREFIX, recordingPaths);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_REFERENCES_PREFIX, referencePaths);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_ASSESSMENTS_PREFIX, assessmentPaths);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_INPUTTEXT_PREFIX, inputTextPaths);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_SOURCEAUDIO_PREFIX, sourceAudioPaths);
     } catch (err) {
       cleanupWarning = ` (orphan cleanup skipped: ${err.message})`;
       console.warn('Orphan file cleanup skipped:', err);
@@ -355,7 +456,26 @@ export async function syncWithAzure() {
 
     setBlobActionStatus('Saving merged data locally…', 'info');
     await store.upsertFolders(survivingFolders);
-    await store.upsertSessions(finalSessions);
+
+    // Re-check each surviving session's local `updatedAt` right now,
+    // immediately before writing -- see localUpdatedAtAtStart's doc comment
+    // above for why: if it moved since this sync started reading (a local
+    // edit -- a Split, a Merge, anything that calls persistSession() --
+    // landed while this sync's network round-trip was in flight), this
+    // sync's merge was computed from an already-stale snapshot for that one
+    // session. Skip writing/applying it this round rather than clobbering
+    // the newer local edit with it; the next auto-sync (already scheduled
+    // by that same persistSession() call) will merge it correctly against
+    // whatever's now on Azure.
+    const staleSessionIds = await findSessionsChangedSinceSnapshot(finalSessions, localUpdatedAtAtStart, store.getSession);
+    if (staleSessionIds.size) {
+      console.warn(`Sync: ${staleSessionIds.size} session(s) changed locally while this sync was in flight -- skipping this round's write for them; the next sync will pick them up.`);
+    }
+    const sessionsToWrite = staleSessionIds.size
+      ? finalSessions.filter((s) => !staleSessionIds.has(s.id))
+      : finalSessions;
+
+    await store.upsertSessions(sessionsToWrite);
     for (const id of casualtySessionIds) await store.removeSessionRecord(id);
     for (const id of casualtyFolderIds) await store.removeFolderRecord(id);
     await store.upsertTombstones(mergedTombstones);
@@ -363,7 +483,9 @@ export async function syncWithAzure() {
     // If the session currently on screen was deleted by the merge, clear it
     // off-screen (same as "Restore from Azure" does for a destructive
     // change); if it was merely touched, reload it so the visible
-    // sentences/scores reflect the merged result. Either way, any
+    // sentences/scores reflect the merged result -- unless it's one of the
+    // stale sessions just skipped above, in which case the screen already
+    // shows the newer local edit and must be left alone. Either way, any
     // not-yet-saved in-flight UI state (e.g. an open word Retest) is
     // discarded -- same tradeoff "Restore from Azure" already makes.
     if (currentSessionId != null) {
@@ -373,7 +495,7 @@ export async function syncWithAzure() {
         setCurrentSessionId(null);
         els.input.value = '';
         render();
-      } else {
+      } else if (!staleSessionIds.has(currentSessionId)) {
         const refreshed = finalSessions.find((s) => s.id === currentSessionId);
         if (refreshed) applyIncomingSessionUpdate(refreshed);
       }
@@ -422,13 +544,13 @@ export async function restoreFromAzure() {
     }
 
     const manifestSessions = manifest.sessions || [];
-    // Recordings, assessments and inputText all live as their own blobs now
-    // (see syncWithAzure()'s big comment) -- a full restore has to fetch all
-    // three kinds, not just recordings.
+    // Recordings, assessments, inputText and sourceAudio all live as their
+    // own blobs now (see syncWithAzure()'s big comment) -- a full restore has
+    // to fetch all four kinds, not just recordings.
     const totalDownloads = manifestSessions.reduce((sum, session) => {
       const sentenceDownloads = (session.sentences || [])
         .filter((s) => s.hasRecording || s.hasReference || s.hasAssessment).length;
-      return sum + sentenceDownloads + (session.hasInputText ? 1 : 0);
+      return sum + sentenceDownloads + (session.hasInputText ? 1 : 0) + (session.hasSourceAudio ? 1 : 0);
     }, 0);
 
     let downloaded = 0;
@@ -440,6 +562,13 @@ export async function restoreFromAzure() {
         setBlobActionStatus(`Downloading practice text ${downloaded} / ${totalDownloads}\u2026`, 'info');
         const blob = await blobStore.downloadBytes(sasUrl, blobInputTextPath(session.id));
         inputText = await blob.text();
+      }
+
+      let sourceAudioBlob = null;
+      if (session.hasSourceAudio) {
+        downloaded++;
+        setBlobActionStatus(`Downloading source audio ${downloaded} / ${totalDownloads}\u2026`, 'info');
+        sourceAudioBlob = await blobStore.downloadBytes(sasUrl, blobSourceAudioPath(session.id));
       }
 
       const sentencesOut = [];
@@ -474,6 +603,10 @@ export async function restoreFromAzure() {
           referenceBlob,
           referenceHash: s.referenceHash || null,
           referenceSource: s.referenceSource || null,
+          sourceOffsetMs: s.sourceOffsetMs ?? null,
+          sourceDurationMs: s.sourceDurationMs ?? null,
+          words: s.words || null,
+          manualPoints: s.manualPoints || null,
           updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
         });
       }
@@ -488,6 +621,8 @@ export async function restoreFromAzure() {
         updatedAt: session.updatedAt,
         metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
         sentences: sentencesOut,
+        sourceAudioBlob,
+        sourceAudioHash: session.sourceAudioHash || null,
       });
     }
 

@@ -3,7 +3,9 @@
 
 import { getStore, wrap, openDb, STORE } from './db.js';
 import { recordTombstone } from './tombstones.js';
-import { refreshSentenceBlobs, stampSentenceVersions, hashString } from './hashing.js';
+import {
+  refreshSentenceBlobs, stampSentenceVersions, hashString, refreshBlobIfPresent,
+} from './hashing.js';
 
 /**
  * Create a new session and return its id (a UUID, so it stays globally unique
@@ -78,6 +80,19 @@ export async function updateSession(id, patch) {
     updatedAt: Date.now(),
     metaUpdatedAt: metaChanged ? Date.now() : (existing.metaUpdatedAt ?? existing.createdAt ?? 0),
     sentences: refreshSentenceBlobs(versionedSentences),
+    // The original audio an import-mode session was sliced from (session.
+    // sourceAudioBlob/sourceAudioHash) -- kept around, unlike a per-sentence
+    // recordingBlob/referenceBlob, so a later Split/Merge (sentence-panel/
+    // split.js) can always re-slice from the pristine source instead of
+    // compounding resampling/normalization error through an already-derived
+    // clip. It's set once at import time and never changes afterward for a
+    // given session, so -- unlike recordingHash/assessmentHash just above,
+    // which stampSentenceVersions() deliberately re-hashes on every single
+    // save -- sourceAudioHash is trusted as-is from the caller here rather
+    // than re-hashing this potentially-multi-MB blob on every save. Only the
+    // Chromium re-store-Blob rewrap (refreshSentenceBlobs' reasoning, same
+    // bug) is needed.
+    sourceAudioBlob: refreshBlobIfPresent(merged.sourceAudioBlob),
   };
   await wrap(writeStore.put(updated));
   return updated;
@@ -147,7 +162,12 @@ export async function migrateSessionIdsToUuid() {
         s && !isUuidId(s.id) ? { ...s, id: crypto.randomUUID() } : s
       ));
       objectStore.delete(session.id);
-      objectStore.put({ ...session, id: crypto.randomUUID(), sentences: migratedSentences });
+      objectStore.put({
+        ...session,
+        id: crypto.randomUUID(),
+        sentences: migratedSentences,
+        sourceAudioBlob: refreshBlobIfPresent(session.sourceAudioBlob),
+      });
     }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -211,7 +231,11 @@ export async function upsertSessions(sessions) {
   if (!sessions || !sessions.length) return;
   const store = await getStore('readwrite');
   for (const session of sessions) {
-    await wrap(store.put({ ...session, sentences: refreshSentenceBlobs(session.sentences) }));
+    await wrap(store.put({
+      ...session,
+      sentences: refreshSentenceBlobs(session.sentences),
+      sourceAudioBlob: refreshBlobIfPresent(session.sourceAudioBlob),
+    }));
   }
 }
 

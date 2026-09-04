@@ -14,14 +14,26 @@ export function pickNewer(aTs, bTs) {
  * sync flow below knows, without re-deriving it, whether it already holds
  * that sentence's winning recording or still needs to fetch/send it.
  *
- * No tombstones: sentences are never added to or removed from a session after
- * Split (js/app.js's handleSplit is the only place the array is rebuilt), so
- * there is no "sentence N was deleted" state this needs to represent. Order
- * follows `local`'s sequence -- both sides descend from the same Split, so
- * they should already agree on it; any id that exists only remotely (e.g.
+ * Per-sentence tombstones: Split/Merge/click-to-split (sentence-panel/
+ * split.js) all replace one or more sentences with new ids, and record a
+ * `'sentence'`-kind tombstone (js/store/tombstones.js) for each id they
+ * replace -- same mechanism deleteSession()/deleteFolder() already use for
+ * a whole session/folder, just at sentence granularity. Without this, a
+ * sentence id that no longer exists locally is indistinguishable from "some
+ * other device just hasn't synced that id yet", so if the OTHER side still
+ * has the old id, this union brings it right back alongside the Merge/
+ * Split's actual result -- confirmed in practice: exporting a session right
+ * after a Split could show the two new sentences AND the old, pre-split one
+ * still sitting in the list, covering the exact same audio range. Passing
+ * `tombstoneById` (the merged tombstone set built in syncWithAzure(), routed
+ * down through mergeSession() below) lets survivesTombstone() drop a
+ * replaced id from the union instead. Optional -- omit it (e.g. in a unit
+ * test) and every id survives, same as before this existed.
+ *
+ * Order follows `local`'s sequence -- any id that exists only remotely (e.g.
  * this device has never seen this session before) is appended at the end.
  */
-export function mergeSentences(local, remote) {
+export function mergeSentences(local, remote, tombstoneById) {
   const remoteById = new Map((remote || []).map((s) => [s.id, s]));
   const seen = new Set();
   const merged = (local || []).map((l) => {
@@ -33,7 +45,7 @@ export function mergeSentences(local, remote) {
   for (const r of remote || []) {
     if (!seen.has(r.id)) merged.push({ ...r, __from: 'remote' });
   }
-  return merged;
+  return tombstoneById ? merged.filter((s) => survivesTombstone('sentence', s, tombstoneById)) : merged;
 }
 
 /**
@@ -43,9 +55,10 @@ export function mergeSentences(local, remote) {
  * survive instead of one clobbering the other. `local`/`remote` may each be
  * absent (session known to only one side); `mergeSentences` above handles
  * that directly rather than short-circuiting here, so every sentence still
- * gets tagged with its origin.
+ * gets tagged with its origin. `tombstoneById` is just threaded through to
+ * `mergeSentences` -- see its doc comment.
  */
-export function mergeSession(local, remote) {
+export function mergeSession(local, remote, tombstoneById) {
   const base = local || remote;
   const localMeta = local ? (local.metaUpdatedAt ?? local.updatedAt ?? local.createdAt ?? 0) : -1;
   const remoteMeta = remote ? (remote.metaUpdatedAt ?? remote.updatedAt ?? remote.createdAt ?? 0) : -1;
@@ -66,8 +79,14 @@ export function mergeSession(local, remote) {
     // sentence for its recording/assessment.
     inputText: metaWinner.inputText ?? null,
     inputTextHash: metaWinner.inputTextHash || null,
+    // The original audio an import-mode session was sliced from (state.js's
+    // sourceAudioBlob) -- same story as inputText just above: only the hash
+    // travels through the merge/manifest, the actual blob is resolved
+    // separately in syncWithAzure() (fetched from Azure, or reused locally)
+    // exactly like inputText's content is.
+    sourceAudioHash: metaWinner.sourceAudioHash || null,
     __metaFrom: metaFrom,
-    sentences: mergeSentences(local?.sentences, remote?.sentences),
+    sentences: mergeSentences(local?.sentences, remote?.sentences, tombstoneById),
   };
 }
 

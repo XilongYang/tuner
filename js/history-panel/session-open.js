@@ -6,7 +6,7 @@
 import { Recorder } from '../recorder.js';
 import {
   els, sentences, setSentences, setCurrentSessionId, setCurrentSplitMode, isSentenceBusy,
-  refreshInputMaskOverlay,
+  refreshInputMaskOverlay, setSourceAudio,
 } from '../state.js';
 import { render } from '../sentence-panel/index.js';
 import { refreshHistoryTreeIfOpen } from './panel.js';
@@ -33,6 +33,20 @@ function makeLiveSentence(s) {
     referenceBlob: s.referenceBlob || null,
     referenceHash: s.referenceHash || null,
     referenceSource: s.referenceSource || null,
+    // Where this clip sits in the session's sourceAudioBlob (openSession()/
+    // applyIncomingSessionUpdate() below set that from item.sourceAudioBlob)
+    // -- see its doc comment in state.js.
+    sourceOffsetMs: s.sourceOffsetMs ?? null,
+    sourceDurationMs: s.sourceDurationMs ?? null,
+    // Azure's per-word timestamps and any manually-confirmed split points
+    // (sentence-panel/split.js's getSplitPointers()/buildTextEl() draw the
+    // clickable triangles from these) -- without carrying them through here,
+    // every triangle vanished the moment a session was reloaded (openSession,
+    // i.e. a page refresh or reopening from History), even though they were
+    // persisted to IndexedDB just fine; this function building the live
+    // sentence objects was simply dropping the two fields on the floor.
+    words: s.words || null,
+    manualPoints: s.manualPoints || null,
     // Sentence-level sync version; not shown in the UI, just carried through
     // so a later persistSession() doesn't lose it and make everything look
     // freshly-changed to the next sync.
@@ -48,6 +62,7 @@ export function openSession(item) {
 
   els.input.value = item.inputText || '';
   setCurrentSplitMode(item.splitMode);
+  setSourceAudio(item.sourceAudioBlob || null, item.sourceAudioHash || null);
 
   setSentences((item.sentences || []).map(makeLiveSentence));
 
@@ -75,6 +90,10 @@ export function applyIncomingSessionUpdate(refreshed) {
     }
   }
   if (refreshed.splitMode) setCurrentSplitMode(refreshed.splitMode);
+  // Cheap (just a reference swap, no re-hashing) -- see sourceAudioHash's doc
+  // comment in store/sessions.js's updateSession() for why it's safe to just
+  // always apply this rather than diff it first.
+  setSourceAudio(refreshed.sourceAudioBlob || null, refreshed.sourceAudioHash || null);
 
   const liveById = new Map(sentences.map((s) => [s.id, s]));
   let changed = false;
@@ -88,7 +107,9 @@ export function applyIncomingSessionUpdate(refreshed) {
       (live.recordingHash || null) === (rs.recordingHash || null) &&
       (live.referenceHash || null) === (rs.referenceHash || null) &&
       (live.referenceSource || null) === (rs.referenceSource || null) &&
-      JSON.stringify(live.assessment || null) === JSON.stringify(rs.assessment || null);
+      JSON.stringify(live.assessment || null) === JSON.stringify(rs.assessment || null) &&
+      JSON.stringify(live.words || null) === JSON.stringify(rs.words || null) &&
+      JSON.stringify(live.manualPoints || null) === JSON.stringify(rs.manualPoints || null);
     if (samePersisted) return live;
     if (isSentenceBusy(rs.id)) return live; // leave it alone this round
     changed = true;

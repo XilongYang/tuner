@@ -36,8 +36,26 @@ async function hashBytes(bufferSource) {
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function hashBlob(blob) {
+/**
+ * Exported (unlike hashBytes above) so audio-import.js can content-address
+ * a session's original imported audio file the same way a recording/
+ * reference clip is -- see session.sourceAudioHash's doc comment in
+ * sessions.js for why that one's computed once at import time rather than
+ * re-hashed on every save the way this function's per-sentence callers are.
+ */
+export async function hashBlob(blob) {
   return hashBytes(await blob.arrayBuffer());
+}
+
+/**
+ * A Blob field re-stored across IndexedDB transactions needs the same
+ * rewrap refreshSentenceBlobs() does for recordingBlob/referenceBlob (see its
+ * doc comment above) -- factored out here so a session-level Blob field
+ * (sourceAudioBlob) can get the same treatment without duplicating the
+ * Chromium-bug explanation at every call site.
+ */
+export function refreshBlobIfPresent(blob) {
+  return blob ? new Blob([blob], { type: blob.type }) : blob;
 }
 
 /**

@@ -1,6 +1,7 @@
 // Full local-database backup: pack everything (folders, sessions -- text,
-// recordings, reference clips, scores -- and deletion tombstones) into a
-// single downloadable file, and read one back in. Built on top of
+// recordings, reference clips, an audio-imported session's original source
+// file, scores -- and deletion tombstones) into a single downloadable file,
+// and read one back in. Built on top of
 // exportAll()/restoreSnapshot() (snapshot.js) and the app's own tiny ZIP
 // reader/writer (../zip.js); the file is a plain ZIP saved with a distinct
 // ".tuner" extension (see history-panel/panel.js) purely so double-clicking
@@ -46,6 +47,19 @@ export async function buildBackupZip() {
         recordingHash: s.recordingHash || null,
         referenceHash: s.referenceHash || null,
         referenceSource: s.referenceSource || null,
+        // Where this clip sits in the session's sourceAudioFile below --
+        // only meaningful when referenceSource === 'import'. See state.js's
+        // doc comment on sourceOffsetMs/sourceDurationMs.
+        sourceOffsetMs: s.sourceOffsetMs ?? null,
+        sourceDurationMs: s.sourceDurationMs ?? null,
+        // Azure's per-word timestamps + any manually-confirmed split
+        // points (state.js's doc comment) -- plain JSON, added additively
+        // so an OLDER app version reading a backup made by this one just
+        // ignores these two extra keys, and this version reading an OLDER
+        // backup gets `null` (same as "no Azure word data") for both. No
+        // FORMAT_VERSION bump needed for either direction.
+        words: s.words || null,
+        manualPoints: s.manualPoints || null,
         assessment: s.assessment || null,
         assessmentHash: s.assessmentHash || null,
         recordingFile: null,
@@ -63,6 +77,17 @@ export async function buildBackupZip() {
       }
       sentencesOut.push(entry);
     }
+
+    // The original audio an import-mode session was sliced from (state.js's
+    // sourceAudioBlob) -- one file per session, packed the same way a
+    // recording/reference clip is, so Split/Merge can keep re-slicing
+    // losslessly from it after a restore too.
+    let sourceAudioFile = null;
+    if (session.sourceAudioBlob) {
+      sourceAudioFile = `audio/${session.id}/source.${extForMime(session.sourceAudioBlob.type)}`;
+      files.push({ name: sourceAudioFile, data: new Uint8Array(await session.sourceAudioBlob.arrayBuffer()) });
+    }
+
     manifestSessions.push({
       id: session.id,
       folderId: session.folderId ?? null,
@@ -74,6 +99,8 @@ export async function buildBackupZip() {
       updatedAt: session.updatedAt,
       metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
       sentences: sentencesOut,
+      sourceAudioFile,
+      sourceAudioHash: session.sourceAudioHash || null,
     });
   }
 
@@ -108,39 +135,50 @@ export async function parseBackupZip(arrayBuffer) {
     throw new Error(`Unsupported .tuner backup format version: ${manifest.formatVersion}`);
   }
 
-  const sessions = (manifest.sessions || []).map((session) => ({
-    id: session.id,
-    folderId: session.folderId ?? null,
-    name: session.name ?? null,
-    inputText: session.inputText || '',
-    inputTextHash: session.inputTextHash || null,
-    splitMode: session.splitMode,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-    metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
-    sentences: (session.sentences || []).map((s) => {
-      const recordingBytes = s.recordingFile ? byName.get(s.recordingFile) : null;
-      const referenceBytes = s.referenceFile ? byName.get(s.referenceFile) : null;
-      return {
-        id: s.id,
-        text: s.text,
-        lang: s.lang,
-        hidden: s.hidden,
-        assessment: s.assessment || null,
-        recordingBlob: recordingBytes
-          ? new Blob([recordingBytes], { type: MIME_FOR_EXT[extOf(s.recordingFile)] || 'application/octet-stream' })
-          : null,
-        recordingHash: s.recordingHash || null,
-        assessmentHash: s.assessmentHash || null,
-        referenceBlob: referenceBytes
-          ? new Blob([referenceBytes], { type: MIME_FOR_EXT[extOf(s.referenceFile)] || 'application/octet-stream' })
-          : null,
-        referenceHash: s.referenceHash || null,
-        referenceSource: s.referenceSource || null,
-        updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
-      };
-    }),
-  }));
+  const sessions = (manifest.sessions || []).map((session) => {
+    const sourceAudioBytes = session.sourceAudioFile ? byName.get(session.sourceAudioFile) : null;
+    return {
+      id: session.id,
+      folderId: session.folderId ?? null,
+      name: session.name ?? null,
+      inputText: session.inputText || '',
+      inputTextHash: session.inputTextHash || null,
+      splitMode: session.splitMode,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
+      sourceAudioBlob: sourceAudioBytes
+        ? new Blob([sourceAudioBytes], { type: MIME_FOR_EXT[extOf(session.sourceAudioFile)] || 'application/octet-stream' })
+        : null,
+      sourceAudioHash: session.sourceAudioHash || null,
+      sentences: (session.sentences || []).map((s) => {
+        const recordingBytes = s.recordingFile ? byName.get(s.recordingFile) : null;
+        const referenceBytes = s.referenceFile ? byName.get(s.referenceFile) : null;
+        return {
+          id: s.id,
+          text: s.text,
+          lang: s.lang,
+          hidden: s.hidden,
+          assessment: s.assessment || null,
+          recordingBlob: recordingBytes
+            ? new Blob([recordingBytes], { type: MIME_FOR_EXT[extOf(s.recordingFile)] || 'application/octet-stream' })
+            : null,
+          recordingHash: s.recordingHash || null,
+          assessmentHash: s.assessmentHash || null,
+          referenceBlob: referenceBytes
+            ? new Blob([referenceBytes], { type: MIME_FOR_EXT[extOf(s.referenceFile)] || 'application/octet-stream' })
+            : null,
+          referenceHash: s.referenceHash || null,
+          referenceSource: s.referenceSource || null,
+          sourceOffsetMs: s.sourceOffsetMs ?? null,
+          sourceDurationMs: s.sourceDurationMs ?? null,
+          words: s.words || null,
+          manualPoints: s.manualPoints || null,
+          updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
+        };
+      }),
+    };
+  });
 
   return {
     folders: manifest.folders || [],

@@ -126,8 +126,8 @@
 
     <!-- Input -->
     <section class="input-section">
-      <label class="section-title" for="input-text">Practice text</label>
-      <div class="input-mask-wrap">
+      <label id="input-label" class="section-title" for="input-text">Practice text</label>
+      <div id="input-mask-wrap" class="input-mask-wrap">
         <textarea id="input-text" rows="6" spellcheck="false"
           placeholder="Paste Japanese or English text (mixed is fine). Click Split to break it into numbered sentences by sentence boundaries."></textarea>
         <!-- Purely visual overlay for the global "hide text" switch: shown on
@@ -148,6 +148,14 @@
 
     <!-- Sentence list -->
     <section class="list-section">
+      <!-- Shown once 1+ sentence rows are selected via their checkbox; Merge
+           only appears once 2+ are selected (see updateSelectionUI() in
+           sentence-panel/split.js). -->
+      <div id="merge-bar" class="merge-bar" hidden>
+        <span id="merge-bar-label" class="merge-bar-label"></span>
+        <button id="merge-btn" class="btn primary" type="button" hidden>Merge</button>
+        <button id="merge-cancel-btn" class="btn" type="button">Cancel</button>
+      </div>
       <div id="sentence-list" class="sentence-list"></div>
     </section>
   </main>

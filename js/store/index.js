@@ -6,6 +6,7 @@
 
 export { isSupported } from './db.js';
 export {
+  recordTombstone,
   listTombstones,
   upsertTombstones,
   removeSessionRecord,

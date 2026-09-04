@@ -17,7 +17,10 @@ import {
 import {
   els, sentences, globalHideText, setGlobalHideText, persistSession, refreshInputMaskOverlay,
 } from './state.js';
-import { render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest } from './sentence-panel/index.js';
+import {
+  render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest,
+  clearRowSelection, mergeSelectedSentences,
+} from './sentence-panel/index.js';
 import { initHistoryPanel, openHistorySidebar } from './history-panel/index.js';
 import { initBlobPanel } from './sync/index.js';
 
@@ -162,6 +165,9 @@ async function init() {
       els.audioImportBtn.disabled = false;
     }
   });
+
+  if (els.mergeBtn) els.mergeBtn.addEventListener('click', mergeSelectedSentences);
+  if (els.mergeCancelBtn) els.mergeCancelBtn.addEventListener('click', clearRowSelection);
 
   // Clicking anywhere outside a word closes its open scores panel.
   document.addEventListener('click', (e) => {

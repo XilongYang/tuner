@@ -15,9 +15,13 @@
       </label>
       <div class="title-block">
         <h1>Tuner</h1>
-        <p class="subtitle">Japanese / English · reference TTS · shadowing · Azure pronunciation scoring</p>
       </div>
       <div class="header-actions">
+        <div id="sync-indicator" class="sync-indicator" tabindex="0" hidden>
+          <span class="sync-dot" aria-hidden="true"></span>
+          <span id="sync-indicator-label" class="sync-indicator-label"></span>
+          <div id="sync-indicator-tooltip" class="sync-indicator-tooltip" role="status"></div>
+        </div>
         <button id="toggle-history-panel" class="ghost-btn" type="button" aria-expanded="false">
           History
         </button>
@@ -108,7 +112,7 @@
         </div>
 
         <div class="blob-actions">
-          <button id="backup-now-btn" class="btn primary" type="button">Backup now</button>
+          <button id="backup-now-btn" class="btn primary" type="button">Sync now</button>
           <button id="restore-now-btn" class="btn" type="button">Restore from Azure</button>
         </div>
         <p id="blob-action-status" class="row-status" hidden></p>

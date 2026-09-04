@@ -83,7 +83,13 @@ async function checkResponse(response, action) {
   throw new Error(`${action} failed: HTTP ${response.status}${detail ? ' — ' + detail.slice(0, 300) : ''}`);
 }
 
-/** Upload raw bytes (Uint8Array / ArrayBuffer / Blob) as a block blob, creating or overwriting it. */
+/**
+ * Upload raw bytes (Uint8Array / ArrayBuffer / Blob) as a block blob, creating
+ * or overwriting it. Returns the blob's new ETag (or null if the response
+ * didn't carry one -- some proxies/mocks strip it), so a caller that wants to
+ * avoid an immediate redundant re-download of what it just wrote can cache it
+ * directly instead of re-fetching to find out.
+ */
 export async function uploadBytes(sasUrl, path, data, contentType = 'application/octet-stream') {
   let response;
   try {
@@ -100,6 +106,7 @@ export async function uploadBytes(sasUrl, path, data, contentType = 'application
     throw new Error(networkErrorMessage(`Upload of "${path}"`, err));
   }
   await checkResponse(response, `Upload of "${path}"`);
+  return response.headers.get('ETag') || null;
 }
 
 /** Upload a JSON-serializable value as a block blob. */
@@ -127,6 +134,42 @@ export async function downloadBytes(sasUrl, path) {
 export async function downloadJson(sasUrl, path) {
   const blob = await downloadBytes(sasUrl, path);
   return JSON.parse(await blob.text());
+}
+
+/**
+ * Conditional GET + JSON-parse: pass the ETag from a previous download (or
+ * upload) of this same blob, and Azure tells us "not modified" with a 304
+ * instead of sending the body again if it still matches -- lets a caller that
+ * polls the same blob repeatedly (e.g. a sync heartbeat) skip re-downloading
+ * and re-parsing a blob that hasn't changed since it last looked. Pass a
+ * falsy `knownEtag` for a plain unconditional GET (e.g. the first call).
+ *
+ * Returns `{ notModified: true }` on a 304 (the caller should keep using
+ * whatever it already has), or `{ notModified: false, value, etag }` with the
+ * freshly parsed value and its new ETag otherwise. Still throws with
+ * `.notFound = true` if the blob doesn't exist at all.
+ *
+ * Requires the storage account's CORS rule to expose the ETag header to
+ * browser JS (Exposed headers: `*`, or explicitly including ETag) -- without
+ * that, the response still carries the header over the wire, but
+ * `response.headers.get('ETag')` reads back null, so this degrades to always
+ * treating the blob as changed (a correct but non-optimized fallback, not a
+ * bug) rather than raising an error.
+ */
+export async function downloadJsonConditional(sasUrl, path, knownEtag) {
+  const headers = { 'x-ms-version': API_VERSION };
+  if (knownEtag) headers['If-None-Match'] = knownEtag;
+  let response;
+  try {
+    response = await fetchWithTimeout(blobUrl(sasUrl, path), { method: 'GET', headers }, TRANSFER_TIMEOUT_MS);
+  } catch (err) {
+    throw new Error(networkErrorMessage(`Download of "${path}"`, err));
+  }
+  if (response.status === 304) return { notModified: true };
+  await checkResponse(response, `Download of "${path}"`);
+  const etag = response.headers.get('ETag') || null;
+  const value = JSON.parse(await response.text());
+  return { notModified: false, value, etag };
 }
 
 /**

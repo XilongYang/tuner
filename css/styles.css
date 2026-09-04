@@ -76,12 +76,6 @@ a:hover { color: var(--accent); }
   font-weight: 700;
   letter-spacing: 0.5px;
 }
-.subtitle {
-  margin: 8px 0 0;
-  font-size: 14px;
-  color: var(--text-muted);
-  font-style: italic;
-}
 .header-actions {
   position: absolute;
   top: 24px;
@@ -89,6 +83,66 @@ a:hover { color: var(--accent); }
   display: flex;
   align-items: center;
   gap: 14px;
+}
+
+/* ---- Sync indicator (dot + one-word state, hover for detail) ---- */
+.sync-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: default;
+}
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-faint);
+  flex: none;
+}
+.sync-indicator[data-kind="synced"] .sync-dot { background: var(--good); }
+.sync-indicator[data-kind="failed"] .sync-dot { background: var(--accent); }
+.sync-indicator[data-kind="syncing"] .sync-dot {
+  background: var(--mid);
+  animation: sync-dot-pulse 1.1s ease-in-out infinite;
+}
+@keyframes sync-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.sync-indicator[data-kind="failed"] .sync-indicator-label { color: var(--accent-text); }
+
+.sync-indicator-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.4;
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.14);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.09s ease, transform 0.09s ease;
+  transform: translateY(3px);
+}
+.sync-indicator:hover .sync-indicator-tooltip,
+.sync-indicator:focus-within .sync-indicator-tooltip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
 }
 .ghost-btn {
   font-family: var(--serif);

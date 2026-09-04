@@ -75,6 +75,7 @@ let autoSyncHeartbeatTimer = null;
 /** 30s idle heartbeat: only ticks while the tab is visible, so a backgrounded/pinned tab doesn't keep polling Azure and burning battery/quota. */
 export function startAutoSyncHeartbeat() {
   if (autoSyncHeartbeatTimer) return;
+  if (!document.hidden) runAutoSync(); // sync right away on load instead of waiting out the first 30s tick
   autoSyncHeartbeatTimer = setInterval(() => {
     if (document.hidden) return;
     runAutoSync();

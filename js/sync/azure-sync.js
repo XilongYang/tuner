@@ -43,7 +43,13 @@ export async function syncWithAzure() {
     const { folders: localFolders, sessions: localSessions, tombstones: localTombstones } = await store.exportAll();
 
     setBlobActionStatus('Checking remote backup…', 'info');
-    let remoteManifest = { folders: [], sessions: [], tombstones: [] };
+    // Key order matches the manifest built below (version, folders,
+    // tombstones, sessions -- exportedAt aside) so that when nothing exists
+    // remotely yet AND there's nothing local either, the no-op check at
+    // "nothing changed" below actually short-circuits instead of pointlessly
+    // uploading an empty manifest (this matters now that a sync can fire
+    // right on page load, before any local data exists).
+    let remoteManifest = { version: 4, folders: [], tombstones: [], sessions: [] };
     try {
       const result = await blobStore.downloadJsonConditional(sasUrl, BLOB_MANIFEST_PATH, manifestEtagCache.etag);
       if (result.notModified) {

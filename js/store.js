@@ -359,6 +359,45 @@ export async function migrateSessionIdsToUuid() {
   return legacy.length;
 }
 
+/**
+ * One-time backfill for sessions saved before inputTextHash existed.
+ * recordingHash/assessmentHash get recomputed fresh on every write via
+ * stampSentenceVersions(), but inputTextHash is only computed when
+ * createSession()/updateSession() actually runs -- a session that predates
+ * this field and hasn't been edited/recorded/scored/renamed since keeps
+ * inputTextHash undefined forever otherwise. That matters because
+ * syncWithAzure() (js/app.js) treats "no inputTextHash" as "nothing to
+ * resolve/sync for this session" and writes the merged result -- inputText
+ * included -- back to local storage; a session that reaches that path with a
+ * real inputText but no hash gets its perfectly good inputText silently
+ * overwritten with null on its very first sync after this feature shipped.
+ * Safe to call on every init: a no-op once every session already has a hash.
+ */
+export async function backfillInputTextHashes() {
+  const sessions = await listSessions();
+  const stale = sessions.filter((s) => !s.inputTextHash && s.inputText);
+  if (!stale.length) return 0;
+
+  // hashString() awaits (SHA-256 via WebCrypto), so every hash must be
+  // computed BEFORE the write transaction opens -- an IndexedDB transaction
+  // closes itself once control returns to the event loop with no request
+  // pending (see the similar note on createSession/updateSession above).
+  const hashes = await Promise.all(stale.map((s) => hashString(s.inputText)));
+
+  const db = await openDb();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    const objectStore = tx.objectStore(STORE);
+    stale.forEach((session, i) => {
+      objectStore.put({ ...session, inputTextHash: hashes[i] });
+    });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  return stale.length;
+}
+
 // ---- Folders ----
 
 /**

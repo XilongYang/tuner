@@ -997,10 +997,21 @@ function emptyMsg(text) {
   return p;
 }
 
+// Bumped at the start of every renderHistoryTree() call; a call only writes
+// to the DOM if its own token is still the latest one when its awaited data
+// comes back. Without this, two overlapping calls (e.g. opening the History
+// panel right as a sync's refreshHistoryTreeIfOpen() also fires) each clear
+// `historyTree` and then append independently -- whichever call's
+// Promise.all() resolves LAST wins the clear, but the one that resolves
+// FIRST has already appended by then and never clears again, so its rows
+// stay behind and the whole tree renders twice.
+let historyRenderToken = 0;
+
 async function renderHistoryTree() {
-  els.historyTree.innerHTML = '';
+  const token = ++historyRenderToken;
 
   if (!store.isSupported()) {
+    els.historyTree.innerHTML = '';
     els.historyTree.appendChild(emptyMsg("This browser doesn't support local history (IndexedDB unavailable)."));
     return;
   }
@@ -1009,9 +1020,14 @@ async function renderHistoryTree() {
   try {
     [folders, sessions] = await Promise.all([store.listFolders(), store.listSessions()]);
   } catch (err) {
+    if (token !== historyRenderToken) return; // superseded while this call was in flight
+    els.historyTree.innerHTML = '';
     els.historyTree.appendChild(emptyMsg('Failed to load history: ' + err.message));
     return;
   }
+  if (token !== historyRenderToken) return; // a newer call already owns the DOM from here on
+
+  els.historyTree.innerHTML = '';
 
   if (!folders.length && !sessions.length) {
     els.historyTree.appendChild(emptyMsg('No saved sessions yet — click Split to start one.'));
@@ -2407,6 +2423,17 @@ async function init() {
       if (migrated) console.info(`Migrated ${migrated} legacy session(s) to UUID ids.`);
     } catch (err) {
       console.warn('Legacy session id migration skipped:', err);
+    }
+    // Same idea, for sessions saved before inputTextHash existed -- without
+    // this, such a session's first sync after upgrading treats its missing
+    // hash as "nothing to resolve" and wipes its inputText back to null (see
+    // backfillInputTextHashes()'s doc comment in store.js). Awaited before
+    // any sync can possibly run, same reasoning as the UUID migration above.
+    try {
+      const backfilled = await store.backfillInputTextHashes();
+      if (backfilled) console.info(`Backfilled inputTextHash for ${backfilled} legacy session(s).`);
+    } catch (err) {
+      console.warn('inputTextHash backfill skipped:', err);
     }
   }
 

@@ -333,25 +333,19 @@ a:hover { color: var(--accent); }
 }
 #input-text.input-masked::placeholder { color: transparent; }
 #input-text.input-masked::selection { color: transparent; background: transparent; }
+/* Audio-imported session: the practice text mirrors the transcript read-only
+   -- editing it here would drift from the audio clips already sliced to
+   match it, with no way (yet) to re-slice. */
+#input-text.is-locked {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
 .input-actions {
   display: flex;
   align-items: center;
   gap: 12px;
   margin-top: 16px;
-}
-.split-mode {
-  font-family: var(--serif);
-  font-size: 13px;
-  padding: 6px 10px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius);
-  background: var(--surface);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-.split-mode:focus {
-  outline: none;
-  border-color: var(--text-muted);
 }
 
 .sentence-count {

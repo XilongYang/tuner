@@ -5,7 +5,9 @@
 // Terminal punctuation: full-width 。！？… (CJK) and half-width . ! ?
 // Note: an English period also breaks abbreviations (e.g. Mr. / U.S.); this is
 // handled minimally here — a richer abbreviation dictionary can be added later.
-const TERMINATORS = /([。．！？!?…]+|\.(?=\s|$))/g;
+// Exported so audio-import.js can apply the exact same punctuation rule to a
+// transcript reconstructed from Azure word timestamps, not just pasted text.
+export const TERMINATORS = /([。．！？!?…]+|\.(?=\s|$))/g;
 
 /**
  * Split a block of text into an array of sentences.
@@ -44,15 +46,4 @@ export function segment(text) {
   }
 
   return sentences;
-}
-
-/**
- * Manual split: break the text on '/' delimiters.
- * Each piece is trimmed; empty pieces are dropped.
- * @param {string} text
- * @returns {string[]}
- */
-export function splitBySlash(text) {
-  if (!text) return [];
-  return text.split('/').map((s) => s.trim()).filter(Boolean);
 }

@@ -57,6 +57,11 @@
             <input id="azure-region" type="text" autocomplete="off" spellcheck="false"
                    placeholder="e.g. eastasia / japaneast">
           </label>
+          <label class="field">
+            <span>Resource name (custom subdomain, optional)</span>
+            <input id="azure-resource-name" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="e.g. myservice -- only needed for Import audio">
+          </label>
           <div class="key-buttons">
             <button id="save-key-btn" class="btn primary" type="button">Save</button>
           </div>
@@ -127,12 +132,11 @@
       <div class="input-actions">
         <button id="split-btn" class="btn primary" type="button">Split</button>
         <button id="clear-input-btn" class="btn" type="button">Clear</button>
-        <select id="split-mode" class="split-mode" aria-label="Split mode">
-          <option value="auto">Split by sentence</option>
-          <option value="manual">Split by /</option>
-        </select>
         <span id="sentence-count" class="sentence-count"></span>
+        <button id="audio-import-btn" class="btn" type="button">Import audio</button>
+        <input type="file" id="audio-import-input" accept="audio/*" hidden>
       </div>
+      <p id="audio-import-status" class="row-status" hidden></p>
     </section>
 
     <!-- Sentence list -->

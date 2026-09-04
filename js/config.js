@@ -67,7 +67,7 @@ export function saveVoice(locale, voiceId) {
 
 /**
  * Load saved credentials.
- * @returns {{ key: string, region: string } | null}
+ * @returns {{ key: string, region: string, resourceName?: string } | null}
  */
 export function loadCredentials() {
   try {
@@ -85,9 +85,13 @@ export function loadCredentials() {
  * Save credentials to localStorage.
  * @param {string} key
  * @param {string} region
+ * @param {string} [resourceName] Custom subdomain (e.g. "myservice" for
+ *   https://myservice.cognitiveservices.azure.com/) -- only needed for the Fast
+ *   Transcription audio-import feature, not for the existing recognition/TTS
+ *   endpoints, which key off region alone.
  */
-export function saveCredentials(key, region) {
-  const value = { key: key.trim(), region: region.trim() };
+export function saveCredentials(key, region, resourceName = '') {
+  const value = { key: key.trim(), region: region.trim(), resourceName: resourceName.trim() };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   return value;
 }

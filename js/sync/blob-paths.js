@@ -24,6 +24,17 @@ export function setManifestEtagCache(v) {
 export const BLOB_RECORDINGS_PREFIX = 'tuner/recordings/';
 export const blobRecordingPath = (sessionId, sentenceId) => `${BLOB_RECORDINGS_PREFIX}${sessionId}/${sentenceId}.wav`;
 
+// A sentence's reference clip (the audio Speak plays -- an imported slice, or
+// a persisted synthesized take) syncs the same way a recording does: its own
+// small content-addressed blob, only a hash living in the manifest. The
+// actual bytes' format varies (wav for an imported slice, mp3 for a
+// synthesized one), but the path extension is just for tidiness in the
+// container -- playback always relies on the Blob's own `type`, set from the
+// upload's Content-Type header (see uploadBytes()/downloadBytes() in
+// ../azure-blob.js), never the URL.
+export const BLOB_REFERENCES_PREFIX = 'tuner/references/';
+export const blobReferencePath = (sessionId, sentenceId) => `${BLOB_REFERENCES_PREFIX}${sessionId}/${sentenceId}.audio`;
+
 // A sentence's assessment (word/phoneme-level scores -- by far the largest
 // thing in the old, fully-embedded manifest once anything's been scored) and
 // a session's inputText each sync as their own small content-addressed blob,

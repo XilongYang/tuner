@@ -47,6 +47,17 @@ export function renderRow(sentence, index) {
   langToggle.addEventListener('click', () => {
     sentence.lang = sentence.lang === 'ja' ? 'en' : 'ja';
     paintLang();
+    // A synthesized reference was recorded in the OLD language -- it's now
+    // wrong and would need resynthesizing; Speak will do that on next click.
+    // An imported clip's audio never changes just because the language label
+    // did, so that one is left alone.
+    if (sentence.referenceSource === 'tts') {
+      if (sentence.referenceUrl) URL.revokeObjectURL(sentence.referenceUrl);
+      sentence.referenceBlob = null;
+      sentence.referenceUrl = null;
+      sentence.referenceHash = null;
+      sentence.referenceSource = null;
+    }
     persistSession();
   });
   actions.appendChild(langToggle);
@@ -149,14 +160,31 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
       setStatus(status, '', 'info');
       return;
     }
-    const locale = LOCALES[sentence.lang];
     player.stop(); // stop any other playback first
     playBtn.disabled = true;
     try {
+      // A reference clip already exists -- either sliced from an imported
+      // file (permanent, never regenerated) or a previously synthesized take
+      // for the current language (persisted the first time it was made, see
+      // below) -- so play that directly instead of hitting TTS again.
+      if (sentence.referenceBlob && sentence.referenceUrl) {
+        const audio = new Audio(sentence.referenceUrl);
+        await player.start(audio, playBtn);
+        setStatus(status, '', 'info');
+        return;
+      }
+      const locale = LOCALES[sentence.lang];
       if (hasCredentials()) {
         // Reuse cached audio for the same voice + text; synthesize only on a miss.
         const entry = await getTtsEntry(sentence.text, locale,
           () => setStatus(status, 'Synthesizing speech…', 'info'));
+        // Persist this synthesized clip as the sentence's reference audio, so
+        // it survives reload/sync and Speak never needs to call Azure again
+        // for this sentence/language.
+        sentence.referenceBlob = entry.blob;
+        sentence.referenceUrl = entry.url;
+        sentence.referenceSource = 'tts';
+        persistSession();
         ttsAudio.src = entry.url;
         await player.start(ttsAudio, playBtn);
         setStatus(status, '', 'info');
@@ -179,6 +207,10 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
         const { url, blob } = await sentence.recorder.stop();
         sentence.recordingUrl = url;
         sentence.recordingBlob = blob;
+        // Note: this only replaces the user's own take (recordingBlob).
+        // sentence.referenceBlob (what Speak plays) is a separate slot and is
+        // untouched by recording -- an imported clip's reference audio in
+        // particular is meant to stay available permanently.
         recordBtn.textContent = 'Record';
         row.classList.remove('is-recording');
         playbackBtn.hidden = false;
@@ -248,7 +280,10 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
   // Export: bundle text + reference audio + recording + score into a ZIP.
   exportBtn.addEventListener('click', async () => {
     if (!sentence.assessment) return;
-    if (!hasCredentials()) {
+    // A reference clip already on the sentence (imported, or a previously
+    // synthesized take for this language) needs no network call at all --
+    // only fall back to fetching/synthesizing one when there isn't one yet.
+    if (!sentence.referenceBlob && !hasCredentials()) {
       setStatus(status, 'Export needs Azure credentials to fetch the reference audio.', 'error');
       return;
     }
@@ -256,9 +291,17 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
     setStatus(status, 'Preparing export…', 'info');
     try {
       const locale = LOCALES[sentence.lang];
-      // Fetch (and cache) the reference audio if it isn't cached yet.
-      const ref = await getTtsEntry(sentence.text, locale,
-        () => setStatus(status, 'Fetching reference audio…', 'info'));
+      let refBlob = sentence.referenceBlob;
+      if (!refBlob) {
+        const entry = await getTtsEntry(sentence.text, locale,
+          () => setStatus(status, 'Fetching reference audio…', 'info'));
+        refBlob = entry.blob;
+        sentence.referenceBlob = entry.blob;
+        sentence.referenceUrl = entry.url;
+        sentence.referenceSource = 'tts';
+        persistSession();
+      }
+      const refExt = refBlob.type === 'audio/wav' ? 'wav' : (refBlob.type === 'audio/mpeg' ? 'mp3' : 'audio');
 
       const enc = (s) => new TextEncoder().encode(s);
       const meta = {
@@ -271,7 +314,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
       };
       const files = [
         { name: 'text.txt', data: enc(sentence.text) },
-        { name: 'reference.mp3', data: new Uint8Array(await ref.blob.arrayBuffer()) },
+        { name: `reference.${refExt}`, data: new Uint8Array(await refBlob.arrayBuffer()) },
         { name: 'score.json', data: enc(JSON.stringify(meta, null, 2)) },
       ];
       if (sentence.recordingBlob) {

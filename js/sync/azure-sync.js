@@ -26,6 +26,7 @@ import { setBlobActionStatus } from './panel.js';
 import {
   BLOB_MANIFEST_PATH, manifestEtagCache, setManifestEtagCache,
   BLOB_RECORDINGS_PREFIX, blobRecordingPath,
+  BLOB_REFERENCES_PREFIX, blobReferencePath,
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
   cleanupOrphanBlobs,
@@ -78,6 +79,7 @@ export async function syncWithAzure() {
     // synced the same way (content-addressed by hash, fetched only when the
     // merge decides this device still needs it).
     const localRecordingById = new Map();
+    const localReferenceById = new Map();
     const localAssessmentById = new Map();
     const localInputTextBySession = new Map();
     for (const session of localSessions) {
@@ -85,8 +87,25 @@ export async function syncWithAzure() {
         localInputTextBySession.set(session.id, { text: session.inputText, hash: session.inputTextHash || null });
       }
       for (const s of session.sentences || []) {
+        // Read the bytes out right now, before any of the (possibly slow)
+        // network round-trips below run. A Blob just read out of IndexedDB
+        // via store.exportAll() above is backed by a resource tied to that
+        // read; refreshSentenceBlobs()'s lazy `new Blob([oldBlob])` rewrap
+        // (used everywhere else this app re-stores a Blob) only defers
+        // reading it, so it still doesn't protect a Blob that sits around
+        // this long -- by the time this function reaches store.upsertSessions()
+        // at the end, a whole sync's worth of uploads/downloads later, that
+        // resource can already be gone, and IndexedDB's put() then fails with
+        // "Error preparing Blob/File data to be stored in object store".
+        // Materializing into a fresh, self-contained Blob immediately avoids
+        // that regardless of how long the rest of sync takes.
         if (s.recordingBlob) {
-          localRecordingById.set(`${session.id}/${s.id}`, { blob: s.recordingBlob, hash: s.recordingHash || null });
+          const freshBlob = new Blob([await s.recordingBlob.arrayBuffer()], { type: s.recordingBlob.type });
+          localRecordingById.set(`${session.id}/${s.id}`, { blob: freshBlob, hash: s.recordingHash || null });
+        }
+        if (s.referenceBlob) {
+          const freshBlob = new Blob([await s.referenceBlob.arrayBuffer()], { type: s.referenceBlob.type });
+          localReferenceById.set(`${session.id}/${s.id}`, { blob: freshBlob, hash: s.referenceHash || null });
         }
         if (s.assessment) {
           localAssessmentById.set(`${session.id}/${s.id}`, { json: JSON.stringify(s.assessment), value: s.assessment, hash: s.assessmentHash || null });
@@ -121,13 +140,14 @@ export async function syncWithAzure() {
 
     const totalMaybeDownloads = survivingSessions.reduce((sum, s) => {
       const sentenceDownloads = (s.sentences || [])
-        .filter((x) => x.__from === 'remote' && (x.recordingHash || x.assessmentHash)).length;
+        .filter((x) => x.__from === 'remote' && (x.recordingHash || x.referenceHash || x.assessmentHash)).length;
       const inputTextDownload = s.__metaFrom === 'remote' && s.inputTextHash ? 1 : 0;
       return sum + sentenceDownloads + inputTextDownload;
     }, 0);
 
     let downloadCount = 0;
     const recordingUploads = [];
+    const referenceUploads = [];
     const assessmentUploads = [];
     const inputTextUploads = [];
     const finalSessions = [];
@@ -160,6 +180,7 @@ export async function syncWithAzure() {
       for (const sentence of session.sentences || []) {
         const key = `${session.id}/${sentence.id}`;
         const localRecording = localRecordingById.get(key);
+        const localReference = localReferenceById.get(key);
         const localAssessmentEntry = localAssessmentById.get(key);
         const remoteSession = remoteSessions.find((rs) => rs.id === session.id);
         const remoteSentence = remoteSession && (remoteSession.sentences || []).find((rs) => rs.id === sentence.id);
@@ -183,6 +204,27 @@ export async function syncWithAzure() {
           }
         }
 
+        // Reference audio (the clip Speak plays -- imported slice or
+        // synthesized take) syncs exactly like a recording: same
+        // upload-if-local-and-new / reuse-if-hash-matches / download-otherwise
+        // logic, just a separate content-addressed blob.
+        let referenceBlob = null;
+        if (sentence.referenceHash) {
+          if (sentence.__from === 'local') {
+            const alreadyOnAzure = remoteSentence && remoteSentence.referenceHash === sentence.referenceHash;
+            referenceBlob = localReference ? localReference.blob : null;
+            if (!alreadyOnAzure && referenceBlob) {
+              referenceUploads.push({ sessionId: session.id, sentenceId: sentence.id, blob: referenceBlob });
+            }
+          } else if (localReference && localReference.hash === sentence.referenceHash) {
+            referenceBlob = localReference.blob;
+          } else {
+            downloadCount++;
+            setBlobActionStatus(`Downloading reference audio ${downloadCount} / ${totalMaybeDownloads}…`, 'info');
+            referenceBlob = await blobStore.downloadBytes(sasUrl, blobReferencePath(session.id, sentence.id));
+          }
+        }
+
         let assessment = null;
         if (sentence.assessmentHash) {
           if (sentence.__from === 'local') {
@@ -201,7 +243,7 @@ export async function syncWithAzure() {
         }
 
         const { __from, ...cleanSentence } = sentence;
-        sentencesOut.push({ ...cleanSentence, recordingBlob, assessment });
+        sentencesOut.push({ ...cleanSentence, recordingBlob, referenceBlob, assessment });
       }
       const { __metaFrom, ...cleanSession } = session;
       finalSessions.push({ ...cleanSession, inputText, sentences: sentencesOut });
@@ -211,6 +253,11 @@ export async function syncWithAzure() {
       const { sessionId, sentenceId, blob } = recordingUploads[i];
       setBlobActionStatus(`Uploading recording ${i + 1} / ${recordingUploads.length}…`, 'info');
       await blobStore.uploadBytes(sasUrl, blobRecordingPath(sessionId, sentenceId), blob, 'audio/wav');
+    }
+    for (let i = 0; i < referenceUploads.length; i++) {
+      const { sessionId, sentenceId, blob } = referenceUploads[i];
+      setBlobActionStatus(`Uploading reference audio ${i + 1} / ${referenceUploads.length}…`, 'info');
+      await blobStore.uploadBytes(sasUrl, blobReferencePath(sessionId, sentenceId), blob, blob.type || 'application/octet-stream');
     }
     for (let i = 0; i < assessmentUploads.length; i++) {
       const { sessionId, sentenceId, json } = assessmentUploads[i];
@@ -253,6 +300,9 @@ export async function syncWithAzure() {
           recordingHash: s.recordingHash || null,
           hasAssessment: !!s.assessmentHash,
           assessmentHash: s.assessmentHash || null,
+          hasReference: !!s.referenceHash,
+          referenceHash: s.referenceHash || null,
+          referenceSource: s.referenceSource || null,
           updatedAt: s.updatedAt,
         })),
       })),
@@ -285,6 +335,9 @@ export async function syncWithAzure() {
       const recordingPaths = manifest.sessions.flatMap((session) => (session.sentences || [])
         .filter((s) => s.hasRecording)
         .map((s) => blobRecordingPath(session.id, s.id)));
+      const referencePaths = manifest.sessions.flatMap((session) => (session.sentences || [])
+        .filter((s) => s.hasReference)
+        .map((s) => blobReferencePath(session.id, s.id)));
       const assessmentPaths = manifest.sessions.flatMap((session) => (session.sentences || [])
         .filter((s) => s.hasAssessment)
         .map((s) => blobAssessmentPath(session.id, s.id)));
@@ -292,6 +345,7 @@ export async function syncWithAzure() {
         .filter((session) => session.hasInputText)
         .map((session) => blobInputTextPath(session.id));
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_RECORDINGS_PREFIX, recordingPaths);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_REFERENCES_PREFIX, referencePaths);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_ASSESSMENTS_PREFIX, assessmentPaths);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_INPUTTEXT_PREFIX, inputTextPaths);
     } catch (err) {
@@ -327,7 +381,7 @@ export async function syncWithAzure() {
     refreshHistoryTreeIfOpen();
 
     setBlobActionStatus(
-      `Sync complete — ${finalSessions.length} session(s), ${recordingUploads.length + assessmentUploads.length + inputTextUploads.length} uploaded, ${downloadCount} downloaded` +
+      `Sync complete — ${finalSessions.length} session(s), ${recordingUploads.length + referenceUploads.length + assessmentUploads.length + inputTextUploads.length} uploaded, ${downloadCount} downloaded` +
       (casualtySessionIds.size || casualtyFolderIds.size
         ? `, ${casualtySessionIds.size} session(s)/${casualtyFolderIds.size} folder(s) deleted`
         : '') +
@@ -373,7 +427,7 @@ export async function restoreFromAzure() {
     // three kinds, not just recordings.
     const totalDownloads = manifestSessions.reduce((sum, session) => {
       const sentenceDownloads = (session.sentences || [])
-        .filter((s) => s.hasRecording || s.hasAssessment).length;
+        .filter((s) => s.hasRecording || s.hasReference || s.hasAssessment).length;
       return sum + sentenceDownloads + (session.hasInputText ? 1 : 0);
     }, 0);
 
@@ -396,6 +450,12 @@ export async function restoreFromAzure() {
           setBlobActionStatus(`Downloading recording ${downloaded} / ${totalDownloads}\u2026`, 'info');
           recordingBlob = await blobStore.downloadBytes(sasUrl, blobRecordingPath(session.id, s.id));
         }
+        let referenceBlob = null;
+        if (s.hasReference) {
+          downloaded++;
+          setBlobActionStatus(`Downloading reference audio ${downloaded} / ${totalDownloads}\u2026`, 'info');
+          referenceBlob = await blobStore.downloadBytes(sasUrl, blobReferencePath(session.id, s.id));
+        }
         let assessment = null;
         if (s.hasAssessment) {
           downloaded++;
@@ -411,6 +471,9 @@ export async function restoreFromAzure() {
           recordingBlob,
           recordingHash: s.recordingHash || null,
           assessmentHash: s.assessmentHash || null,
+          referenceBlob,
+          referenceHash: s.referenceHash || null,
+          referenceSource: s.referenceSource || null,
           updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
         });
       }

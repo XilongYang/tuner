@@ -3,7 +3,7 @@
 // both Split (defaulting to the global switch) and the per-row hide button
 // (in ./row.js) need to paint/apply the same hidden state.
 
-import { segment, splitBySlash } from '../segment.js';
+import { segment } from '../segment.js';
 import { detectLang } from '../lang.js';
 import { Recorder } from '../recorder.js';
 import * as store from '../store/index.js';
@@ -12,6 +12,8 @@ import {
   sentences,
   setSentences,
   setCurrentSessionId,
+  currentSplitMode,
+  setCurrentSplitMode,
   globalHideText,
   sentenceToRecord,
 } from '../state.js';
@@ -36,13 +38,21 @@ export function stopActiveWordRetest() {
 // ---- Sentence list ----
 
 export async function handleSplit() {
-  const parts = els.splitMode.value === 'manual'
-    ? splitBySlash(els.input.value)
-    : segment(els.input.value);
+  if (currentSplitMode === 'audio') {
+    // An audio-imported session: the practice text box is locked read-only
+    // (applyAudioSessionLock() below), so there's no text here to (re-)split
+    // -- the button becomes "New Session" instead (see the same function),
+    // clearing the screen so a plain text session can be started again.
+    startNewSession();
+    return;
+  }
+
+  const parts = segment(els.input.value);
   stopActiveWordRetest();
   // Release resources from the previous recordings
   for (const s of sentences) s.recorder.dispose();
 
+  setCurrentSplitMode('auto');
   setSentences(parts.map((text) => ({
     id: crypto.randomUUID(),
     text,
@@ -53,6 +63,10 @@ export async function handleSplit() {
     recordingBlob: null,
     recordingHash: null,
     assessment: null,
+    referenceBlob: null,
+    referenceUrl: null,
+    referenceHash: null,
+    referenceSource: null,
   })));
 
   render();
@@ -63,7 +77,7 @@ export async function handleSplit() {
     try {
       setCurrentSessionId(await store.createSession({
         inputText: els.input.value,
-        splitMode: els.splitMode.value,
+        splitMode: 'auto',
         sentences: sentences.map(sentenceToRecord),
       }));
       refreshHistoryTreeIfOpen();
@@ -74,7 +88,43 @@ export async function handleSplit() {
   }
 }
 
+/**
+ * The Split button's action for an audio-imported session (see
+ * applyAudioSessionLock(): it's relabeled "New Session" there). With the
+ * practice text box locked read-only, Split's usual job -- turn edited text
+ * into a new sentence list -- has nothing to do; this instead clears the
+ * screen back to a blank auto-mode slate, since without it there'd be no way
+ * left to start a plain text session again once an audio session is open.
+ * Doesn't touch IndexedDB: no session exists until the next real Split,
+ * exactly like on first load.
+ */
+function startNewSession() {
+  stopActiveWordRetest();
+  for (const s of sentences) s.recorder.dispose();
+  setSentences([]);
+  els.input.value = '';
+  setCurrentSessionId(null);
+  setCurrentSplitMode('auto');
+  if (els.audioImportStatus) els.audioImportStatus.hidden = true;
+  render();
+}
+
+/** Lock the practice text box for an audio-imported session: there's no way
+ *  yet to re-slice the audio if the transcript is edited, so editing (and
+ *  Clear, which would blow the text away entirely) is disabled until that
+ *  exists. Split becomes "New Session" (startNewSession() above) since it
+ *  would otherwise have no text to act on. */
+function applyAudioSessionLock() {
+  const locked = currentSplitMode === 'audio';
+  els.input.readOnly = locked;
+  els.input.classList.toggle('is-locked', locked);
+  els.clearInputBtn.hidden = locked;
+  els.clearInputBtn.disabled = locked;
+  els.splitBtn.textContent = locked ? 'New Session' : 'Split';
+}
+
 export function render() {
+  applyAudioSessionLock();
   els.list.innerHTML = '';
   els.count.textContent = sentences.length
     ? `${sentences.length} ${sentences.length > 1 ? 'sentences' : 'sentence'}`

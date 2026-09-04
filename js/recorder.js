@@ -9,7 +9,7 @@
 const TARGET_RATE = 16000;
 
 /** Resample captured Float32 samples to 16kHz. */
-function resampleTo16k(input, inputRate) {
+export function resampleTo16k(input, inputRate) {
   if (inputRate === TARGET_RATE) return input;
   const ratio = inputRate / TARGET_RATE;
   const newLen = Math.round(input.length / ratio);
@@ -52,7 +52,7 @@ function writeString(view, offset, str) {
  * after recording (unlike autoGainControl's dynamic adjustment), it introduces no
  * pumping or dropouts. The maxGain cap prevents blowing up near-silent noise floor.
  */
-function normalize(samples, targetPeak = 0.95, maxGain = 30) {
+export function normalize(samples, targetPeak = 0.95, maxGain = 30) {
   let peak = 0;
   for (let i = 0; i < samples.length; i++) {
     const a = Math.abs(samples[i]);
@@ -64,8 +64,13 @@ function normalize(samples, targetPeak = 0.95, maxGain = 30) {
   return samples;
 }
 
-/** Encode Float32 PCM into a 16kHz/16bit/mono WAV, returning an ArrayBuffer. */
-function encodeWav(float32, inputRate) {
+/**
+ * Encode Float32 PCM into a 16kHz/16bit/mono WAV, returning an ArrayBuffer.
+ * Exported (along with resampleTo16k/normalize above) so audio-import.js can
+ * run the same pipeline on slices cut from an uploaded file, outside the
+ * live-recording flow this module otherwise exists for.
+ */
+export function encodeWav(float32, inputRate) {
   const pcm = normalize(resampleTo16k(float32, inputRate));
   const numSamples = pcm.length;
   const buffer = new ArrayBuffer(44 + numSamples * 2);

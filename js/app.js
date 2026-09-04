@@ -15,7 +15,7 @@ import {
   saveVoice,
 } from './config.js';
 import { els, sentences, globalHideText, setGlobalHideText, persistSession } from './state.js';
-import { render, handleSplit, applyHidden, stopActiveWordRetest } from './sentence-panel/index.js';
+import { render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest } from './sentence-panel/index.js';
 import { initHistoryPanel, openHistorySidebar } from './history-panel/index.js';
 import { initBlobPanel } from './sync/index.js';
 
@@ -29,7 +29,9 @@ function updateKeyPanel() {
   els.keyEntry.hidden = has;
   els.keySaved.hidden = !has;
   if (has) {
-    els.keyStatus.textContent = `Key saved · Region = ${creds.region}`;
+    els.keyStatus.textContent = creds.resourceName
+      ? `Key saved · Region = ${creds.region} · Resource = ${creds.resourceName}`
+      : `Key saved · Region = ${creds.region}`;
   }
 }
 
@@ -37,12 +39,14 @@ function initKeyPanel() {
   els.saveKeyBtn.addEventListener('click', () => {
     const key = els.keyInput.value.trim();
     const region = els.regionInput.value.trim();
+    const resourceName = els.resourceNameInput.value.trim();
     if (!key || !region) {
       alert('Please enter both Key and Region');
       return;
     }
-    saveCredentials(key, region);
+    saveCredentials(key, region, resourceName);
     els.keyInput.value = '';
+    els.resourceNameInput.value = '';
     updateKeyPanel();
   });
 
@@ -50,6 +54,7 @@ function initKeyPanel() {
     clearCredentials();
     els.keyInput.value = '';
     els.regionInput.value = '';
+    els.resourceNameInput.value = '';
     updateKeyPanel();
   });
 
@@ -128,6 +133,19 @@ async function init() {
   els.clearInputBtn.addEventListener('click', () => {
     els.input.value = '';
     els.input.focus();
+  });
+
+  els.audioImportBtn.addEventListener('click', () => els.audioImportInput.click());
+  els.audioImportInput.addEventListener('change', async () => {
+    const file = els.audioImportInput.files[0];
+    els.audioImportInput.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    els.audioImportBtn.disabled = true;
+    try {
+      await handleAudioImport(file);
+    } finally {
+      els.audioImportBtn.disabled = false;
+    }
   });
 
   // Clicking anywhere outside a word closes its open scores panel.

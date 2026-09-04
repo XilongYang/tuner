@@ -13,11 +13,13 @@
  */
 export function refreshSentenceBlobs(sentences) {
   if (!Array.isArray(sentences)) return sentences;
-  return sentences.map((s) => (
-    s && s.recordingBlob
-      ? { ...s, recordingBlob: new Blob([s.recordingBlob], { type: s.recordingBlob.type }) }
-      : s
-  ));
+  return sentences.map((s) => {
+    if (!s) return s;
+    const out = { ...s };
+    if (out.recordingBlob) out.recordingBlob = new Blob([out.recordingBlob], { type: out.recordingBlob.type });
+    if (out.referenceBlob) out.referenceBlob = new Blob([out.referenceBlob], { type: out.referenceBlob.type });
+    return out;
+  });
 }
 
 /**
@@ -87,16 +89,24 @@ export async function stampSentenceVersions(existingSentences, incomingSentences
     const recordingHash = s.recordingBlob ? await hashBlob(s.recordingBlob) : null;
     const recordingChanged = (prev?.recordingHash || null) !== (recordingHash || null);
 
+    // Same idea as recordingHash, for the reference clip Speak plays (an
+    // imported slice, or a persisted synthesized take -- see audio-import.js
+    // and row.js's Speak handler).
+    const referenceHash = s.referenceBlob ? await hashBlob(s.referenceBlob) : null;
+    const referenceChanged = (prev?.referenceHash || null) !== (referenceHash || null)
+      || (prev?.referenceSource || null) !== (s.referenceSource || null);
+
     const assessmentHash = s.assessment ? await hashString(JSON.stringify(s.assessment)) : null;
     const assessmentChanged = (prev?.assessmentHash || null) !== (assessmentHash || null);
 
-    if (!prev) return { ...s, recordingHash, assessmentHash, updatedAt: s.updatedAt ?? now };
+    if (!prev) return { ...s, recordingHash, assessmentHash, referenceHash, updatedAt: s.updatedAt ?? now };
     const changed =
       prev.text !== s.text ||
       prev.lang !== s.lang ||
       prev.hidden !== s.hidden ||
       recordingChanged ||
+      referenceChanged ||
       assessmentChanged;
-    return { ...s, recordingHash, assessmentHash, updatedAt: changed ? now : (prev.updatedAt ?? now) };
+    return { ...s, recordingHash, assessmentHash, referenceHash, updatedAt: changed ? now : (prev.updatedAt ?? now) };
   }));
 }

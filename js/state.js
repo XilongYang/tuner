@@ -22,12 +22,15 @@ export const els = {
   input: $('#input-text'),
   splitBtn: $('#split-btn'),
   clearInputBtn: $('#clear-input-btn'),
-  splitMode: $('#split-mode'),
   list: $('#sentence-list'),
   count: $('#sentence-count'),
+  audioImportBtn: $('#audio-import-btn'),
+  audioImportInput: $('#audio-import-input'),
+  audioImportStatus: $('#audio-import-status'),
   // Credentials panel
   keyInput: $('#azure-key'),
   regionInput: $('#azure-region'),
+  resourceNameInput: $('#azure-resource-name'),
   saveKeyBtn: $('#save-key-btn'),
   clearKeyBtn: $('#clear-key-btn'),
   keyStatus: $('#key-status'),
@@ -98,6 +101,16 @@ export function isSessionBusy() {
 export let currentSessionId = null;
 export function setCurrentSessionId(id) { currentSessionId = id; }
 
+// Which flow produced the sentences currently on screen: 'auto' (a plain text
+// Split) or 'audio' (Import audio). No longer a user-facing choice -- the old
+// "Split by /" manual mode and its dropdown were removed -- this just tracks
+// session.splitMode internally now that there's no <select> to read it from,
+// so the input box can be locked read-only and Split's meaning switched (see
+// applyAudioSessionLock()/handleAudioResplit() in sentence-panel/split.js)
+// for a session that came from an audio import.
+export let currentSplitMode = 'auto';
+export function setCurrentSplitMode(mode) { currentSplitMode = mode || 'auto'; }
+
 /** Reduce a sentence to the fields worth persisting (drop the live Recorder). */
 export function sentenceToRecord(s) {
   return {
@@ -114,6 +127,13 @@ export function sentenceToRecord(s) {
     assessment: s.assessment || null,
     // Same "pass through whatever we already know" story as recordingHash.
     assessmentHash: s.assessmentHash || null,
+    // The reference clip Speak plays (row.js): the original slice for an
+    // imported sentence (permanent), or a synthesized take cached the first
+    // time Speak/Export needed one (regenerated if the language changes).
+    // Same "pass through whatever we already know" hash story as recordingHash.
+    referenceBlob: s.referenceBlob || null,
+    referenceHash: s.referenceHash || null,
+    referenceSource: s.referenceSource || null,
   };
 }
 
@@ -122,7 +142,7 @@ export function persistSession() {
   if (currentSessionId == null) return;
   store.updateSession(currentSessionId, {
     inputText: els.input.value,
-    splitMode: els.splitMode.value,
+    splitMode: currentSplitMode,
     sentences: sentences.map(sentenceToRecord),
   }).then(() => scheduleAutoSync())
     .catch((err) => console.warn('Failed to save session locally:', err));

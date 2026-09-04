@@ -5,7 +5,7 @@
 
 import { Recorder } from '../recorder.js';
 import {
-  els, sentences, setSentences, setCurrentSessionId, isSentenceBusy,
+  els, sentences, setSentences, setCurrentSessionId, setCurrentSplitMode, isSentenceBusy,
 } from '../state.js';
 import { render } from '../sentence-panel/index.js';
 import { refreshHistoryTreeIfOpen } from './panel.js';
@@ -28,6 +28,10 @@ function makeLiveSentence(s) {
     recordingUrl: s.recordingBlob ? URL.createObjectURL(s.recordingBlob) : null,
     recordingBlob: s.recordingBlob || null,
     recordingHash: s.recordingHash || null,
+    referenceUrl: s.referenceBlob ? URL.createObjectURL(s.referenceBlob) : null,
+    referenceBlob: s.referenceBlob || null,
+    referenceHash: s.referenceHash || null,
+    referenceSource: s.referenceSource || null,
     // Sentence-level sync version; not shown in the UI, just carried through
     // so a later persistSession() doesn't lose it and make everything look
     // freshly-changed to the next sync.
@@ -42,7 +46,7 @@ export function openSession(item) {
   for (const s of sentences) s.recorder.dispose();
 
   els.input.value = item.inputText || '';
-  if (item.splitMode) els.splitMode.value = item.splitMode;
+  setCurrentSplitMode(item.splitMode);
 
   setSentences((item.sentences || []).map(makeLiveSentence));
 
@@ -66,9 +70,7 @@ export function applyIncomingSessionUpdate(refreshed) {
     const nextInput = refreshed.inputText || '';
     if (els.input.value !== nextInput) els.input.value = nextInput;
   }
-  if (refreshed.splitMode && els.splitMode.value !== refreshed.splitMode) {
-    els.splitMode.value = refreshed.splitMode;
-  }
+  if (refreshed.splitMode) setCurrentSplitMode(refreshed.splitMode);
 
   const liveById = new Map(sentences.map((s) => [s.id, s]));
   let changed = false;
@@ -80,6 +82,8 @@ export function applyIncomingSessionUpdate(refreshed) {
       live.lang === rs.lang &&
       live.hidden === rs.hidden &&
       (live.recordingHash || null) === (rs.recordingHash || null) &&
+      (live.referenceHash || null) === (rs.referenceHash || null) &&
+      (live.referenceSource || null) === (rs.referenceSource || null) &&
       JSON.stringify(live.assessment || null) === JSON.stringify(rs.assessment || null);
     if (samePersisted) return live;
     if (isSentenceBusy(rs.id)) return live; // leave it alone this round

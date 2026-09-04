@@ -35,6 +35,17 @@ let sentences = [];
 // Global "hide text" switch; the default value for each per-sentence toggle.
 let globalHideText = false;
 
+// Tracks an in-progress per-word "Retest" recording (opened from a word's score
+// popover). Ephemeral only -- never touches `sentence.assessment` or persistSession() --
+// so switching words, closing the popover, or a fresh Split can safely cancel it.
+let activeWordRetest = null;
+function stopActiveWordRetest() {
+  if (activeWordRetest) {
+    activeWordRetest.stop();
+    activeWordRetest = null;
+  }
+}
+
 // ---- Local persistence (IndexedDB) ----
 // The id of the session currently on screen (one per Split click); null when
 // nothing has been split yet, or when saving isn't available in this browser.
@@ -248,6 +259,7 @@ async function handleSplit() {
   const parts = els.splitMode.value === 'manual'
     ? splitBySlash(els.input.value)
     : segment(els.input.value);
+  stopActiveWordRetest();
   // Release resources from the previous recordings
   for (const s of sentences) s.recorder.dispose();
 
@@ -670,22 +682,18 @@ function renderAssessment(container, a, sentence) {
 
     if (w.errorType === 'Omission') {
       span.dataset.error = 'omission';
-      span.appendChild(buildWordTip('Omission · in the reference but not spoken', '', null));
     } else if (w.errorType === 'Insertion') {
       span.dataset.error = 'insertion';
-      span.appendChild(buildWordTip('Insertion · spoken but not in the reference', '', null));
     } else {
-      const level = accuracyLevel(w.accuracy);
-      span.dataset.level = level;
-      const errLabel = ERROR_LABELS[w.errorType] || '';
-      const head =
-        `${w.word} · accuracy ${Math.round(w.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
-      span.appendChild(buildWordTip(head, level, w.phonemes));
+      span.dataset.level = accuracyLevel(w.accuracy);
     }
+    span.appendChild(buildWordTip(w, sentence));
 
     span.addEventListener('click', () => {
       const wasOpen = span.classList.contains('is-open');
-      // Only one word panel open at a time.
+      // Only one word panel open at a time; switching (or closing) cancels any
+      // in-progress per-word retest recording for whichever popover was open.
+      stopActiveWordRetest();
       wordsWrap.querySelectorAll('.word.is-open').forEach((el) => el.classList.remove('is-open'));
       if (wasOpen) return; // toggle closed
       span.classList.add('is-open');
@@ -711,20 +719,59 @@ async function playWord(text, sentence) {
   } catch { /* ignore per-word playback errors */ }
 }
 
-/** Build a word's popover: a heading line + per-phoneme chips. Shown on click (via .word.is-open). */
-function buildWordTip(head, headLevel, phonemes) {
+/**
+ * Build a word's popover: a heading line + per-phoneme chips, plus a "Retest"
+ * control that records just this one word, re-scores it against Azure, and
+ * swaps the heading/phonemes to show the new result in its place.
+ *
+ * The retest result lives only in this closure (`retestWord` below) -- it never
+ * touches `w` or `sentence.assessment` and is never passed to persistSession(),
+ * so it is purely a this-session, this-popover scratchpad: closing the popover,
+ * reopening the word, or reloading the page loses it.
+ */
+function buildWordTip(w, sentence) {
   const tip = document.createElement('span');
   tip.className = 'word-tip';
+  // Clicks inside the popover (the Retest button, in particular) must not bubble
+  // up to the word span's own click handler, which would immediately toggle the
+  // popover closed again.
+  tip.addEventListener('click', (e) => e.stopPropagation());
 
-  const h = document.createElement('span');
-  h.className = 'tip-head';
-  if (headLevel) h.dataset.level = headLevel;
-  h.textContent = head;
-  tip.appendChild(h);
+  const head = document.createElement('span');
+  head.className = 'tip-head';
+  const phonemesWrap = document.createElement('span');
+  phonemesWrap.className = 'tip-phonemes';
+  tip.appendChild(head);
+  tip.appendChild(phonemesWrap);
 
-  if (phonemes && phonemes.length) {
-    const pw = document.createElement('span');
-    pw.className = 'tip-phonemes';
+  let retestWord = null; // set once a retest scores successfully; overrides `w` for display
+
+  /** (Re)render the heading + phoneme chips from either the original score or a completed retest. */
+  function renderScore() {
+    const data = retestWord || w;
+    const prefix = retestWord ? 'Retest: ' : '';
+    phonemesWrap.innerHTML = '';
+    head.removeAttribute('data-level');
+
+    if (data.errorType === 'Omission') {
+      head.textContent = `${prefix}${w.word} · omission · in the reference but not spoken`;
+      phonemesWrap.hidden = true;
+      return;
+    }
+    if (data.errorType === 'Insertion') {
+      head.textContent = `${prefix}${w.word} · insertion · spoken but not in the reference`;
+      phonemesWrap.hidden = true;
+      return;
+    }
+
+    const level = accuracyLevel(data.accuracy);
+    const errLabel = ERROR_LABELS[data.errorType] || '';
+    head.dataset.level = level;
+    head.textContent =
+      `${prefix}${w.word} · accuracy ${Math.round(data.accuracy)}${errLabel ? ' · ' + errLabel : ''}`;
+
+    const phonemes = data.phonemes || [];
+    phonemesWrap.hidden = !phonemes.length;
     for (const p of phonemes) {
       const chip = document.createElement('span');
       chip.className = 'ph';
@@ -735,10 +782,128 @@ function buildWordTip(head, headLevel, phonemes) {
       score.textContent = Math.round(p.accuracy);
       chip.appendChild(name);
       chip.appendChild(score);
-      pw.appendChild(chip);
+      phonemesWrap.appendChild(chip);
     }
-    tip.appendChild(pw);
   }
+  renderScore();
+
+  // ---- Retest: re-record and re-score just this word (ephemeral, see above) ----
+  if (w.word) {
+    const retestWrap = document.createElement('span');
+    retestWrap.className = 'tip-retest';
+
+    const retestBtn = document.createElement('button');
+    retestBtn.className = 'tip-retest-btn';
+    retestBtn.type = 'button';
+    retestBtn.textContent = '🎙 Retest';
+
+    // Hear the last retest take back; only shown once one exists. Its own object
+    // URL (not the Recorder's, which gets revoked on dispose() below) so it stays
+    // playable after the mic is released -- revoked when superseded or replaced.
+    const playBtn = document.createElement('button');
+    playBtn.className = 'tip-retest-play-btn';
+    playBtn.type = 'button';
+    playBtn.textContent = '▶';
+    playBtn.title = 'Play your last retest take';
+    playBtn.hidden = true;
+    let retestUrl = null;
+
+    const retestStatus = document.createElement('span');
+    retestStatus.className = 'tip-retest-status';
+    retestStatus.hidden = true;
+
+    function setRetestStatus(message, kind = 'info') {
+      if (!message) {
+        retestStatus.hidden = true;
+        retestStatus.textContent = '';
+        return;
+      }
+      retestStatus.hidden = false;
+      retestStatus.textContent = message;
+      retestStatus.dataset.kind = kind;
+    }
+
+    let recorder = null;
+
+    retestBtn.addEventListener('click', async () => {
+      if (recorder && recorder.isRecording) {
+        // Stop -> score just this word.
+        retestBtn.disabled = true;
+        try {
+          const { blob } = await recorder.stop();
+          recorder.dispose();
+          recorder = null;
+          activeWordRetest = null;
+          retestBtn.textContent = '🎙 Retest';
+          retestBtn.classList.remove('is-recording');
+
+          if (retestUrl) URL.revokeObjectURL(retestUrl);
+          retestUrl = URL.createObjectURL(blob);
+          playBtn.hidden = false;
+
+          setRetestStatus('Assessing…', 'info');
+          const locale = LOCALES[sentence.lang];
+          const assessment = await assessPronunciation(blob, w.word, locale);
+          retestWord = (assessment.words && assessment.words[0]) ||
+            { accuracy: 0, errorType: 'None', phonemes: [] };
+          renderScore();
+          setRetestStatus('', 'info');
+        } catch (err) {
+          setRetestStatus('Retest failed: ' + err.message, 'error');
+        } finally {
+          retestBtn.disabled = false;
+        }
+        return;
+      }
+
+      // Start recording.
+      if (!hasCredentials()) {
+        setRetestStatus('Retest needs Azure credentials (see Azure settings).', 'error');
+        return;
+      }
+      stopActiveWordRetest(); // only one word-retest recording at a time
+      player.stop(); // stop any playback (reference audio or a previous take) before recording
+      playBtn.hidden = true;
+      setRetestStatus('', 'info');
+      try {
+        recorder = new Recorder();
+        await recorder.start();
+        retestBtn.textContent = '⏹ Stop';
+        retestBtn.classList.add('is-recording');
+        setRetestStatus('● Recording…', 'recording');
+        activeWordRetest = {
+          stop() {
+            if (recorder) { recorder.dispose(); recorder = null; }
+            retestBtn.textContent = '🎙 Retest';
+            retestBtn.classList.remove('is-recording');
+            setRetestStatus('', 'info');
+          },
+        };
+      } catch (err) {
+        setRetestStatus('Cannot record: ' + err.message, 'error');
+        recorder = null;
+      }
+    });
+
+    // Playback: toggle, like the row-level Playback button (stops itself on a second click).
+    playBtn.addEventListener('click', () => {
+      if (player.isActive(playBtn)) {
+        player.stop();
+        return;
+      }
+      if (!retestUrl) return;
+      const audio = new Audio(retestUrl);
+      player.start(audio, playBtn).catch((err) => {
+        setRetestStatus('Playback failed: ' + err.message, 'error');
+      });
+    });
+
+    retestWrap.appendChild(retestBtn);
+    retestWrap.appendChild(playBtn);
+    retestWrap.appendChild(retestStatus);
+    tip.appendChild(retestWrap);
+  }
+
   return tip;
 }
 
@@ -1601,6 +1766,7 @@ async function init() {
   // Clicking anywhere outside a word closes its open scores panel.
   document.addEventListener('click', (e) => {
     if (!e.target.closest('.word')) {
+      stopActiveWordRetest();
       document.querySelectorAll('.word.is-open').forEach((el) => el.classList.remove('is-open'));
     }
   });

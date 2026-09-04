@@ -2,7 +2,7 @@
 // domain (sentence list, History sidebar, cloud sync) lives in its own
 // module; this file just imports and calls into them.
 
-import * as store from './store.js';
+import * as store from './store/index.js';
 import {
   loadCredentials,
   saveCredentials,
@@ -15,9 +15,9 @@ import {
   saveVoice,
 } from './config.js';
 import { els, sentences, globalHideText, setGlobalHideText, persistSession } from './state.js';
-import { render, handleSplit, applyHidden, stopActiveWordRetest } from './sentence-panel.js';
-import { initHistoryPanel, openHistorySidebar } from './history-panel.js';
-import { initBlobPanel } from './sync.js';
+import { render, handleSplit, applyHidden, stopActiveWordRetest } from './sentence-panel/index.js';
+import { initHistoryPanel, openHistorySidebar } from './history-panel/index.js';
+import { initBlobPanel } from './sync/index.js';
 
 // ---- Credentials panel ----
 

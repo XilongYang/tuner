@@ -5,15 +5,15 @@
 // state rather than keeping its own copy.
 //
 // `sentences`/`currentSessionId`/`globalHideText` are reassigned (not just
-// mutated) from several other modules (sentence-panel.js, history-panel.js,
-// sync.js, app.js), and only the module that declares an `export let`
+// mutated) from several other modules (js/sentence-panel/, js/history-panel/,
+// js/sync/, app.js), and only the module that declares an `export let`
 // binding may reassign it -- an importer may read the live value but
 // assigning to it directly throws. So each is paired with a `setX()`
 // function that this module owns and every other module calls instead of
 // assigning directly.
 
-import * as store from './store.js';
-import { scheduleAutoSync } from './sync.js';
+import * as store from './store/index.js';
+import { scheduleAutoSync } from './sync/index.js';
 
 // ---- DOM references ----
 const $ = (sel) => document.querySelector(sel);

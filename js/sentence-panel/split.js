@@ -16,6 +16,7 @@ import {
   setCurrentSplitMode,
   globalHideText,
   sentenceToRecord,
+  refreshInputMaskOverlay,
 } from '../state.js';
 import { refreshHistoryTreeIfOpen } from '../history-panel/index.js';
 import { scheduleAutoSync } from '../sync/index.js';
@@ -97,8 +98,13 @@ export async function handleSplit() {
  * left to start a plain text session again once an audio session is open.
  * Doesn't touch IndexedDB: no session exists until the next real Split,
  * exactly like on first load.
+ *
+ * Also reused (via sentence-panel/index.js) to clear the workspace back to
+ * this same blank slate when the session currently on screen gets deleted
+ * from the History sidebar -- see confirmDeleteSession() in
+ * history-panel/actions.js.
  */
-function startNewSession() {
+export function startNewSession() {
   stopActiveWordRetest();
   for (const s of sentences) s.recorder.dispose();
   setSentences([]);
@@ -125,6 +131,7 @@ function applyAudioSessionLock() {
 
 export function render() {
   applyAudioSessionLock();
+  refreshInputMaskOverlay();
   els.list.innerHTML = '';
   els.count.textContent = sentences.length
     ? `${sentences.length} ${sentences.length > 1 ? 'sentences' : 'sentence'}`
@@ -143,8 +150,10 @@ export function render() {
   });
 }
 
-/** Build the sentence text element; wrap the whole sentence in an inline span so
- *  that when hidden it renders as a continuous black bar per line.
+/** Build the sentence text element; each non-whitespace character gets its own
+ *  inline span so that when hidden (.sentence-row.is-hidden, see CSS) it renders
+ *  as an individual black block per character rather than one continuous bar --
+ *  whitespace is kept as plain text so word gaps stay visible as gaps.
  *  The hidden state lives on the row (.sentence-row.is-hidden), so it also drives
  *  the per-word blocks in the score result. */
 export function buildTextEl(sentence) {
@@ -152,7 +161,16 @@ export function buildTextEl(sentence) {
   el.className = 'row-text';
   const inner = document.createElement('span');
   inner.className = 'row-text-inner';
-  inner.textContent = sentence.text;
+  for (const ch of Array.from(sentence.text)) {
+    if (/\s/.test(ch)) {
+      inner.appendChild(document.createTextNode(ch));
+    } else {
+      const charEl = document.createElement('span');
+      charEl.className = 'row-char';
+      charEl.textContent = ch;
+      inner.appendChild(charEl);
+    }
+  }
   el.appendChild(inner);
   return el;
 }

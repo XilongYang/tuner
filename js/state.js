@@ -27,6 +27,7 @@ export const els = {
   audioImportBtn: $('#audio-import-btn'),
   audioImportInput: $('#audio-import-input'),
   audioImportStatus: $('#audio-import-status'),
+  inputMaskOverlay: $('#input-mask-overlay'),
   // Credentials panel
   keyInput: $('#azure-key'),
   regionInput: $('#azure-region'),
@@ -46,7 +47,11 @@ export const els = {
   historySidebar: $('#history-sidebar'),
   historyCloseBtn: $('#history-close-btn'),
   newFolderBtn: $('#new-folder-btn'),
+  exportHistoryBtn: $('#export-history-btn'),
+  importHistoryBtn: $('#import-history-btn'),
+  importHistoryInput: $('#import-history-input'),
   clearHistoryBtn: $('#clear-history-btn'),
+  historyIoStatus: $('#history-io-status'),
   historyTree: $('#history-tree'),
   // Cloud backup (nested inside the Azure settings panel)
   blobSasInput: $('#blob-sas-url'),
@@ -68,6 +73,22 @@ export const els = {
 /** @type {Array<{ id: string, text: string, lang: 'ja'|'en', hidden: boolean, recorder: Recorder, recordingUrl: string|null, recordingBlob: Blob|null, assessment: object|null }>} */
 export let sentences = [];
 export function setSentences(next) { sentences = next; }
+
+/**
+ * Rebuild #input-mask-overlay's content from #input-text's current value:
+ * every non-whitespace character becomes a literal "#", whitespace/newlines
+ * are kept as-is so the redacted shape still lines up with the real text's
+ * line breaks and word spacing (see .input-masked / #input-mask-overlay in
+ * styles.css). Purely visual -- els.input.value itself is never touched
+ * here. Every place that assigns els.input.value should call this
+ * afterwards so the overlay never goes stale.
+ */
+export function refreshInputMaskOverlay() {
+  if (!els.inputMaskOverlay) return;
+  els.inputMaskOverlay.textContent = Array.from(els.input.value)
+    .map((ch) => (/\s/.test(ch) ? ch : '#'))
+    .join('');
+}
 
 // Global "hide text" switch; the default value for each per-sentence toggle.
 export let globalHideText = false;

@@ -127,8 +127,15 @@
     <!-- Input -->
     <section class="input-section">
       <label class="section-title" for="input-text">Practice text</label>
-      <textarea id="input-text" rows="6" spellcheck="false"
-        placeholder="Paste Japanese or English text (mixed is fine). Click Split to break it into numbered sentences by sentence boundaries."></textarea>
+      <div class="input-mask-wrap">
+        <textarea id="input-text" rows="6" spellcheck="false"
+          placeholder="Paste Japanese or English text (mixed is fine). Click Split to break it into numbered sentences by sentence boundaries."></textarea>
+        <!-- Purely visual overlay for the global "hide text" switch: shown on
+             top of #input-text (see .input-masked in styles.css) with every
+             non-whitespace character replaced by "#", while the textarea's
+             real value underneath is never touched. -->
+        <div id="input-mask-overlay" aria-hidden="true"></div>
+      </div>
       <div class="input-actions">
         <button id="split-btn" class="btn primary" type="button">Split</button>
         <button id="clear-input-btn" class="btn" type="button">Clear</button>
@@ -156,9 +163,13 @@
       <button id="history-close-btn" class="icon-btn" type="button" aria-label="Close history">&times;</button>
     </div>
     <div class="history-toolbar">
-      <button id="new-folder-btn" class="btn" type="button">+ New folder</button>
-      <button id="clear-history-btn" class="btn" type="button">Clear all</button>
+      <button id="export-history-btn" class="btn history-btn-4" type="button">Export</button>
+      <button id="import-history-btn" class="btn history-btn-4" type="button">Import</button>
+      <input id="import-history-input" type="file" accept=".tuner" hidden>
+      <button id="clear-history-btn" class="btn danger history-btn-2" type="button">Clear all</button>
+      <button id="new-folder-btn" class="btn history-btn-full" type="button">+ New folder</button>
     </div>
+    <p id="history-io-status" class="history-io-status" hidden></p>
     <div id="history-tree" class="history-tree"></div>
   </aside>
 

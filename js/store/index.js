@@ -33,3 +33,4 @@ export {
   upsertFolders,
 } from './folders.js';
 export { exportAll, restoreSnapshot } from './snapshot.js';
+export { buildBackupZip, parseBackupZip, freshenImportTimestamps } from './backup.js';

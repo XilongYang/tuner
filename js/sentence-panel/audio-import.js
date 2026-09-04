@@ -229,11 +229,12 @@ export async function handleAudioImport(file) {
       lang: part.lang,
       hidden: globalHideText,
       recorder: new Recorder(),
-      // Pre-filled with the imported clip so Playback/Score work immediately,
-      // same as after a normal Record -- this slot is the user's own take and
-      // gets overwritten the moment they actually record themselves.
-      recordingUrl: URL.createObjectURL(part.blob),
-      recordingBlob: part.blob,
+      // The user's own take -- left empty just like a fresh text Split, so
+      // Playback/Score/Export (gated on recordingUrl/recordingBlob/assessment
+      // in row.js) stay hidden until the user actually records themselves.
+      // The imported clip goes only into referenceBlob below, not here.
+      recordingUrl: null,
+      recordingBlob: null,
       recordingHash: null,
       assessment: null,
       // The permanent reference clip Speak plays (row.js) -- unlike

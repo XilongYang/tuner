@@ -2,8 +2,9 @@
 // delete, and the "Move to..." picker modal.
 
 import * as store from '../store/index.js';
-import { setCurrentSessionId, currentSessionId } from '../state.js';
+import { currentSessionId } from '../state.js';
 import { scheduleAutoSync } from '../sync/index.js';
+import { startNewSession } from '../sentence-panel/index.js';
 import { renderHistoryTree } from './panel.js';
 import { expandedFolders, collectDescendantFolderIds, sessionDisplayName } from './tree.js';
 
@@ -66,7 +67,9 @@ export async function confirmDeleteSession(session) {
   if (!confirm('Delete this saved session? This cannot be undone.')) return;
   try {
     await store.deleteSession(session.id);
-    if (session.id === currentSessionId) setCurrentSessionId(null);
+    // Deleting the session currently on screen would otherwise leave its
+    // stale sentences/input showing under a now-dangling session id.
+    if (session.id === currentSessionId) startNewSession();
     await renderHistoryTree();
     scheduleAutoSync();
   } catch (err) {

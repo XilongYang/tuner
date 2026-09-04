@@ -14,7 +14,9 @@ import {
   getVoice,
   saveVoice,
 } from './config.js';
-import { els, sentences, globalHideText, setGlobalHideText, persistSession } from './state.js';
+import {
+  els, sentences, globalHideText, setGlobalHideText, persistSession, refreshInputMaskOverlay,
+} from './state.js';
 import { render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest } from './sentence-panel/index.js';
 import { initHistoryPanel, openHistorySidebar } from './history-panel/index.js';
 import { initBlobPanel } from './sync/index.js';
@@ -120,10 +122,22 @@ async function init() {
   setGlobalHideText(loadHideText());
   els.globalHideInput.checked = globalHideText;
   els.input.classList.toggle('input-masked', globalHideText);
+  refreshInputMaskOverlay();
+  els.input.addEventListener('input', refreshInputMaskOverlay);
+  // #input-mask-overlay is a separate element stacked on top of #input-text
+  // (see styles.css) -- scrolling the real textarea doesn't move it on its
+  // own, so without this the "#" text stays pinned at the top while the
+  // (invisible) real text scrolls underneath it. overflow:hidden still
+  // allows scrollTop/scrollLeft to be set programmatically.
+  els.input.addEventListener('scroll', () => {
+    if (!els.inputMaskOverlay) return;
+    els.inputMaskOverlay.scrollTop = els.input.scrollTop;
+    els.inputMaskOverlay.scrollLeft = els.input.scrollLeft;
+  });
   els.globalHideInput.addEventListener('change', () => {
     setGlobalHideText(els.globalHideInput.checked);
     saveHideText(globalHideText);
-    // Cover the practice textarea with a solid black block in hidden mode.
+    // Show "#" over the practice textarea's text (via #input-mask-overlay) in hidden mode.
     els.input.classList.toggle('input-masked', globalHideText);
     for (const s of sentences) applyHidden(s, globalHideText);
     persistSession();
@@ -132,6 +146,7 @@ async function init() {
   els.splitBtn.addEventListener('click', handleSplit);
   els.clearInputBtn.addEventListener('click', () => {
     els.input.value = '';
+    refreshInputMaskOverlay();
     els.input.focus();
   });
 

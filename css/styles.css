@@ -128,6 +128,9 @@ a:hover { color: var(--accent); }
   font-size: 13px;
   line-height: 1.4;
   text-align: left;
+  /* The "Synced" tooltip text is two explicit lines (timestamp, then detail)
+     joined by "\n" -- see updateSyncIndicator() in sync/panel.js. */
+  white-space: pre-line;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(20, 30, 50, 0.14);
@@ -325,14 +328,40 @@ a:hover { color: var(--accent); }
   outline: none;
   border-color: var(--text-muted);
 }
-/* Hidden mode: cover the whole practice textarea with a solid black block. */
+
+/* Hidden mode: the textarea's own text is painted transparent, and
+   #input-mask-overlay (a plain non-interactive div stacked exactly on top of
+   it, same box/font -- see .input-mask-wrap below) shows the same text with
+   every non-whitespace character replaced by "#" (built by
+   refreshInputMaskOverlay() in state.js). The real value in #input-text is
+   never altered -- purely a visual swap. */
+.input-mask-wrap {
+  position: relative;
+}
+#input-mask-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.75;
+  padding: 16px 18px;
+  color: var(--text);
+}
 #input-text.input-masked {
   color: transparent;
-  background: var(--text);
   caret-color: transparent;
 }
 #input-text.input-masked::placeholder { color: transparent; }
 #input-text.input-masked::selection { color: transparent; background: transparent; }
+#input-text.input-masked ~ #input-mask-overlay {
+  display: block;
+}
 /* Audio-imported session: the practice text mirrors the transcript read-only
    -- editing it here would drift from the audio clips already sliced to
    match it, with no way (yet) to re-slice. */
@@ -340,6 +369,13 @@ a:hover { color: var(--accent); }
   background: var(--surface-2);
   color: var(--text-muted);
   cursor: not-allowed;
+}
+/* .input-masked and .is-locked combine on an audio-imported session with the
+   global hide switch on -- without this, .is-locked's `color` (same
+   specificity, later in the file) would win and show the real text underneath
+   the "#" overlay, double-exposed. This selector's extra class always wins. */
+#input-text.is-locked.input-masked {
+  color: transparent;
 }
 .input-actions {
   display: flex;
@@ -380,6 +416,23 @@ a:hover { color: var(--accent); }
 .btn.primary:hover:not(:disabled) {
   background: #000;
   border-color: #000;
+}
+/* Destructive actions (Clear all, and its confirm modals' final button). */
+.btn.danger {
+  color: var(--accent-text);
+  border-color: var(--accent-text);
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.btn.danger.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.danger.primary:hover:not(:disabled) {
+  background: var(--accent-text);
+  border-color: var(--accent-text);
 }
 /* Active playback state (Speak / Playback currently playing; click to stop) */
 .btn.is-playing,
@@ -474,15 +527,24 @@ a:hover { color: var(--accent); }
   border-color: var(--accent);
 }
 
-/* Hidden text: render one continuous black bar per line (for from-memory shadowing).
-   The inline background breaks per line, and box-decoration-break: clone rounds each line fragment. */
-.sentence-row.is-hidden .row-text-inner {
+/* Hidden text: display each character as a literal "#" (for from-memory
+   shadowing), purely visual -- the real character stays as the span's actual
+   text content (untouched data), just painted transparent, with "#" drawn on
+   top via ::after so nothing about the underlying text is altered.
+   Whitespace is a plain text node (see buildTextEl in split.js), so word gaps
+   are unaffected. */
+.sentence-row.is-hidden .row-char {
+  position: relative;
+  display: inline-block;
   color: transparent;
-  background: var(--text);
-  border-radius: 3px;
-  padding: 0.05em 0.1em;
-  box-decoration-break: clone;
-  -webkit-box-decoration-break: clone;
+  margin: 0 1px;
+}
+.sentence-row.is-hidden .row-char::after {
+  content: "#";
+  position: absolute;
+  inset: 0;
+  color: var(--text);
+  text-align: center;
 }
 
 /* ---- Row status ---- */
@@ -569,19 +631,42 @@ a:hover { color: var(--accent); }
   border-bottom: 2px dashed var(--accent);
 }
 
-/* Hidden mode: each scored word (morpheme) becomes a solid color block in its
-   level color; the hover tooltip still shows normally. */
+/* Hidden mode: each CHARACTER of a scored word (not the word as one block)
+   shows a "#" in the word's level color -- every .word-char (one per
+   character, see renderAssessment() in assessment.js) stays transparent with
+   its own "#" drawn on top via ::after, so a longer word renders as that many
+   separate character cells instead of a single word-wide block. The word
+   itself (.word) still carries data-level/data-error and is still one click/
+   hover target; the hover tooltip still shows normally. */
 .sentence-row.is-hidden .word {
   color: transparent;
-  border-radius: 3px;
   text-decoration: none;
   border-bottom: none;
 }
-.sentence-row.is-hidden .word[data-level="good"] { background: var(--good); }
-.sentence-row.is-hidden .word[data-level="mid"] { background: var(--mid); }
-.sentence-row.is-hidden .word[data-level="bad"] { background: var(--accent); }
-.sentence-row.is-hidden .word[data-error="omission"] { background: var(--text-faint); }
-.sentence-row.is-hidden .word[data-error="insertion"] { background: var(--accent); }
+.sentence-row.is-hidden .word .word-char {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+  margin: 0 1px;
+}
+.sentence-row.is-hidden .word .word-char::after {
+  content: "#";
+  position: absolute;
+  inset: 0;
+  color: var(--text-faint);
+}
+.sentence-row.is-hidden .word[data-level="good"] .word-char::after { color: var(--good); }
+.sentence-row.is-hidden .word[data-level="mid"] .word-char::after { color: var(--mid); }
+.sentence-row.is-hidden .word[data-level="bad"] .word-char::after { color: var(--accent); }
+.sentence-row.is-hidden .word[data-error="omission"] .word-char::after { color: var(--text-faint); }
+.sentence-row.is-hidden .word[data-error="insertion"] .word-char::after { color: var(--accent); }
+/* Now that hidden mode is entirely per-character "#" cells, the mid/bad pill
+   background from the shown-mode rules above (.word[data-level="mid"/"bad"])
+   would otherwise still show through as a leftover word-wide block behind
+   them -- drop it here so hidden mode is just the bare colored characters. */
+.sentence-row.is-hidden .word[data-level] {
+  background: none;
+}
 
 /* ---- Word popover (paper card, shown on click) ---- */
 .word-tip {
@@ -753,12 +838,6 @@ a:hover { color: var(--accent); }
   border-radius: 0;
   height: 8px;
 }
-.legend-hint {
-  color: var(--text-faint);
-  font-style: italic;
-  margin-left: auto;
-}
-
 /* ---- History sidebar (folder tree of saved sessions) ---- */
 .history-sidebar {
   position: fixed;
@@ -804,14 +883,29 @@ a:hover { color: var(--accent); }
 
 .history-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 0 20px 14px;
   flex-shrink: 0;
 }
 .history-toolbar .btn {
-  flex: 1;
+  min-width: 0;
   font-size: 13px;
   padding: 6px 8px;
+}
+/* Row 1: Export / Import / Clear all, width ratio 4:4:2. Row 2: New folder
+   alone, full width (flex-basis: 100% forces the wrap in a flex-wrap row). */
+.history-toolbar .history-btn-4 { flex: 4 4 0; }
+.history-toolbar .history-btn-2 { flex: 2 2 0; }
+.history-toolbar .history-btn-full { flex: 1 1 100%; }
+.history-io-status {
+  margin: -4px 20px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.history-io-status[data-kind="error"] {
+  color: var(--accent-text);
 }
 
 .history-tree {
@@ -988,6 +1082,13 @@ a:hover { color: var(--accent); }
   font-family: var(--serif);
   font-size: 16px;
   font-weight: 700;
+}
+.modal-message {
+  margin: 0 0 16px;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-muted);
 }
 .modal-tree {
   flex: 1;

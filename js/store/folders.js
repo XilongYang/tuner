@@ -67,12 +67,23 @@ export async function deleteFolder(id) {
   await recordTombstone('folder', id);
 }
 
-/** Delete all sessions and folders. */
+/**
+ * Delete all sessions and folders -- and, unlike a plain object-store clear(),
+ * record a tombstone for each one first (same as deleteSession()/
+ * deleteFolder() do individually). Without this, the next sync sees Azure
+ * still holding everything this device just wiped and treats it as "this
+ * device doesn't have it yet", downloading it all straight back.
+ */
 export async function clearAll() {
+  const [folders, sessions] = await Promise.all([listFolders(), listSessions()]);
+
   const s1 = await getStore('readwrite', STORE);
   await wrap(s1.clear());
   const s2 = await getStore('readwrite', FOLDERS_STORE);
   await wrap(s2.clear());
+
+  for (const f of folders) await recordTombstone('folder', f.id);
+  for (const s of sessions) await recordTombstone('session', s.id);
 }
 
 /** Folder counterpart to upsertSessions() -- see its docs. */

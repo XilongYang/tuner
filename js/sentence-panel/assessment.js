@@ -58,7 +58,17 @@ export function renderAssessment(container, a, sentence) {
   for (const w of a.words) {
     const span = document.createElement('span');
     span.className = 'word';
-    span.appendChild(document.createTextNode(w.word));
+    // Each character of the word gets its own inline span so hidden mode
+    // (see .sentence-row.is-hidden .word .word-char in styles.css) can mask
+    // it as a "#" per character rather than one block for the whole word --
+    // the word text/click/hover behavior below is unaffected, it's still all
+    // on the outer `span`.
+    for (const ch of Array.from(w.word || '')) {
+      const charEl = document.createElement('span');
+      charEl.className = 'word-char';
+      charEl.textContent = ch;
+      span.appendChild(charEl);
+    }
 
     if (w.errorType === 'Omission') {
       span.dataset.error = 'omission';
@@ -301,7 +311,6 @@ function buildLegend() {
     '<span class="legend-item"><i data-level="mid"></i>Fair 60–79</span>' +
     '<span class="legend-item"><i data-level="bad"></i>Poor &lt;60</span>' +
     '<span class="legend-item"><i data-error="omission"></i>Omission</span>' +
-    '<span class="legend-item"><i data-error="insertion"></i>Insertion</span>' +
-    '<span class="legend-hint">Hover a word for per-phoneme scores</span>';
+    '<span class="legend-item"><i data-error="insertion"></i>Insertion</span>';
   return legend;
 }

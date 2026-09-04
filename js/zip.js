@@ -90,3 +90,38 @@ export function makeZip(files) {
   return new Blob([...parts, ...central, new Uint8Array(eocd.buffer)],
     { type: 'application/zip' });
 }
+
+/**
+ * Read a ZIP back into its list of files -- the counterpart to makeZip()
+ * above, for round-tripping this app's own exports (the full-history .tuner
+ * backup in store/backup.js). Walks the local file headers directly rather
+ * than the central directory, so it doesn't need EOCD parsing; that only
+ * works because it's reading exactly what makeZip() writes. Only supports
+ * uncompressed ("store") entries -- what makeZip() always produces -- and
+ * throws a clear error on anything else (e.g. a real compressed ZIP), since
+ * this isn't a general-purpose ZIP reader.
+ * @param {ArrayBuffer} arrayBuffer
+ * @returns {Array<{ name: string, data: Uint8Array }>}
+ */
+export function readZip(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const files = [];
+  let offset = 0;
+  while (offset + 4 <= bytes.length && view.getUint32(offset, true) === 0x04034b50) {
+    const compression = view.getUint16(offset + 8, true);
+    const compressedSize = view.getUint32(offset + 18, true);
+    const nameLen = view.getUint16(offset + 26, true);
+    const extraLen = view.getUint16(offset + 28, true);
+    const nameStart = offset + 30;
+    const name = new TextDecoder('ascii').decode(bytes.subarray(nameStart, nameStart + nameLen));
+    const dataStart = nameStart + nameLen + extraLen;
+    if (compression !== 0) {
+      throw new Error(`Unsupported compressed entry "${name}" — only uncompressed .tuner backups are supported.`);
+    }
+    files.push({ name, data: bytes.slice(dataStart, dataStart + compressedSize) });
+    offset = dataStart + compressedSize;
+  }
+  if (!files.length) throw new Error('Not a valid .tuner backup (no files found).');
+  return files;
+}

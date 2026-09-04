@@ -6,6 +6,7 @@
 import { Recorder } from '../recorder.js';
 import {
   els, sentences, setSentences, setCurrentSessionId, setCurrentSplitMode, isSentenceBusy,
+  refreshInputMaskOverlay,
 } from '../state.js';
 import { render } from '../sentence-panel/index.js';
 import { refreshHistoryTreeIfOpen } from './panel.js';
@@ -68,7 +69,10 @@ export function openSession(item) {
 export function applyIncomingSessionUpdate(refreshed) {
   if (document.activeElement !== els.input) {
     const nextInput = refreshed.inputText || '';
-    if (els.input.value !== nextInput) els.input.value = nextInput;
+    if (els.input.value !== nextInput) {
+      els.input.value = nextInput;
+      refreshInputMaskOverlay();
+    }
   }
   if (refreshed.splitMode) setCurrentSplitMode(refreshed.splitMode);
 

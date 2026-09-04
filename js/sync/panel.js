@@ -5,9 +5,19 @@
 import {
   loadBlobSasUrl, saveBlobSasUrl, clearBlobSasUrl,
 } from '../config.js';
-import { els, formatDate } from '../state.js';
+import { els } from '../state.js';
 import { scheduleAutoSync, runSyncNow, runSyncExclusive, startAutoSyncHeartbeat } from './scheduler.js';
 import { restoreFromAzure } from './azure-sync.js';
+
+/** Millisecond-precision timestamp for the "Synced at ..." tooltip line --
+ *  distinct from state.js's formatDate() (minute precision, used for session
+ *  list timestamps), since this one needs to visibly tick between syncs. */
+function formatSyncTimestamp(ts) {
+  const d = new Date(ts);
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
 
 export function updateBlobPanel() {
   const url = loadBlobSasUrl();
@@ -48,7 +58,10 @@ export function updateSyncIndicator(text, kind) {
   if (state === 'synced') {
     lastSyncAt = Date.now();
     const detail = text.replace(/^(Sync|Restore) complete \u2014 /, '');
-    els.syncIndicatorTooltip.textContent = `Synced at ${formatDate(lastSyncAt)} \u2014 ${detail}`;
+    // Two lines: a fixed, always-present timestamp, then whatever detail this
+    // sync/restore reported -- see the white-space: pre-line rule on
+    // .sync-indicator-tooltip that makes the "\n" actually break the line.
+    els.syncIndicatorTooltip.textContent = `Synced at ${formatSyncTimestamp(lastSyncAt)}\n${detail}`;
   } else {
     els.syncIndicatorTooltip.textContent = text;
   }

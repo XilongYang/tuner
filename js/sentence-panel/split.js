@@ -429,6 +429,12 @@ function applyAudioSessionLock() {
   els.clearInputBtn.hidden = locked;
   els.clearInputBtn.disabled = locked;
   els.splitBtn.textContent = locked ? 'New Session' : 'Split';
+  // Import audio starts a fresh session from a file the same way Split
+  // starts one from typed text -- once a session is already split (either
+  // kind), there's no current session for it to import INTO; it would just
+  // silently discard the one on screen and start another. Hide it here too,
+  // alongside the other now-meaningless-until-New-Session controls above.
+  if (els.audioImportBtn) els.audioImportBtn.hidden = locked;
 }
 
 export function render() {

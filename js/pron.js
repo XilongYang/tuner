@@ -81,7 +81,7 @@ export async function assessPronunciation(wavBlob, referenceText, locale) {
  *   status: string,
  *   displayText: string,
  *   overall: { accuracy: number, fluency: number, completeness: number, pron: number } | null,
- *   words: Array<{ word: string, accuracy: number, errorType: string, phonemes: Array<{ phoneme: string, accuracy: number }> }>
+ *   words: Array<{ word: string, accuracy: number, errorType: string, offsetMs: number|undefined, durationMs: number|undefined, phonemes: Array<{ phoneme: string, accuracy: number }> }>
  * }}
  */
 export function parseResult(json) {
@@ -112,6 +112,16 @@ export function parseResult(json) {
       word: w.Word || '',
       accuracy: pickScore(wpa.AccuracyScore, w.AccuracyScore),
       errorType: wpa.ErrorType || w.ErrorType || 'None',
+      // Azure's format=detailed response times every word in 100-nanosecond
+      // ticks (Offset/Duration), same units the SDK's SpeechRecognitionResult
+      // uses -- convert to milliseconds so this lines up with sentence.words[]
+      // elsewhere in the app (tts-player.js/audio-import.js). Lets a caller
+      // (assessment.js) slice the exact span of `sentence.recordingBlob` this
+      // word was recognized in, to play back "what you actually said" for it.
+      // Absent (undefined) for an Omission word Azure never heard any audio
+      // for -- callers must treat a missing/non-finite value as "no audio".
+      offsetMs: ticksToMs(w.Offset),
+      durationMs: ticksToMs(w.Duration),
       phonemes: (w.Phonemes || [])
         .map((p) => {
           const ppa = p.PronunciationAssessment || {};
@@ -139,4 +149,11 @@ function pickScore(...values) {
     if (typeof v === 'number' && !Number.isNaN(v)) return v;
   }
   return 0;
+}
+
+/** Azure times words in 100-nanosecond ticks; convert to milliseconds.
+ *  Returns undefined (not 0) for a missing/non-numeric value, so callers can
+ *  tell "no timing data" apart from a genuine zero-length span. */
+function ticksToMs(ticks) {
+  return typeof ticks === 'number' && !Number.isNaN(ticks) ? ticks / 10000 : undefined;
 }

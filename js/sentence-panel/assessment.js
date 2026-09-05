@@ -4,7 +4,7 @@
 
 import { LOCALES } from '../lang.js';
 import { assessPronunciation } from '../pron.js';
-import { Recorder } from '../recorder.js';
+import { Recorder, decodeWavPcm16, encodeWav } from '../recorder.js';
 import { hasCredentials } from '../config.js';
 import { markSentenceBusy, unmarkSentenceBusy } from '../state.js';
 import { getTtsEntry, player, ttsAudio } from '../tts-player.js';
@@ -77,7 +77,8 @@ export function renderAssessment(container, a, sentence) {
     } else {
       span.dataset.level = accuracyLevel(w.accuracy);
     }
-    span.appendChild(buildWordTip(w, sentence));
+    const tip = buildWordTip(w, sentence);
+    span.appendChild(tip);
 
     span.addEventListener('click', () => {
       const wasOpen = span.classList.contains('is-open');
@@ -87,6 +88,10 @@ export function renderAssessment(container, a, sentence) {
       wordsWrap.querySelectorAll('.word.is-open').forEach((el) => el.classList.remove('is-open'));
       if (wasOpen) return; // toggle closed
       span.classList.add('is-open');
+      // Every fresh open starts the Retest playback slot over from the
+      // original recording's own word slice, discarding whatever was last
+      // retested (see buildWordTip()'s resetForOpen doc comment).
+      if (tip.resetForOpen) tip.resetForOpen();
       if (w.word) playWord(w.word, sentence); // play just this word (best-effort)
     });
 
@@ -109,6 +114,26 @@ async function playWord(text, sentence) {
 }
 
 /**
+ * Cut the exact span of a WAV recording Azure recognized as one word out into
+ * its own standalone clip, given the offset/duration pron.js's parseResult()
+ * already converted from Azure's Offset/Duration ticks. `blob` is always our
+ * own encodeWav() output (recorder.js), so decodeWavPcm16() can read it back
+ * directly -- no AudioContext decode needed. Re-encoding through encodeWav()
+ * (rather than a raw byte slice) reuses the same normalize/resample pass
+ * sliceReferenceClip() in audio-import.js already applies to sliced clips
+ * elsewhere in the app, for the same reason: a short slice's own peak may be
+ * quieter than the full recording's, so it's worth renormalizing on its own.
+ */
+async function sliceWordFromRecording(blob, offsetMs, durationMs) {
+  const buf = await blob.arrayBuffer();
+  const { samples, sampleRate } = decodeWavPcm16(buf);
+  const start = Math.max(0, Math.round((offsetMs / 1000) * sampleRate));
+  const end = Math.min(samples.length, Math.round(((offsetMs + durationMs) / 1000) * sampleRate));
+  const slice = samples.slice(start, Math.max(start, end));
+  return new Blob([encodeWav(slice, sampleRate)], { type: 'audio/wav' });
+}
+
+/**
  * Build a word's popover: a heading line + per-phoneme chips, plus a "Retest"
  * control that records just this one word, re-scores it against Azure, and
  * swaps the heading/phonemes to show the new result in its place.
@@ -116,7 +141,10 @@ async function playWord(text, sentence) {
  * The retest result lives only in this closure (`retestWord` below) -- it never
  * touches `w` or `sentence.assessment` and is never passed to persistSession(),
  * so it is purely a this-session, this-popover scratchpad: closing the popover,
- * reopening the word, or reloading the page loses it.
+ * reopening the word, or reloading the page loses it. The returned element
+ * carries a `resetForOpen()` method (see below) that renderAssessment() calls
+ * every time this word's popover is (re)opened, so a previous Retest take
+ * from earlier in the same session never lingers into the next open either.
  */
 function buildWordTip(w, sentence) {
   const tip = document.createElement('span');
@@ -186,16 +214,67 @@ function buildWordTip(w, sentence) {
     retestBtn.type = 'button';
     retestBtn.textContent = '🎙 Retest';
 
-    // Hear the last retest take back; only shown once one exists. Its own object
-    // URL (not the Recorder's, which gets revoked on dispose() below) so it stays
-    // playable after the mic is released -- revoked when superseded or replaced.
+    // Hear either the last Retest take, or -- before any Retest -- the exact
+    // span of the ORIGINAL recording (sentence.recordingBlob, the one that
+    // was actually scored) that Azure recognized as this word. Both play
+    // through the same button/URL slot: `originalUrl` (below) is a cached,
+    // lazily-sliced clip of the original recording that resetForOpen() below
+    // (re)installs into `retestUrl` on every fresh open, and a real Retest
+    // simply overwrites `retestUrl` with its own take the same way it always
+    // has. Object URLs, not the Recorder's own (which gets revoked on
+    // dispose() below), so playback keeps working after the mic is released.
     const playBtn = document.createElement('button');
     playBtn.className = 'tip-retest-play-btn';
     playBtn.type = 'button';
     playBtn.textContent = '▶';
-    playBtn.title = 'Play your last retest take';
+    playBtn.title = 'Play what you said for this word (from your recording)';
     playBtn.hidden = true;
     let retestUrl = null;
+    let originalUrl = null; // cached slice of the original recording; never revoked by a Retest overwrite
+    let originalUrlPromise = null;
+
+    /** Lazily slice+cache the original recording's span for this word. Memoized
+     *  so reopening the popover doesn't re-decode/re-encode the WAV every time.
+     *  Resolves to null when there's nothing to slice (no timing data on this
+     *  word -- e.g. an Omission, or a stale pre-upgrade assessment -- or no
+     *  original recording at all). */
+    function ensureOriginalUrl() {
+      if (originalUrlPromise) return originalUrlPromise;
+      if (w.offsetMs == null || w.durationMs == null || !(w.durationMs > 0) || !sentence.recordingBlob) {
+        originalUrlPromise = Promise.resolve(null);
+        return originalUrlPromise;
+      }
+      originalUrlPromise = sliceWordFromRecording(sentence.recordingBlob, w.offsetMs, w.durationMs)
+        .then((blob) => { originalUrl = URL.createObjectURL(blob); return originalUrl; })
+        .catch(() => null);
+      return originalUrlPromise;
+    }
+
+    /** Called by renderAssessment() every time this word's popover is
+     *  (re)opened: discards any earlier Retest take (per-open, not just
+     *  per-page-load -- reopening always starts fresh from the original
+     *  recording) and, once the slice is ready, points playBtn at it. Guarded
+     *  against a Retest finishing (or another open superseding this one)
+     *  while the slice was still being decoded. */
+    async function resetForOpen() {
+      if (retestWord !== null || (retestUrl && retestUrl !== originalUrl)) {
+        if (retestUrl && retestUrl !== originalUrl) URL.revokeObjectURL(retestUrl);
+        retestUrl = null;
+        retestWord = null;
+        renderScore();
+      }
+      playBtn.title = 'Play what you said for this word (from your recording)';
+      playBtn.hidden = true;
+      setRetestStatus('', 'info');
+      const url = await ensureOriginalUrl();
+      // A real Retest may have started (or finished) while the slice was
+      // still decoding -- don't clobber it with the stale original clip.
+      if (retestWord !== null || (recorder && recorder.isRecording)) return;
+      if (url) {
+        retestUrl = url;
+        playBtn.hidden = false;
+      }
+    }
 
     const retestStatus = document.createElement('span');
     retestStatus.className = 'tip-retest-status';
@@ -226,8 +305,12 @@ function buildWordTip(w, sentence) {
           retestBtn.textContent = '🎙 Retest';
           retestBtn.classList.remove('is-recording');
 
-          if (retestUrl) URL.revokeObjectURL(retestUrl);
+          // Never revoke `originalUrl` here -- it's cached across opens (see
+          // ensureOriginalUrl()) and reused the next time this popover opens
+          // fresh, even after this Retest take is later discarded too.
+          if (retestUrl && retestUrl !== originalUrl) URL.revokeObjectURL(retestUrl);
           retestUrl = URL.createObjectURL(blob);
+          playBtn.title = 'Play your last retest take';
           playBtn.hidden = false;
 
           setRetestStatus('Assessing…', 'info');
@@ -298,6 +381,8 @@ function buildWordTip(w, sentence) {
     retestWrap.appendChild(playBtn);
     retestWrap.appendChild(retestStatus);
     tip.appendChild(retestWrap);
+
+    tip.resetForOpen = resetForOpen;
   }
 
   return tip;

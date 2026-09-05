@@ -6,7 +6,7 @@ import {
   loadBlobSasUrl, saveBlobSasUrl, clearBlobSasUrl,
 } from '../config.js';
 import { els } from '../state.js';
-import { scheduleAutoSync, runSyncNow, runSyncExclusive, startAutoSyncHeartbeat } from './scheduler.js';
+import { scheduleAutoSync, runSyncNow, runSyncExclusive, startAutoSync } from './scheduler.js';
 // Circular with restore.js (this file imports restoreFromAzure from there to
 // wire the "Restore from Azure" button, while restore.js imports
 // setBlobActionStatus from here) -- safe, same as the rest of this
@@ -106,5 +106,5 @@ export function initBlobPanel() {
   els.restoreNowBtn.addEventListener('click', () => runSyncExclusive({ wait: true, fn: restoreFromAzure }));
 
   updateBlobPanel();
-  startAutoSyncHeartbeat();
+  startAutoSync();
 }

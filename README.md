@@ -14,7 +14,9 @@ A **fully static, backend-free, open and auditable** web tool for read-aloud / s
 4. **Record**: capture your shadowing as 16 kHz WAV via the Web Audio API; **Playback** to listen
 5. **Score**: call Azure Pronunciation Assessment (REST) directly for Overall / Accuracy / Fluency / Completeness scores, with each word colored by accuracy, omissions / insertions flagged, and per-phoneme scores on hover
 6. **History**: every Split is auto-saved to your browser's local storage (IndexedDB), including recordings and scores. Browse, rename, and organize past sessions into nested folders (via menu or drag-and-drop) from the **History** sidebar
-7. **Cloud sync** (optional): sync your local history — including recordings — with your own Azure Blob Storage container, incrementally and in both directions, so it stays consistent across browsers/devices. See [Cloud backup](#cloud-backup-optional) below
+7. **Import audio**: upload an audio file with no reference text instead of pasting text — Tuner transcribes it via Azure Fast Transcription, re-segments the transcript into sentences by punctuation, and slices the original audio so each sentence gets its own exact reference clip
+8. **Export / Import history**: the **Export**/**Import** buttons in the History sidebar pack your entire local history (folders, sessions, recordings, scores) into a single downloadable `.tuner` file (a plain ZIP) and read one back in — a manual backup/transfer path independent of Cloud sync
+9. **Cloud sync** (optional): sync your local history — including recordings — with your own Azure Blob Storage container, incrementally and in both directions, so it stays consistent across browsers/devices. See [Cloud backup](#cloud-backup-optional) below
 
 ## Usage
 
@@ -81,6 +83,10 @@ npx serve
 ```
 
 Then open `http://localhost:8000`.
+
+## Deploying
+
+The app is just `index.html` + `css/` + `js/` — any static host works (GitHub Pages, Cloudflare Pages/Workers, etc.), no build step. The repo also carries a `package.json` for the dev-only test suites (see [Testing](#testing)); if your host runs `npm install` as part of its build (Cloudflare's does, whenever it finds a `package.json`), the resulting `node_modules/` must not end up in what actually gets deployed — a Cloudflare Workers static-assets deploy in particular uploads whatever directory it's told to serve as-is, `node_modules/` included, and that will fail outright once `node_modules` exceeds the platform's per-file size limit (currently 25 MiB; `wrangler`'s own `workerd` binary alone is well over that). The `.assetsignore` file at the repo root (same syntax as `.gitignore`) tells Cloudflare's asset uploader to skip `node_modules/`, `tests/`, `tests-e2e/`, and `.github/` — none of which belong in the deployed site anyway.
 
 ## Project layout
 

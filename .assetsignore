@@ -1,0 +1,11 @@
+# Cloudflare Workers static-assets deploy: excludes matching files from the
+# upload (same syntax as .gitignore). Without this, `npx wrangler deploy`
+# uploads the whole repo root as-is -- node_modules included, once Cloudflare's
+# build runs `npm install` because it found package.json -- and fails outright
+# the moment any single file in there exceeds the Workers per-asset size limit
+# (wrangler's own `workerd` binary alone is well over it). None of the paths
+# below are part of the deployed site anyway; see README.md's Deploying section.
+node_modules
+tests
+tests-e2e
+.github

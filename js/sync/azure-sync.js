@@ -1,8 +1,11 @@
 // syncWithAzure(): bidirectional incremental sync -- merges local IndexedDB
 // data with whatever's on Azure at sentence granularity (see ./merge.js),
 // uploads/downloads only what changed, writes the merged result back
-// locally, then uploads the merged manifest and sweeps orphaned blobs.
-// restoreFromAzure(): replaces ALL local history with the Azure backup.
+// locally, then uploads the merged manifest and sweeps orphaned blobs. The
+// other half of cloud backup, restoreFromAzure() (replace ALL local history
+// with the Azure backup), lives in ./restore.js now -- a separate, much
+// simpler one-way operation that doesn't belong in the same file as this
+// one's incremental merge logic.
 //
 // Deleting a session or folder IS tracked (js/store/tombstones.js records a
 // tombstone on deleteSession()/deleteFolder()) and propagates through sync
@@ -31,26 +34,26 @@ import {
   cleanupOrphanBlobs,
 } from './blob-paths.js';
 import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
+import { uiHooks } from './ui-hooks.js';
 
 // No sentence-panel/history-panel imports in this file by design (F-01 in
 // the earlier coupling audit: a sync/data module reaching up into the UI
 // layer to trigger repaints is a reverse dependency -- the sync layer has no
 // business knowing sentence-panel/history-panel exist). app.js (the
 // composition root, the one place already allowed to know about every
-// domain) wires the real UI functions in once via setSyncUiHooks() below;
-// until wired, these no-ops just mean a sync run doesn't repaint anything --
-// relevant only to an isolated unit test that imports this module directly
-// without going through app.js's init().
-let uiHooks = {
-  render: () => {},
-  applyIncomingSessionUpdate: () => {},
-  refreshHistoryTreeIfOpen: () => {},
-};
-
-/** Called once by app.js to give this module its post-sync UI callbacks. */
-export function setSyncUiHooks(hooks) {
-  uiHooks = { ...uiHooks, ...hooks };
-}
+// domain) wires the real UI functions into `uiHooks` (./ui-hooks.js) once,
+// via setSyncUiHooks(); until wired, they're no-ops -- relevant only to an
+// isolated unit test that imports this module directly without going
+// through app.js's init().
+//
+// setBlobActionStatus/els ARE imported directly, though (unlike
+// sentence-panel/history-panel's split-actions.js/actions.js pattern, this
+// isn't routed through a hook): this file is the sync domain's own
+// designated orchestration file -- the one place allowed to mix store/network
+// calls with the simple status-text/button-disable UI updates that go with
+// them -- exactly like split-actions.js touches els.mergeBtn directly. Only
+// the cross-domain UI (repainting sentence-panel/history-panel) goes through
+// uiHooks.
 
 /**
  * Which of `sessions` had their LOCAL copy change since `localUpdatedAtAtStart`
@@ -462,11 +465,15 @@ export async function syncWithAzure() {
       const sourceAudioPaths = manifest.sessions
         .filter((session) => session.hasSourceAudio)
         .map((session) => blobSourceAudioPath(session.id));
-      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_RECORDINGS_PREFIX, recordingPaths);
-      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_REFERENCES_PREFIX, referencePaths);
-      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_ASSESSMENTS_PREFIX, assessmentPaths);
-      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_INPUTTEXT_PREFIX, inputTextPaths);
-      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_SOURCEAUDIO_PREFIX, sourceAudioPaths);
+      // cleanupOrphanBlobs() itself never touches UI (see its doc comment in
+      // blob-paths.js) -- this callback is what actually shows the progress
+      // it reports.
+      const reportCleanupProgress = (i, total) => setBlobActionStatus(`Removing orphaned file ${i} / ${total}…`, 'info');
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_RECORDINGS_PREFIX, recordingPaths, reportCleanupProgress);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_REFERENCES_PREFIX, referencePaths, reportCleanupProgress);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_ASSESSMENTS_PREFIX, assessmentPaths, reportCleanupProgress);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_INPUTTEXT_PREFIX, inputTextPaths, reportCleanupProgress);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_SOURCEAUDIO_PREFIX, sourceAudioPaths, reportCleanupProgress);
     } catch (err) {
       cleanupWarning = ` (orphan cleanup skipped: ${err.message})`;
       console.warn('Orphan file cleanup skipped:', err);
@@ -537,134 +544,3 @@ export async function syncWithAzure() {
   }
 }
 
-/** Replace ALL local history with whatever is currently backed up on Azure. */
-export async function restoreFromAzure() {
-  const sasUrl = loadBlobSasUrl();
-  if (!sasUrl) { alert('Please save a container SAS URL first.'); return; }
-  if (!confirm(
-    'This replaces ALL local practice history in this browser with the backup stored on Azure. ' +
-    'This cannot be undone. Continue?',
-  )) return;
-
-  els.backupNowBtn.disabled = true;
-  els.restoreNowBtn.disabled = true;
-  try {
-    setBlobActionStatus('Downloading manifest\u2026', 'info');
-    let manifest;
-    try {
-      manifest = await blobStore.downloadJson(sasUrl, BLOB_MANIFEST_PATH);
-    } catch (err) {
-      if (err.notFound) {
-        setBlobActionStatus('No backup found on Azure yet \u2014 run "Sync now" first.', 'error');
-        return;
-      }
-      throw err;
-    }
-
-    const manifestSessions = manifest.sessions || [];
-    // Recordings, assessments, inputText and sourceAudio all live as their
-    // own blobs now (see syncWithAzure()'s big comment) -- a full restore has
-    // to fetch all four kinds, not just recordings.
-    const totalDownloads = manifestSessions.reduce((sum, session) => {
-      const sentenceDownloads = (session.sentences || [])
-        .filter((s) => s.hasRecording || s.hasReference || s.hasAssessment).length;
-      return sum + sentenceDownloads + (session.hasInputText ? 1 : 0) + (session.hasSourceAudio ? 1 : 0);
-    }, 0);
-
-    let downloaded = 0;
-    const sessionsOut = [];
-    for (const session of manifestSessions) {
-      let inputText = '';
-      if (session.hasInputText) {
-        downloaded++;
-        setBlobActionStatus(`Downloading practice text ${downloaded} / ${totalDownloads}\u2026`, 'info');
-        const blob = await blobStore.downloadBytes(sasUrl, blobInputTextPath(session.id));
-        inputText = await blob.text();
-      }
-
-      let sourceAudioBlob = null;
-      if (session.hasSourceAudio) {
-        downloaded++;
-        setBlobActionStatus(`Downloading source audio ${downloaded} / ${totalDownloads}\u2026`, 'info');
-        sourceAudioBlob = await blobStore.downloadBytes(sasUrl, blobSourceAudioPath(session.id));
-      }
-
-      const sentencesOut = [];
-      for (const s of session.sentences || []) {
-        let recordingBlob = null;
-        if (s.hasRecording) {
-          downloaded++;
-          setBlobActionStatus(`Downloading recording ${downloaded} / ${totalDownloads}\u2026`, 'info');
-          recordingBlob = await blobStore.downloadBytes(sasUrl, blobRecordingPath(session.id, s.id));
-        }
-        let referenceBlob = null;
-        if (s.hasReference) {
-          downloaded++;
-          setBlobActionStatus(`Downloading reference audio ${downloaded} / ${totalDownloads}\u2026`, 'info');
-          referenceBlob = await blobStore.downloadBytes(sasUrl, blobReferencePath(session.id, s.id));
-        }
-        let assessment = null;
-        if (s.hasAssessment) {
-          downloaded++;
-          setBlobActionStatus(`Downloading score ${downloaded} / ${totalDownloads}\u2026`, 'info');
-          assessment = await blobStore.downloadJson(sasUrl, blobAssessmentPath(session.id, s.id));
-        }
-        sentencesOut.push({
-          id: s.id,
-          text: s.text,
-          lang: s.lang,
-          hidden: s.hidden,
-          assessment,
-          recordingBlob,
-          recordingHash: s.recordingHash || null,
-          assessmentHash: s.assessmentHash || null,
-          referenceBlob,
-          referenceHash: s.referenceHash || null,
-          referenceSource: s.referenceSource || null,
-          sourceOffsetMs: s.sourceOffsetMs ?? null,
-          sourceDurationMs: s.sourceDurationMs ?? null,
-          words: s.words || null,
-          manualPoints: s.manualPoints || null,
-          updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
-        });
-      }
-      sessionsOut.push({
-        id: session.id,
-        folderId: session.folderId,
-        name: session.name,
-        inputText,
-        inputTextHash: session.inputTextHash || null,
-        splitMode: session.splitMode,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
-        sentences: sentencesOut,
-        sourceAudioBlob,
-        sourceAudioHash: session.sourceAudioHash || null,
-      });
-    }
-
-    setBlobActionStatus('Writing to local storage\u2026', 'info');
-    await store.restoreSnapshot({ folders: manifest.folders || [], sessions: sessionsOut, tombstones: manifest.tombstones || [] });
-
-    // The restored data lives in IndexedDB now; clear the live screen state
-    // (any recordings held only in memory are gone) and let the user pick a
-    // session from the (now refreshed) history tree.
-    for (const s of sentences) s.recorder.dispose();
-    setSentences([]);
-    setCurrentSessionId(null);
-    els.input.value = '';
-    uiHooks.render();
-    uiHooks.refreshHistoryTreeIfOpen();
-
-    setBlobActionStatus(
-      `Restore complete \u2014 ${sessionsOut.length} session(s), ${totalDownloads} file(s) downloaded.`,
-      'recording',
-    );
-  } catch (err) {
-    setBlobActionStatus('Restore failed: ' + err.message, 'error');
-  } finally {
-    els.backupNowBtn.disabled = false;
-    els.restoreNowBtn.disabled = false;
-  }
-}

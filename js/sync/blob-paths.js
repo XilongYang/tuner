@@ -5,7 +5,6 @@
 // best-effort orphan-blob cleanup shared by all of them.
 
 import * as blobStore from '../azure-blob.js';
-import { setBlobActionStatus } from './panel.js';
 
 export const BLOB_MANIFEST_PATH = 'tuner/manifest.json';
 
@@ -65,13 +64,20 @@ export const blobSourceAudioPath = (sessionId) => `${BLOB_SOURCEAUDIO_PREFIX}${s
  * List/Delete permission on the SAS token, or any other failure, is left for
  * the caller to report as a warning rather than fail the whole sync -- the
  * manifest + uploads before this point already succeeded.
+ *
+ * `onProgress`, if given, is called as `onProgress(current, total)` before
+ * each delete -- this file is otherwise pure network/data logic with no UI
+ * access of its own (previously it imported setBlobActionStatus from
+ * ./panel.js directly to report this progress itself, the exact
+ * data-module-reaching-into-UI coupling this callback replaces); the caller
+ * (azure-sync.js) decides what, if anything, to show for that progress.
  */
-export async function cleanupOrphanBlobs(sasUrl, prefix, referencedPaths) {
+export async function cleanupOrphanBlobs(sasUrl, prefix, referencedPaths, onProgress) {
   const allBlobs = await blobStore.listBlobs(sasUrl, prefix);
   const referenced = new Set(referencedPaths);
   const orphans = allBlobs.filter((name) => !referenced.has(name));
   for (let i = 0; i < orphans.length; i++) {
-    setBlobActionStatus(`Removing orphaned file ${i + 1} / ${orphans.length}\u2026`, 'info');
+    onProgress?.(i + 1, orphans.length);
     await blobStore.deleteBlob(sasUrl, orphans[i]);
   }
   return orphans.length;

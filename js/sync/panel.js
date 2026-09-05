@@ -7,7 +7,12 @@ import {
 } from '../config.js';
 import { els } from '../state.js';
 import { scheduleAutoSync, runSyncNow, runSyncExclusive, startAutoSyncHeartbeat } from './scheduler.js';
-import { restoreFromAzure } from './azure-sync.js';
+// Circular with restore.js (this file imports restoreFromAzure from there to
+// wire the "Restore from Azure" button, while restore.js imports
+// setBlobActionStatus from here) -- safe, same as the rest of this
+// codebase's cycles: both sides only call into each other from inside
+// functions, never at module-evaluation time.
+import { restoreFromAzure } from './restore.js';
 
 /** Millisecond-precision timestamp for the "Synced at ..." tooltip line --
  *  distinct from state.js's formatDate() (minute precision, used for session

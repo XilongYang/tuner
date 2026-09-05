@@ -13,13 +13,49 @@ test('pickNewer: picks b when strictly newer, a on tie or when a is newer', () =
   assert.equal(pickNewer(1, undefined), 'a');
 });
 
-test('mergeSentences: local-only and remote-only ids are both kept, in local-then-remote order', () => {
+test('mergeSentences: a remote-only id with no preceding remote sibling lands at the front', () => {
+  // 'b' is remote's very first (and only) sentence, with nothing before it in
+  // remote's own order -- there's no anchor to place it relative to, so it
+  // goes to the front rather than the tail. This is also what makes the
+  // regression test below (a remote Split of the session's first sentence)
+  // come out right.
   const local = [{ id: 'a', updatedAt: 1 }];
   const remote = [{ id: 'b', updatedAt: 1 }];
   const merged = mergeSentences(local, remote);
-  assert.deepEqual(merged.map((s) => s.id), ['a', 'b']);
-  assert.equal(merged[0].__from, 'local');
-  assert.equal(merged[1].__from, 'remote');
+  assert.deepEqual(merged.map((s) => s.id), ['b', 'a']);
+  assert.equal(merged[0].__from, 'remote');
+  assert.equal(merged[1].__from, 'local');
+});
+
+test('mergeSentences: a remote-only id is inserted right after its nearest placed remote sibling, not appended at the end', () => {
+  // remote's order is [a, new, c] -- 'new' sits between 'a' and 'c'. Local
+  // only knows [a, c] (hasn't seen 'new' yet). 'new' must land between them,
+  // not at the tail after 'c'.
+  const local = [{ id: 'a', updatedAt: 1 }, { id: 'c', updatedAt: 1 }];
+  const remote = [{ id: 'a', updatedAt: 1 }, { id: 'new', updatedAt: 5 }, { id: 'c', updatedAt: 1 }];
+  const merged = mergeSentences(local, remote);
+  assert.deepEqual(merged.map((s) => s.id), ['a', 'new', 'c']);
+});
+
+test('mergeSentences: regression -- splitting the FIRST sentence on another device keeps the result at the front after sync, not at the tail', () => {
+  // Device B split the session's first sentence ('old-first') into two new
+  // ones and tombstoned 'old-first' (split-actions.js's real behavior).
+  // This device (local) hasn't made that change: it still has the original
+  // three sentences, 'old-first' among them.
+  const local = [
+    { id: 'old-first', updatedAt: 1 },
+    { id: 'second', updatedAt: 1 },
+    { id: 'third', updatedAt: 1 },
+  ];
+  const remote = [
+    { id: 'first-half', updatedAt: 5 },
+    { id: 'second-half', updatedAt: 5 },
+    { id: 'second', updatedAt: 1 },
+    { id: 'third', updatedAt: 1 },
+  ];
+  const tombstoneById = new Map([['sentence:old-first', { deletedAt: 5 }]]);
+  const merged = mergeSentences(local, remote, tombstoneById);
+  assert.deepEqual(merged.map((s) => s.id), ['first-half', 'second-half', 'second', 'third']);
 });
 
 test('mergeSentences: shared id resolves via last-write-wins on updatedAt', () => {

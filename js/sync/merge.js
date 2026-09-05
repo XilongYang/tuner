@@ -30,21 +30,48 @@ export function pickNewer(aTs, bTs) {
  * replaced id from the union instead. Optional -- omit it (e.g. in a unit
  * test) and every id survives, same as before this existed.
  *
- * Order follows `local`'s sequence -- any id that exists only remotely (e.g.
- * this device has never seen this session before) is appended at the end.
+ * Order starts from `local`'s sequence; an id that exists only on the remote
+ * side is spliced in right after the nearest sentence before it (in remote's
+ * own order) that's already placed, or at the very front if remote has
+ * nothing placed before it yet. This -- rather than simply appending every
+ * remote-only id at the end -- is what keeps a Split/Merge/click-to-split
+ * done on ANOTHER device in its original position after this device syncs:
+ * that operation always tombstones the sentence(s) it replaces and inserts
+ * its result in their place (split-actions.js), so the replacement's ids are
+ * "remote-only" from this device's point of view, but remote's own array
+ * still remembers where they belong. Splitting the very FIRST sentence
+ * remotely, for example, produces new ids with no remote sibling before them
+ * at all -- previously these landed at the tail of the merged list (a real
+ * bug: the session's first sentence would jump to the end after syncing);
+ * now they land at the front instead, exactly where they replaced.
  */
 export function mergeSentences(local, remote, tombstoneById) {
-  const remoteById = new Map((remote || []).map((s) => [s.id, s]));
-  const seen = new Set();
-  const merged = (local || []).map((l) => {
-    seen.add(l.id);
-    const r = remoteById.get(l.id);
+  const localList = local || [];
+  const remoteList = remote || [];
+  const localById = new Map(localList.map((s) => [s.id, s]));
+  const remoteById = new Map(remoteList.map((s) => [s.id, s]));
+
+  const resolve = (id) => {
+    const l = localById.get(id);
+    const r = remoteById.get(id);
     if (!r) return { ...l, __from: 'local' };
+    if (!l) return { ...r, __from: 'remote' };
     return pickNewer(l.updatedAt, r.updatedAt) === 'b' ? { ...r, __from: 'remote' } : { ...l, __from: 'local' };
-  });
-  for (const r of remote || []) {
-    if (!seen.has(r.id)) merged.push({ ...r, __from: 'remote' });
+  };
+
+  const order = localList.map((s) => s.id);
+  for (let i = 0; i < remoteList.length; i++) {
+    const id = remoteList[i].id;
+    if (order.includes(id)) continue;
+    let insertAt = 0; // no remote sibling before this one is placed yet -> front
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = order.indexOf(remoteList[j].id);
+      if (idx !== -1) { insertAt = idx + 1; break; }
+    }
+    order.splice(insertAt, 0, id);
   }
+
+  const merged = order.map(resolve);
   return tombstoneById ? merged.filter((s) => survivesTombstone('sentence', s, tombstoneById)) : merged;
 }
 

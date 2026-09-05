@@ -6,6 +6,7 @@ import {
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
   BLOB_SOURCEAUDIO_PREFIX, blobSourceAudioPath,
+  referencedBlobPaths,
 } from '../js/sync/blob-paths.js';
 
 test('blob path builders: each nests under its own prefix and matches the constant', () => {
@@ -26,4 +27,37 @@ test('blob path builders: distinct sessions/sentences never collide', () => {
   const c = blobRecordingPath('sessA', 'sentY');
   assert.notEqual(a, b);
   assert.notEqual(a, c);
+});
+
+test('referencedBlobPaths: pulls the right path out of each content-kind flag on a manifest session', () => {
+  const sessions = [
+    {
+      id: 's1',
+      hasInputText: true,
+      hasSourceAudio: false,
+      sentences: [
+        { id: 'a', hasRecording: true, hasReference: false, hasAssessment: true },
+        { id: 'b', hasRecording: false, hasReference: true, hasAssessment: false },
+      ],
+    },
+    {
+      id: 's2',
+      hasInputText: false,
+      hasSourceAudio: true,
+      sentences: [],
+    },
+  ];
+  const result = referencedBlobPaths(sessions);
+  assert.deepEqual(result.recordingPaths, [blobRecordingPath('s1', 'a')]);
+  assert.deepEqual(result.referencePaths, [blobReferencePath('s1', 'b')]);
+  assert.deepEqual(result.assessmentPaths, [blobAssessmentPath('s1', 'a')]);
+  assert.deepEqual(result.inputTextPaths, [blobInputTextPath('s1')]);
+  assert.deepEqual(result.sourceAudioPaths, [blobSourceAudioPath('s2')]);
+});
+
+test('referencedBlobPaths: missing/empty sessions array yields all-empty path sets, not a throw', () => {
+  const result = referencedBlobPaths(undefined);
+  assert.deepEqual(result, {
+    recordingPaths: [], referencePaths: [], assessmentPaths: [], inputTextPaths: [], sourceAudioPaths: [],
+  });
 });

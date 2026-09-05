@@ -1,14 +1,26 @@
-// Automatic sync scheduling: a debounced local-change trigger plus a 30s
-// idle heartbeat, both funneled through a Web Locks cross-tab-exclusive
-// runner so only one tab ever does the network round-trip + IndexedDB
-// writes at a time. See the big comment below for the two triggers.
+// Automatic sync scheduling: a debounced local-change trigger, a sync right
+// after page load, and a catch-up sync when the tab becomes visible again --
+// all funneled through a Web Locks cross-tab-exclusive runner so only one
+// tab ever does the network round-trip + IndexedDB writes at a time. See the
+// big comment below for the triggers.
+//
+// There used to also be an unconditional 30s idle heartbeat (a setInterval
+// re-running runAutoSync() on a timer, regardless of whether anything
+// local had changed). Removed: every extra sync round is another window in
+// which this device's orphan-blob cleanup (azure-sync.js's syncWithAzure())
+// can race a concurrently-syncing OTHER device -- see referencedBlobPaths()'s
+// doc comment in ./blob-paths.js for the actual failure mode this caused
+// (a manifest upload succeeding while that same round's cleanup deletes a
+// blob another device had just finished uploading). A device with nothing
+// to say has no reason to sync every 30s just to find that out; the
+// debounced on-edit sync and the on-return-to-tab catch-up below are
+// already the trigger for "something might have changed, worth checking."
 
 import { hasBlobSasUrl } from '../config.js';
 import { isSessionBusy } from '../state.js';
 import { syncWithAzure } from './azure-sync.js';
 
 const AUTO_SYNC_DEBOUNCE_MS = 3000;
-const AUTO_SYNC_HEARTBEAT_MS = 30000;
 const AUTO_SYNC_LOCK_NAME = 'tuner-cloud-sync';
 
 let autoSyncDebounceTimer = null;
@@ -54,35 +66,32 @@ export function scheduleAutoSync(delayMs = AUTO_SYNC_DEBOUNCE_MS) {
 
 /**
  * Entry point for both automatic triggers (a debounced local change, and the
- * 30s idle heartbeat). Never shows a blocking alert() or asks for
- * confirmation (those are for the manual "Sync now" click) -- a failure here
- * just leaves the status line saying so and waits for the next trigger.
+ * load/return-to-tab catch-up below). Never shows a blocking alert() or asks
+ * for confirmation (those are for the manual "Sync now" click) -- a failure
+ * here just leaves the status line saying so and waits for the next
+ * trigger.
  */
 async function runAutoSync() {
   if (!hasBlobSasUrl()) return;
   if (isSessionBusy()) {
     // Don't drop the change: try again shortly rather than waiting for the
-    // next unrelated trigger, which might be a while (e.g. mid-recording a
-    // long sentence, or nothing else happens for the rest of the 30s window).
+    // next unrelated trigger, which might otherwise be a long time coming
+    // now that there's no periodic heartbeat to fall back on (e.g.
+    // mid-recording a long sentence, with no other local edit in sight).
     scheduleAutoSync(AUTO_SYNC_DEBOUNCE_MS);
     return;
   }
   await runSyncExclusive({ wait: false });
 }
 
-let autoSyncHeartbeatTimer = null;
+let autoSyncStarted = false;
 
-/** 30s idle heartbeat: only ticks while the tab is visible, so a backgrounded/pinned tab doesn't keep polling Azure and burning battery/quota. */
-export function startAutoSyncHeartbeat() {
-  if (autoSyncHeartbeatTimer) return;
-  if (!document.hidden) runAutoSync(); // sync right away on load instead of waiting out the first 30s tick
-  autoSyncHeartbeatTimer = setInterval(() => {
-    if (document.hidden) return;
-    runAutoSync();
-  }, AUTO_SYNC_HEARTBEAT_MS);
+/** Sync once right after load, and again whenever the tab regains visibility -- catch-up points for whatever changed elsewhere while this tab wasn't the one looking. No periodic timer beyond that (see the module comment above for why). */
+export function startAutoSync() {
+  if (autoSyncStarted) return;
+  autoSyncStarted = true;
+  if (!document.hidden) runAutoSync();
   document.addEventListener('visibilitychange', () => {
-    // Catch up promptly on returning to the tab, instead of waiting out
-    // whatever's left of the current 30s tick.
     if (!document.hidden) runAutoSync();
   });
 }

@@ -31,7 +31,7 @@ import {
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
   BLOB_SOURCEAUDIO_PREFIX, blobSourceAudioPath,
-  cleanupOrphanBlobs,
+  referencedBlobPaths, cleanupOrphanBlobs,
 } from './blob-paths.js';
 import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
 import { uiHooks } from './ui-hooks.js';
@@ -443,28 +443,33 @@ export async function syncWithAzure() {
       setManifestEtagCache({ etag: newEtag, manifest });
     }
 
-    // Best-effort orphan cleanup, one pass per content kind, using paths
-    // referenced by the MERGED manifest -- not just this device's local
-    // sessions -- so content only known to some other device doesn't look
-    // orphaned from here.
+    // Best-effort orphan cleanup, one pass per content kind. Deletes
+    // anything under each prefix that's unreferenced by BOTH the manifest
+    // this device just wrote above AND the manifest re-fetched fresh right
+    // now, immediately before any delete call -- not just the one this
+    // device just wrote. That manifest was computed from remote data read
+    // at the START of this sync (seconds to tens of seconds ago, depending
+    // on how much needed uploading/downloading); using only that snapshot
+    // is what let a concurrently-syncing device's fresh upload -- already
+    // referenced in ITS newer manifest, just not yet in ours -- look like an
+    // orphan here and get deleted, silently, moments after that device's
+    // own sync had already reported success. Re-fetching closes that
+    // window down to the gap between this GET and the deletes below. If the
+    // re-fetch itself fails, cleanup is skipped entirely for this round
+    // (falling into the catch below) rather than deleting against data
+    // that's already known to be stale.
     let cleanedCount = 0;
     let cleanupWarning = '';
     try {
-      const recordingPaths = manifest.sessions.flatMap((session) => (session.sentences || [])
-        .filter((s) => s.hasRecording)
-        .map((s) => blobRecordingPath(session.id, s.id)));
-      const referencePaths = manifest.sessions.flatMap((session) => (session.sentences || [])
-        .filter((s) => s.hasReference)
-        .map((s) => blobReferencePath(session.id, s.id)));
-      const assessmentPaths = manifest.sessions.flatMap((session) => (session.sentences || [])
-        .filter((s) => s.hasAssessment)
-        .map((s) => blobAssessmentPath(session.id, s.id)));
-      const inputTextPaths = manifest.sessions
-        .filter((session) => session.hasInputText)
-        .map((session) => blobInputTextPath(session.id));
-      const sourceAudioPaths = manifest.sessions
-        .filter((session) => session.hasSourceAudio)
-        .map((session) => blobSourceAudioPath(session.id));
+      setBlobActionStatus('Re-checking remote before cleanup…', 'info');
+      let referenceSessions = manifest.sessions;
+      const freshManifest = await blobStore.downloadJsonConditional(sasUrl, BLOB_MANIFEST_PATH, null);
+      if (!freshManifest.notModified) {
+        referenceSessions = manifest.sessions.concat(freshManifest.value.sessions || []);
+      }
+      const {
+        recordingPaths, referencePaths, assessmentPaths, inputTextPaths, sourceAudioPaths,
+      } = referencedBlobPaths(referenceSessions);
       // cleanupOrphanBlobs() itself never touches UI (see its doc comment in
       // blob-paths.js) -- this callback is what actually shows the progress
       // it reports.

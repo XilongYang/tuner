@@ -98,7 +98,7 @@ async function init() {
   // comment on azure-sync.js's uiHooks for why that module never imports
   // sentence-panel/history-panel directly (F-01 in the coupling audit: a
   // sync/data module reaching up into the UI layer). Wired before
-  // initBlobPanel() starts the auto-sync heartbeat, so a sync can never fire
+  // initBlobPanel() starts the load-time/return-to-tab auto-sync, so a sync can never fire
   // before this is in place.
   setSyncUiHooks({ render, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen });
   initBlobPanel();

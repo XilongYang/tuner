@@ -56,6 +56,43 @@ export const BLOB_SOURCEAUDIO_PREFIX = 'tuner/sourceaudio/';
 export const blobSourceAudioPath = (sessionId) => `${BLOB_SOURCEAUDIO_PREFIX}${sessionId}.audio`;
 
 /**
+ * Which blob paths a manifest's `sessions` array (the shape syncWithAzure()
+ * builds -- see its `manifest` object) references, split into the same five
+ * content kinds cleanupOrphanBlobs() is called for once each. Factored out
+ * so it can be computed twice in a row against two different manifest
+ * snapshots -- see syncWithAzure()'s orphan-cleanup step for why: the
+ * manifest a sync itself just wrote is already some seconds old by the time
+ * cleanup actually runs, and previously that snapshot was the ONLY thing
+ * cleanup checked against -- so a blob another device finished uploading (and
+ * referenced in its own, newer manifest) in that window looked like an
+ * orphan here and got deleted, silently, moments after that other device's
+ * sync had reported success. Re-fetching the manifest fresh immediately
+ * before deleting anything, and treating BOTH snapshots' references as
+ * live, closes that window down to the (much shorter) gap between the
+ * re-fetch and the delete calls themselves.
+ */
+export function referencedBlobPaths(manifestSessions) {
+  const sessions = manifestSessions || [];
+  return {
+    recordingPaths: sessions.flatMap((session) => (session.sentences || [])
+      .filter((s) => s.hasRecording)
+      .map((s) => blobRecordingPath(session.id, s.id))),
+    referencePaths: sessions.flatMap((session) => (session.sentences || [])
+      .filter((s) => s.hasReference)
+      .map((s) => blobReferencePath(session.id, s.id))),
+    assessmentPaths: sessions.flatMap((session) => (session.sentences || [])
+      .filter((s) => s.hasAssessment)
+      .map((s) => blobAssessmentPath(session.id, s.id))),
+    inputTextPaths: sessions
+      .filter((session) => session.hasInputText)
+      .map((session) => blobInputTextPath(session.id)),
+    sourceAudioPaths: sessions
+      .filter((session) => session.hasSourceAudio)
+      .map((session) => blobSourceAudioPath(session.id)),
+  };
+}
+
+/**
  * Delete any blob under `prefix` that the current sync no longer references
  * (e.g. its session was deleted, or a sentence's recording/assessment/a
  * session's inputText was replaced by a newer take since the last sync).

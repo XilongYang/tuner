@@ -2,7 +2,7 @@
 
 A **fully static, backend-free, open and auditable** web tool for read-aloud / shadowing practice and pronunciation scoring in Japanese and English.
 
-- No framework, no npm packages, no CDN dependencies — just plain HTML / CSS / JavaScript (ES modules)
+- No framework, no npm packages, no CDN dependencies at runtime — just plain HTML / CSS / JavaScript (ES modules). `package.json` exists only for the optional dev-time test suites (see [Testing](#testing) below); nothing it installs is ever loaded by the app itself.
 - Deployable directly to GitHub Pages / Cloudflare Pages
 - All Azure requests go **straight from your browser to Azure** — no relay backend
 
@@ -85,24 +85,91 @@ Then open `http://localhost:8000`.
 ## Project layout
 
 ```
-index.html          page structure
-css/styles.css       design system
-js/segment.js        sentence splitting
-js/lang.js           language detection (ja / en)
-js/config.js         Azure credential + Blob SAS URL storage (localStorage)
-js/tts.js            TTS (Azure REST + browser fallback)
-js/recorder.js       recording (Web Audio → 16 kHz WAV)
-js/recorder-worklet.js  AudioWorklet capture processor
-js/pron.js           pronunciation assessment (Azure REST)
-js/store.js          local history persistence (IndexedDB: sessions + folders)
-js/azure-blob.js     Azure Blob Storage REST client (backup/restore)
-js/app.js            main application logic
+index.html                  page structure
+css/                         design system (one stylesheet per domain, mirroring js/)
+
+js/segment.js                sentence splitting (TERMINATORS regex + segment())
+js/lang.js                   language detection (ja / en)
+js/config.js                 Azure credential + Blob SAS URL storage (localStorage)
+js/state.js                  shared app state (`els`, `sentences`, current session/split-mode, persistSession())
+js/app.js                    composition root: wires every domain's init() together
+js/tts.js                    TTS (Azure REST + browser fallback)
+js/tts-player.js             TTS playback + per-word highlighting during Speak
+js/pron.js                   pronunciation assessment (Azure REST)
+js/stt.js                    Fast Transcription (Azure REST) for audio import
+js/recorder.js                recording (Web Audio → 16 kHz WAV) + WAV encode/decode
+js/recorder-worklet.js       AudioWorklet capture processor
+js/azure-blob.js             Azure Blob Storage REST client (used by sync/)
+js/zip.js                    minimal dependency-free ZIP writer/reader (used by store/backup.js)
+
+js/sentence-panel/           the sentence list: rows, click-to-split, audio import
+  row.js                       per-row DOM + button wiring (Speak/Record/Playback/Score/Export)
+  split-render.js              list rendering, row selection/Merge UI, split-pointer triangles
+  split-geometry.js            pure split-point/geometry math (no DOM/store/network)
+  split-actions.js             the only file here that touches store/network: Split/Merge/Import
+  audio-decode.js               audio decode/slice + Fast-Transcription re-segmentation by punctuation
+  assessment.js, export-utils.js, index.js
+
+js/history-panel/            the History sidebar: folder/session tree
+  tree.js                       tree rendering + drag-and-drop filing
+  actions.js                    the only file here that touches store: create/rename/move/delete
+  panel.js, context-menu.js, move-picker.js, session-open.js, index.js
+
+js/sync/                     Azure cloud backup/sync
+  azure-sync.js                 incremental bidirectional sync (the bulk of the logic)
+  restore.js                    "Restore from Azure" (full one-way replace)
+  merge.js                      pure last-write-wins merge helpers (no DOM/store/network)
+  blob-paths.js                 blob path builders + orphan-blob cleanup
+  ui-hooks.js                   shared UI-callback registry (avoids a sync -> UI reverse dependency)
+  scheduler.js, panel.js, index.js
+
+js/store/                    local persistence (IndexedDB: sessions, folders, tombstones)
+  db.js                         open/upgrade the database, object-store names, promise wrappers
+  sessions.js, folders.js, tombstones.js    CRUD per object store
+  hashing.js                     content hashing (SHA-256) + per-sentence version stamping
+  snapshot.js                    full export/restore (used by backup.js and Restore from Azure)
+  backup.js                      .tuner backup ZIP build/parse (via ../zip.js)
+  index.js                       public API barrel -- other code imports `store/index.js`, never a submodule directly
 ```
 
 ## Browser requirements
 
 - A modern browser (Chrome / Edge / Safari)
 - Recording needs microphone permission; `getUserMedia` generally requires HTTPS or `localhost`
+
+## Testing
+
+Two independent, optional test suites live alongside the app. Neither is required to run or deploy Tuner itself — they exist for anyone changing the code. Both need [Node.js](https://nodejs.org/) installed (LTS) purely as a dev tool; the app itself never requires it.
+
+```bash
+npm install                    # once, installs devDependencies (fake-indexeddb, playwright)
+```
+
+### Unit tests (`tests/`)
+
+```bash
+npm test
+```
+
+Runs on Node's built-in test runner (`node:test`) — zero extra config. Covers the app's pure/dependency-free logic directly (sentence splitting, language detection, ZIP read/write, sync's merge logic, content hashing, WAV encode/decode, audio re-segmentation math) plus the IndexedDB-backed `store/` layer, exercised against [`fake-indexeddb`](https://github.com/dumbmatter/fakeIndexedDB) (a genuine pure-JS IndexedDB implementation, not a mock) so real transactions/indexes/auto-increment keys are covered without a browser.
+
+Not covered here, by design: anything needing a real browser audio codec or a real microphone —
+
+- `sentence-panel/audio-decode.js`'s `decodeSourceAudio()` calls the browser's `AudioContext.decodeAudioData()` to decode an arbitrary imported audio file (mp3/wav/ogg). The actual decoding logic lives in the browser's native codec, not in this app's code, so there's nothing meaningful to unit-test without a real (or native/WASM) audio decoder dependency.
+- `recorder.js`'s `Recorder.start()` / `_startWithWorklet()` / `_startWithScriptProcessor()` need `navigator.mediaDevices.getUserMedia` (a real microphone) and `AudioWorkletNode`. Mocking those would only verify that the code calls the mocked APIs in order, not that real capture works.
+
+Both stay covered by the Playwright suite below instead, which runs in a real browser.
+
+### End-to-end tests (`tests-e2e/`)
+
+```bash
+npx playwright install chromium   # once, downloads Playwright's bundled Chromium
+npm run test:e2e                  # runs every tests-e2e/test_*.mjs against a real headless Chromium
+```
+
+`tests-e2e/server.mjs` serves the app on `http://127.0.0.1:8934` (a zero-dependency static file server using Node's built-in `http`); `tests-e2e/run-all.mjs` starts it, runs every `test_*.mjs` script in the folder, and reports which ones exited cleanly. Pass a substring to run a subset: `npm run test:e2e -- test_split`.
+
+These are **not** assertion-based tests — each script drives the real UI (or calls into a module directly via `page.evaluate()`) and prints what it observed; a script only "fails" here in the sense of throwing or timing out (e.g. a selector never appearing), not a pass/fail check. Reading a script's printed JSON is how you confirm the behavior it exercises is still correct.
 
 ## License
 

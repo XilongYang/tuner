@@ -1,0 +1,13 @@
+{
+  "name": "tuner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:e2e": "node tests-e2e/run-all.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.63.0"
+  }
+}

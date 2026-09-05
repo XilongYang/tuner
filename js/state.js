@@ -85,7 +85,7 @@ export function setSentences(next) { sentences = next; }
  * every non-whitespace character becomes a literal "#", whitespace/newlines
  * are kept as-is so the redacted shape still lines up with the real text's
  * line breaks and word spacing (see .input-masked / #input-mask-overlay in
- * styles.css). Purely visual -- els.input.value itself is never touched
+ * css/input-area.css). Purely visual -- els.input.value itself is never touched
  * here. Every place that assigns els.input.value should call this
  * afterwards so the overlay never goes stale.
  */

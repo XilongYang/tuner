@@ -59,7 +59,7 @@ export function renderAssessment(container, a, sentence) {
     const span = document.createElement('span');
     span.className = 'word';
     // Each character of the word gets its own inline span so hidden mode
-    // (see .sentence-row.is-hidden .word .word-char in styles.css) can mask
+    // (see .sentence-row.is-hidden .word .word-char in css/sentence-panel/score-results.css) can mask
     // it as a "#" per character rather than one block for the whole word --
     // the word text/click/hover behavior below is unaffected, it's still all
     // on the outer `span`.

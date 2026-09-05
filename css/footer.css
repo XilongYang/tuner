@@ -1,0 +1,11 @@
+/* ---- Footer ---- */
+.app-footer {
+  padding: 22px 24px;
+  text-align: center;
+}
+.app-footer p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-faint);
+  font-style: italic;
+}

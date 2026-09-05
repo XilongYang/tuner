@@ -1,0 +1,82 @@
+/* ---- History sidebar (folder tree of saved sessions) ---- */
+.history-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 360px;
+  max-width: 90vw;
+  background: var(--surface);
+  border-left: 1px solid var(--border-strong);
+  box-shadow: -14px 0 32px rgba(20, 30, 50, 0.16);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 0.2s ease, visibility 0.2s ease;
+}
+.history-sidebar.is-open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.history-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 20px 16px;
+  flex-shrink: 0;
+}
+.history-sidebar-header .section-title { margin: 0; }
+
+.icon-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+.icon-btn:hover { color: var(--accent); }
+
+.history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 14px;
+  flex-shrink: 0;
+}
+.history-toolbar .btn {
+  min-width: 0;
+  font-size: 13px;
+  padding: 6px 8px;
+}
+/* Row 1: Export / Import / Clear all, width ratio 4:4:2. Row 2: New folder
+   alone, full width (flex-basis: 100% forces the wrap in a flex-wrap row). */
+.history-toolbar .history-btn-4 { flex: 4 4 0; }
+.history-toolbar .history-btn-2 { flex: 2 2 0; }
+.history-toolbar .history-btn-full { flex: 1 1 100%; }
+.history-io-status {
+  margin: -4px 20px 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+}
+.history-io-status[data-kind="error"] {
+  color: var(--accent-text);
+}
+
+.history-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px 24px;
+  border-top: 1px solid var(--border);
+}
+.history-empty {
+  color: var(--text-faint);
+  font-size: 14px;
+  font-style: italic;
+  margin: 16px 8px;
+}

@@ -1,0 +1,18 @@
+/* ---- Main ---- */
+.app-main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 34px 24px 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+}
+
+.section-title {
+  display: block;
+  font-family: var(--serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 14px;
+}

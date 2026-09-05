@@ -1,0 +1,17 @@
+/* ---- Responsive ---- */
+@media (max-width: 560px) {
+  .header-inner {
+    padding: 20px 20px 24px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .global-toggle, .header-actions { position: static; order: 3; }
+  .header-actions { justify-content: center; flex-wrap: wrap; }
+  .title-block { order: 1; margin-top: 8px; }
+  .title-block h1 { font-size: 27px; }
+  .sentence-row { padding: 16px; gap: 12px; }
+  .row-index { min-width: 22px; }
+}

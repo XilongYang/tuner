@@ -500,7 +500,7 @@ export function buildTextEl(sentence) {
     if (here) {
       for (const p of here) {
         // Zero-size inline anchor at this exact character gap, so the
-        // triangle itself (position: absolute, see styles.css) floats above
+        // triangle itself (position: absolute, see css/sentence-panel/split-pointer.css) floats above
         // the text without taking up any horizontal space of its own --
         // otherwise every triangle would shove the following characters
         // apart and disturb line wrapping, which is exactly what a plain

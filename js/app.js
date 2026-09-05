@@ -128,7 +128,7 @@ async function init() {
   refreshInputMaskOverlay();
   els.input.addEventListener('input', refreshInputMaskOverlay);
   // #input-mask-overlay is a separate element stacked on top of #input-text
-  // (see styles.css) -- scrolling the real textarea doesn't move it on its
+  // (see css/input-area.css) -- scrolling the real textarea doesn't move it on its
   // own, so without this the "#" text stays pinned at the top while the
   // (invisible) real text scrolls underneath it. overflow:hidden still
   // allows scrollTop/scrollLeft to be set programmatically.

@@ -1,0 +1,17 @@
+/* ---- Row status ---- */
+.row-status {
+  font-size: 14px;
+  font-family: var(--serif);
+  padding: 4px 0 0;
+}
+.row-status[data-kind="info"] { color: var(--text-muted); }
+.row-status[data-kind="recording"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+.row-status[data-kind="error"] {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+}

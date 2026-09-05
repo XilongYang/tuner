@@ -1,0 +1,112 @@
+/* ---- Credentials panel ---- */
+.key-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+}
+.notice {
+  font-size: 14px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 12px 16px;
+  margin: 0 0 18px;
+  line-height: 1.7;
+}
+.notice strong { color: var(--text); font-weight: 700; }
+.key-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-end;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 220px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.field input {
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+}
+.field input:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+.key-buttons { display: flex; gap: 10px; }
+.key-status {
+  margin: 16px 0 0;
+  font-size: 13px;
+  font-family: var(--mono);
+}
+.key-status[data-state="ok"] { color: var(--text); }
+.key-status[data-state="empty"] { color: var(--text-faint); }
+
+.key-saved {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.key-saved .key-status { margin: 0; }
+
+.voice-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+.voice-form select {
+  font-family: var(--serif);
+  font-size: 14px;
+  padding: 8px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.voice-form select:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+
+/* A secondary section nested inside a .key-panel (e.g. Cloud backup under
+   Azure settings) -- same border-top separator as .voice-form, one level down. */
+.panel-subsection {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.subsection-title {
+  display: block;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 12px;
+}
+
+.blob-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+#blob-action-status {
+  margin-top: 12px;
+}

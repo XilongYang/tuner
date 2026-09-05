@@ -1,0 +1,31 @@
+/* Popup context menu (folder / session actions) */
+.ctx-menu {
+  position: fixed;
+  min-width: 175px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 28px rgba(20, 30, 50, 0.18);
+  padding: 4px;
+  z-index: 100;
+}
+.ctx-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: var(--radius);
+}
+.ctx-menu button:hover { background: var(--surface-2); }
+.ctx-menu button.danger { color: var(--accent-text); }
+.ctx-menu hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 4px 2px;
+}

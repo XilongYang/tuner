@@ -1,0 +1,102 @@
+/* ---- Score results ---- */
+.row-result {
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+/* display:flex would override the hidden attribute's default display:none; restore it explicitly */
+.row-result[hidden] { display: none; }
+.score-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.score-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.score-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--text);
+}
+.score-chip[data-level="good"] .score-value { color: var(--good); }
+.score-chip[data-level="mid"] .score-value { color: var(--mid); }
+.score-chip[data-level="bad"] .score-value { color: var(--accent); }
+.score-label {
+  font-family: var(--serif);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 7px;
+}
+
+.words-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 19px;
+  line-height: 1.95;
+}
+.word {
+  position: relative;
+  padding: 1px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.word[data-level="good"] { color: var(--good); }
+.word[data-level="mid"] { color: var(--mid); background: var(--mid-soft); }
+.word[data-level="bad"] { color: var(--accent); background: var(--accent-soft); }
+.word[data-error="omission"] {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+.word[data-error="insertion"] {
+  color: var(--accent);
+  border-bottom: 2px dashed var(--accent);
+}
+
+/* Hidden mode: each CHARACTER of a scored word (not the word as one block)
+   shows a "#" in the word's level color -- every .word-char (one per
+   character, see renderAssessment() in assessment.js) stays transparent with
+   its own "#" drawn on top via ::after, so a longer word renders as that many
+   separate character cells instead of a single word-wide block. The word
+   itself (.word) still carries data-level/data-error and is still one click/
+   hover target; the hover tooltip still shows normally. */
+.sentence-row.is-hidden .word {
+  color: transparent;
+  text-decoration: none;
+  border-bottom: none;
+}
+.sentence-row.is-hidden .word .word-char {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+  margin: 0 1px;
+}
+.sentence-row.is-hidden .word .word-char::after {
+  content: "#";
+  position: absolute;
+  inset: 0;
+  color: var(--text-faint);
+}
+.sentence-row.is-hidden .word[data-level="good"] .word-char::after { color: var(--good); }
+.sentence-row.is-hidden .word[data-level="mid"] .word-char::after { color: var(--mid); }
+.sentence-row.is-hidden .word[data-level="bad"] .word-char::after { color: var(--accent); }
+.sentence-row.is-hidden .word[data-error="omission"] .word-char::after { color: var(--text-faint); }
+.sentence-row.is-hidden .word[data-error="insertion"] .word-char::after { color: var(--accent); }
+/* Now that hidden mode is entirely per-character "#" cells, the mid/bad pill
+   background from the shown-mode rules above (.word[data-level="mid"/"bad"])
+   would otherwise still show through as a leftover word-wide block behind
+   them -- drop it here so hidden mode is just the bare colored characters. */
+.sentence-row.is-hidden .word[data-level] {
+  background: none;
+}

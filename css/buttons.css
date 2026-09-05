@@ -1,0 +1,50 @@
+/* ---- Buttons ---- */
+.btn {
+  font-family: var(--serif);
+  font-size: 14px;
+  padding: 6px 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--text-faint);
+}
+.btn:disabled { opacity: 0.45; cursor: default; }
+.btn.primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.btn.primary:hover:not(:disabled) {
+  background: #000;
+  border-color: #000;
+}
+/* Destructive actions (Clear all, and its confirm modals' final button). */
+.btn.danger {
+  color: var(--accent-text);
+  border-color: var(--accent-text);
+}
+.btn.danger:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+.btn.danger.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn.danger.primary:hover:not(:disabled) {
+  background: var(--accent-text);
+  border-color: var(--accent-text);
+}
+/* Active playback state (Speak / Playback currently playing; click to stop) */
+.btn.is-playing,
+.btn.is-playing:hover:not(:disabled) {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}

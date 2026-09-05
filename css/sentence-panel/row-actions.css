@@ -1,0 +1,64 @@
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.lang-toggle {
+  font-family: var(--mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  min-width: 40px;
+}
+.lang-toggle:hover { border-color: var(--text-faint); color: var(--text); }
+
+.hide-toggle {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.hide-toggle:hover { border-color: var(--text-faint); color: var(--text); }
+.hide-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* Hidden text: display each character as a literal "#" (for from-memory
+   shadowing), purely visual -- the real character stays as the span's actual
+   text content (untouched data), just painted transparent, with "#" drawn on
+   top via ::after so nothing about the underlying text is altered.
+   Whitespace is a plain text node (see buildTextEl in split.js), so word gaps
+   are unaffected. */
+.sentence-row.is-hidden .row-char {
+  position: relative;
+  display: inline-block;
+  color: transparent;
+  margin: 0 1px;
+}
+.sentence-row.is-hidden .row-char::after {
+  content: "#";
+  position: absolute;
+  inset: 0;
+  color: var(--text);
+  text-align: center;
+}
+/* Speak highlight (.row-char.is-speaking, above) sets `color` on the
+   .row-char span itself -- invisible here, since the span's own text is
+   painted transparent in hidden mode and what's actually seen is the "#"
+   placeholder drawn by ::after with its own separate color. Recolor the
+   placeholder instead so the highlight still reads while text is hidden. */
+.sentence-row.is-hidden .row-char.is-speaking::after {
+  color: var(--accent-text);
+}

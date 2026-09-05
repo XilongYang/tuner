@@ -1,0 +1,59 @@
+/* Design aligned with the main site (LaTeX.css academic style):
+   serif body and headings, cool near-white background, near-black text,
+   underlined dark links, flat and restrained.
+   Numbers (sentence index, scores) keep a monospace font as "data". */
+
+:root {
+  /* Cool near-white background and near-black text */
+  --bg: hsl(210, 20%, 98%);
+  --surface: #ffffff;
+  --surface-2: hsl(210, 18%, 95.5%);
+  --border: hsl(210, 16%, 90%);
+  --border-strong: hsl(210, 14%, 80%);
+
+  --text: hsl(210, 15%, 12%);
+  --text-muted: hsl(210, 9%, 42%);
+  --text-faint: hsl(210, 12%, 62%);
+
+  /* Accent: red, only for key moments — recording, errors, poor pronunciation */
+  --accent: #ee5555;
+  --accent-soft: hsl(0, 78%, 95%);
+  --accent-text: hsl(0, 62%, 45%);
+
+  /* Score level colors (bad reuses the red accent) */
+  --good: hsl(145, 32%, 38%);
+  --good-soft: hsl(145, 30%, 93%);
+  --mid: hsl(38, 58%, 42%);
+  --mid-soft: hsl(40, 52%, 90%);
+
+  --radius: 4px;
+  /* Serif stack: prefer Latin Modern (if installed locally), fall back to generic serifs and CJK Mincho/Song */
+  --serif: "Latin Modern Roman", Georgia, "Times New Roman",
+           "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP",
+           "Songti SC", "Noto Serif SC", STSong, "SimSun", serif;
+  --mono: "Latin Modern Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* Ensure the hidden attribute always wins, even when an element sets display (e.g. flex). */
+[hidden] { display: none !important; }
+
+html, body { margin: 0; padding: 0; }
+
+body {
+  font-family: var(--serif);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.72;
+  font-size: 16px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+a:hover { color: var(--accent); }

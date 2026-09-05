@@ -1,0 +1,79 @@
+/* ---- Input area ---- */
+#input-text {
+  width: 100%;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.75;
+  padding: 16px 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+}
+#input-text:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+
+/* Hidden mode: the textarea's own text is painted transparent, and
+   #input-mask-overlay (a plain non-interactive div stacked exactly on top of
+   it, same box/font -- see .input-mask-wrap below) shows the same text with
+   every non-whitespace character replaced by "#" (built by
+   refreshInputMaskOverlay() in state.js). The real value in #input-text is
+   never altered -- purely a visual swap. */
+.input-mask-wrap {
+  position: relative;
+}
+#input-mask-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  overflow: hidden;
+  pointer-events: none;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.75;
+  padding: 16px 18px;
+  color: var(--text);
+}
+#input-text.input-masked {
+  color: transparent;
+  caret-color: transparent;
+}
+#input-text.input-masked::placeholder { color: transparent; }
+#input-text.input-masked::selection { color: transparent; background: transparent; }
+#input-text.input-masked ~ #input-mask-overlay {
+  display: block;
+}
+/* Audio-imported session: the practice text mirrors the transcript read-only
+   -- editing it here would drift from the audio clips already sliced to
+   match it, with no way (yet) to re-slice. */
+#input-text.is-locked {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+/* .input-masked and .is-locked combine on an audio-imported session with the
+   global hide switch on -- without this, .is-locked's `color` (same
+   specificity, later in the file) would win and show the real text underneath
+   the "#" overlay, double-exposed. This selector's extra class always wins. */
+#input-text.is-locked.input-masked {
+  color: transparent;
+}
+.input-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.sentence-count {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-faint);
+  margin-left: auto;
+}

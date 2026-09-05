@@ -4,7 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tuner — read-aloud &amp; pronunciation practice</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <!-- Split by UI region, mirroring the js/ folder layout (sentence-panel/,
+       history-panel/) -- order matters, it's the cascade order the old
+       monolithic styles.css had these sections in. -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/header.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/key-panel.css">
+  <link rel="stylesheet" href="css/input-area.css">
+  <link rel="stylesheet" href="css/buttons.css">
+  <link rel="stylesheet" href="css/sentence-panel/sentence-row.css">
+  <link rel="stylesheet" href="css/sentence-panel/split-pointer.css">
+  <link rel="stylesheet" href="css/sentence-panel/row-actions.css">
+  <link rel="stylesheet" href="css/sentence-panel/row-status.css">
+  <link rel="stylesheet" href="css/sentence-panel/score-results.css">
+  <link rel="stylesheet" href="css/sentence-panel/word-tip.css">
+  <link rel="stylesheet" href="css/history-panel/sidebar.css">
+  <link rel="stylesheet" href="css/history-panel/tree.css">
+  <link rel="stylesheet" href="css/history-panel/context-menu.css">
+  <link rel="stylesheet" href="css/history-panel/modal.css">
+  <link rel="stylesheet" href="css/footer.css">
+  <link rel="stylesheet" href="css/responsive.css">
 </head>
 <body>
   <header class="app-header">
@@ -131,7 +151,7 @@
         <textarea id="input-text" rows="6" spellcheck="false"
           placeholder="Paste Japanese or English text (mixed is fine). Click Split to break it into numbered sentences by sentence boundaries."></textarea>
         <!-- Purely visual overlay for the global "hide text" switch: shown on
-             top of #input-text (see .input-masked in styles.css) with every
+             top of #input-text (see .input-masked in css/input-area.css) with every
              non-whitespace character replaced by "#", while the textarea's
              real value underneath is never touched. -->
         <div id="input-mask-overlay" aria-hidden="true"></div>

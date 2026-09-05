@@ -4,7 +4,7 @@
 
 import { synthesizeAzure } from './tts.js';
 import { getVoice, loadCredentials } from './config.js';
-import { transcribe } from './sentence-panel/audio-import.js';
+import { transcribe } from './stt.js';
 
 // Reusable audio element for TTS playback
 export const ttsAudio = new Audio();
@@ -80,7 +80,7 @@ export async function getTtsEntry(text, locale, onMiss) {
 
 /**
  * Re-transcribe a synthesized TTS clip via Azure Fast Transcription (the same
- * call audio-import.js's transcribe() makes for a real uploaded file) to
+ * call stt.js's transcribe() makes for a real uploaded file) to
  * recover real word-level timestamps for it -- the same shape as an imported
  * sentence's sentence.words[] ({ offsetMilliseconds, durationMilliseconds,
  * charStart, charEnd }), except relative to `text` itself.
@@ -96,7 +96,7 @@ export async function getTtsEntry(text, locale, onMiss) {
 async function alignWordsForClip(blob, text, lang) {
   const creds = loadCredentials();
   // Fast Transcription needs the resource name (custom subdomain) specifically
-  // -- see audio-import.js's handleAudioImport() for the same requirement.
+  // -- see split-actions.js's handleAudioImport() for the same requirement.
   // Speak/TTS itself only ever needed key+region, so this is silently absent
   // for anyone who set up Speak before this feature existed -- logged (not
   // surfaced as a UI error, since Speak must keep working without it) so it's

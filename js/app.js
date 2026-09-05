@@ -21,8 +21,10 @@ import {
   render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest,
   clearRowSelection, mergeSelectedSentences,
 } from './sentence-panel/index.js';
-import { initHistoryPanel, openHistorySidebar } from './history-panel/index.js';
-import { initBlobPanel } from './sync/index.js';
+import {
+  initHistoryPanel, openHistorySidebar, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen,
+} from './history-panel/index.js';
+import { initBlobPanel, setSyncUiHooks } from './sync/index.js';
 
 // ---- Credentials panel ----
 
@@ -92,6 +94,13 @@ function initVoiceSelectors() {
 
 async function init() {
   initKeyPanel();
+  // Give the sync/data layer its post-sync UI callbacks -- see the doc
+  // comment on azure-sync.js's uiHooks for why that module never imports
+  // sentence-panel/history-panel directly (F-01 in the coupling audit: a
+  // sync/data module reaching up into the UI layer). Wired before
+  // initBlobPanel() starts the auto-sync heartbeat, so a sync can never fire
+  // before this is in place.
+  setSyncUiHooks({ render, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen });
   initBlobPanel();
 
   // One-time housekeeping: give any session left over from before ids were

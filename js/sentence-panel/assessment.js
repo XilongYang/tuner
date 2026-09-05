@@ -8,7 +8,7 @@ import { Recorder, decodeWavPcm16, encodeWav } from '../recorder.js';
 import { hasCredentials } from '../config.js';
 import { markSentenceBusy, unmarkSentenceBusy } from '../state.js';
 import { getTtsEntry, player, ttsAudio } from '../tts-player.js';
-import { stopActiveWordRetest, setActiveWordRetest } from './split.js';
+import { stopActiveWordRetest, setActiveWordRetest } from './split-actions.js';
 
 /** Map an accuracy score to a display level. */
 export function accuracyLevel(score) {

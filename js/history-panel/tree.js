@@ -2,11 +2,15 @@
 // drag-and-drop filing -- an alternative to the "Move to..." menu item.
 
 import { els, currentSessionId, formatDate } from '../state.js';
-import * as store from '../store/index.js';
-import { scheduleAutoSync } from '../sync/index.js';
-import { renderHistoryTree } from './panel.js';
 import { openFolderMenu, openSessionMenu } from './context-menu.js';
 import { openSession } from './session-open.js';
+// Circular with actions.js (moveItem()/renderHistoryTree() there are this
+// file's only way to move something or repaint the tree now, while
+// actions.js still imports collectDescendantFolderIds/expandedFolders/
+// sessionDisplayName from here) -- safe, same as the rest of this codebase's
+// sentence-panel/history-panel cycles: both sides only call into each other
+// from inside functions, never at module-evaluation time.
+import { moveItem, renderHistoryTree } from './actions.js';
 
 // Which folder ids are currently expanded in the tree (shared by the tree
 // renderer, drag-and-drop filing, and the folder/session actions below that
@@ -55,20 +59,7 @@ export function makeDropTarget(row, targetFolderId) {
     const payload = readDragPayload(e);
     if (!payload) return;
     try {
-      if (payload.kind === 'folder') {
-        if (payload.id === targetFolderId) return; // dropped on itself
-        const folders = await store.listFolders();
-        const descendants = collectDescendantFolderIds(payload.id, folders);
-        if (targetFolderId != null && descendants.includes(targetFolderId)) return; // would create a cycle
-        await store.moveFolder(payload.id, targetFolderId);
-      } else if (payload.kind === 'session') {
-        await store.moveSessionToFolder(payload.id, targetFolderId);
-      } else {
-        return;
-      }
-      if (targetFolderId != null) expandedFolders.add(targetFolderId);
-      await renderHistoryTree();
-      scheduleAutoSync();
+      await moveItem(payload, targetFolderId);
     } catch (err) {
       alert('Failed to move: ' + err.message);
     }

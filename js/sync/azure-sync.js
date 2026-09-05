@@ -20,8 +20,6 @@ import { loadBlobSasUrl } from '../config.js';
 import {
   els, sentences, setSentences, currentSessionId, setCurrentSessionId,
 } from '../state.js';
-import { render } from '../sentence-panel/index.js';
-import { applyIncomingSessionUpdate, refreshHistoryTreeIfOpen } from '../history-panel/index.js';
 import { setBlobActionStatus } from './panel.js';
 import {
   BLOB_MANIFEST_PATH, manifestEtagCache, setManifestEtagCache,
@@ -33,6 +31,26 @@ import {
   cleanupOrphanBlobs,
 } from './blob-paths.js';
 import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
+
+// No sentence-panel/history-panel imports in this file by design (F-01 in
+// the earlier coupling audit: a sync/data module reaching up into the UI
+// layer to trigger repaints is a reverse dependency -- the sync layer has no
+// business knowing sentence-panel/history-panel exist). app.js (the
+// composition root, the one place already allowed to know about every
+// domain) wires the real UI functions in once via setSyncUiHooks() below;
+// until wired, these no-ops just mean a sync run doesn't repaint anything --
+// relevant only to an isolated unit test that imports this module directly
+// without going through app.js's init().
+let uiHooks = {
+  render: () => {},
+  applyIncomingSessionUpdate: () => {},
+  refreshHistoryTreeIfOpen: () => {},
+};
+
+/** Called once by app.js to give this module its post-sync UI callbacks. */
+export function setSyncUiHooks(hooks) {
+  uiHooks = { ...uiHooks, ...hooks };
+}
 
 /**
  * Which of `sessions` had their LOCAL copy change since `localUpdatedAtAtStart`
@@ -397,7 +415,7 @@ export async function syncWithAzure() {
           // text) and any manually-confirmed extra split points -- small
           // plain values like sourceOffsetMs/sourceDurationMs above, so they
           // travel directly in the manifest too. See state.js's doc comment
-          // and sentence-panel/split.js's getSplitPointers().
+          // and sentence-panel/split-geometry.js's getSplitPointers().
           words: s.words || null,
           manualPoints: s.manualPoints || null,
           updatedAt: s.updatedAt,
@@ -494,13 +512,13 @@ export async function syncWithAzure() {
         setSentences([]);
         setCurrentSessionId(null);
         els.input.value = '';
-        render();
+        uiHooks.render();
       } else if (!staleSessionIds.has(currentSessionId)) {
         const refreshed = finalSessions.find((s) => s.id === currentSessionId);
-        if (refreshed) applyIncomingSessionUpdate(refreshed);
+        if (refreshed) uiHooks.applyIncomingSessionUpdate(refreshed);
       }
     }
-    refreshHistoryTreeIfOpen();
+    uiHooks.refreshHistoryTreeIfOpen();
 
     setBlobActionStatus(
       `Sync complete — ${finalSessions.length} session(s), ${recordingUploads.length + referenceUploads.length + assessmentUploads.length + inputTextUploads.length} uploaded, ${downloadCount} downloaded` +
@@ -636,8 +654,8 @@ export async function restoreFromAzure() {
     setSentences([]);
     setCurrentSessionId(null);
     els.input.value = '';
-    render();
-    refreshHistoryTreeIfOpen();
+    uiHooks.render();
+    uiHooks.refreshHistoryTreeIfOpen();
 
     setBlobActionStatus(
       `Restore complete \u2014 ${sessionsOut.length} session(s), ${totalDownloads} file(s) downloaded.`,

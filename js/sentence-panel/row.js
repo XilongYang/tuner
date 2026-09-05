@@ -9,9 +9,9 @@ import { hasCredentials, getVoice } from '../config.js';
 import { persistSession, markSentenceBusy, unmarkSentenceBusy } from '../state.js';
 import { getTtsEntry, ensureTtsWords, player, ttsAudio } from '../tts-player.js';
 import {
-  buildTextEl, paintHidden, applyHidden, toggleRowSelection,
-  refreshRowText, splitAtPointer,
-} from './split.js';
+  buildTextEl, paintHidden, applyHidden, toggleRowSelection, refreshRowText,
+} from './split-render.js';
+import { splitAtPointer } from './split-actions.js';
 import { renderAssessment } from './assessment.js';
 import { slugify, downloadBlob } from './export-utils.js';
 

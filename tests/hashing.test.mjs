@@ -74,7 +74,7 @@ test('stampSentenceVersions: a new recording blob bumps updatedAt and sets recor
   assert.match(out.recordingHash, /^[0-9a-f]{64}$/);
 });
 
-test('stampSentenceVersions: hides are recomputed fresh, not trusted from a stale incoming hash', async () => {
+test('stampSentenceVersions: assessmentHash is recomputed fresh, not trusted from a stale incoming hash', async () => {
   // Simulate the immutable-update pattern the doc comment warns about: caller
   // spreads the old sentence (carrying its old assessmentHash) but supplies a
   // genuinely different assessment payload.

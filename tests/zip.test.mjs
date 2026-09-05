@@ -37,11 +37,8 @@ test('makeZip: produces a Blob typed application/zip', () => {
   assert.equal(blob.type, 'application/zip');
 });
 
-test('readZip: throws a clear error on empty/non-ZIP input', () => {
-  assert.throws(() => readZip(new ArrayBuffer(0)), /Not a valid \.tuner backup/);
-});
-
-test('readZip: throws on data that has no local-file-header signature', () => {
+test('readZip: throws a clear error on non-ZIP input (empty buffer is just a degenerate case of this)', () => {
   const buf = new TextEncoder().encode('not a zip at all').buffer;
   assert.throws(() => readZip(buf), /Not a valid \.tuner backup/);
+  assert.throws(() => readZip(new ArrayBuffer(0)), /Not a valid \.tuner backup/);
 });

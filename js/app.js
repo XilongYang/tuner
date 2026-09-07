@@ -10,19 +10,20 @@ import {
   loadHideText,
   saveHideText,
   loadHistoryOpen,
+  loadLastSessionId,
   VOICE_OPTIONS,
   getVoice,
   saveVoice,
 } from './config.js';
 import {
-  els, sentences, globalHideText, setGlobalHideText, persistSession, refreshInputMaskOverlay,
+  els, sentences, globalHideText, setGlobalHideText, setCurrentSessionId, persistSession, refreshInputMaskOverlay,
 } from './state.js';
 import {
   render, handleSplit, handleAudioImport, applyHidden, stopActiveWordRetest,
   clearRowSelection, mergeSelectedSentences,
 } from './sentence-panel/index.js';
 import {
-  initHistoryPanel, openHistorySidebar, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen,
+  initHistoryPanel, openHistorySidebar, openSession, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen,
 } from './history-panel/index.js';
 import { initBlobPanel, setSyncUiHooks } from './sync/index.js';
 
@@ -154,6 +155,32 @@ async function init() {
     for (const s of sentences) applyHidden(s, globalHideText);
     persistSession();
   });
+
+  // Reopen whatever session was on screen right before the last page
+  // refresh/reload, if it's still around -- without this, a plain F5 always
+  // came back to a blank slate even though the session itself had already
+  // been safely written to IndexedDB by every edit's persistSession() call;
+  // only the "which one was open" bit lived in memory and vanished on
+  // reload. setCurrentSessionId() (state.js) is what records the id on every
+  // change, so this only has to read it back once at startup. Placed after
+  // the global "hide text" block above so openSession()'s own
+  // reflectGlobalHideCheckbox() call (session-open.js) has the final say on
+  // the checkbox, not the localStorage default that block just applied.
+  if (store.isSupported()) {
+    const lastId = loadLastSessionId();
+    if (lastId) {
+      try {
+        const item = await store.getSession(lastId);
+        if (item) openSession(item);
+        // Not found (deleted locally, or by another device before this one
+        // ever synced it) -- forget it via the same setter that recorded it,
+        // rather than retrying the same dead id on every future load.
+        else setCurrentSessionId(null);
+      } catch (err) {
+        console.warn('Failed to reopen last session:', err);
+      }
+    }
+  }
 
   els.splitBtn.addEventListener('click', handleSplit);
   els.clearInputBtn.addEventListener('click', () => {

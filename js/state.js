@@ -14,6 +14,7 @@
 
 import * as store from './store/index.js';
 import { scheduleAutoSync } from './sync/index.js';
+import { saveLastSessionId } from './config.js';
 
 // ---- DOM references ----
 const $ = (sel) => document.querySelector(sel);
@@ -163,7 +164,19 @@ export function isSessionBusy() {
 // The id of the session currently on screen (one per Split click); null when
 // nothing has been split yet, or when saving isn't available in this browser.
 export let currentSessionId = null;
-export function setCurrentSessionId(id) { currentSessionId = id; }
+// Persisted to localStorage on every change (not just read at startup) so a
+// page refresh/reload can reopen whatever session was on screen instead of
+// coming up blank -- see app.js's init(), which reads this back via
+// config.js's loadLastSessionId() and reopens it if it still exists. Every
+// caller that changes what's on screen already goes through this one setter
+// (see the module comment above), so this is the single place that needs to
+// know about it; a null id (session cleared -- New Session, a delete, a
+// destructive Restore) correctly clears the saved id too via config.js's
+// saveLastSessionId().
+export function setCurrentSessionId(id) {
+  currentSessionId = id;
+  saveLastSessionId(id);
+}
 
 // Which flow produced the sentences currently on screen: 'auto' (a plain text
 // Split) or 'audio' (Import audio). No longer a user-facing choice -- the old

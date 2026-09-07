@@ -162,6 +162,37 @@ export function hasBlobSasUrl() {
   return !!loadBlobSasUrl();
 }
 
+// ---- Last-open session id (so a page refresh reopens it instead of showing a blank slate) ----
+//
+// Deliberately sessionStorage, not localStorage like every other setting in
+// this file: sessionStorage is per-TAB (survives that tab's own reload, but
+// starts empty in a new tab/window and never carries over once the tab is
+// actually closed) and is never shared with any other tab. Every other
+// setting here is meant to be one shared browser-wide default (hide-text,
+// the last-picked voice, ...), but "which session is on screen" very much
+// isn't -- two tabs can legitimately have two different sessions open at
+// once, and localStorage would make the second tab's Split silently steal
+// "current session" out from under the first the moment either one
+// refreshed. sessionStorage gives each tab its own answer for free.
+const LAST_SESSION_ID_KEY = 'speak.lastSessionId';
+
+/** Load the id of the session that was open in THIS TAB before its last reload; '' if none. */
+export function loadLastSessionId() {
+  try {
+    return sessionStorage.getItem(LAST_SESSION_ID_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+/** Record which session is now on screen in this tab, or clear it (pass a falsy id) when the screen goes blank. */
+export function saveLastSessionId(id) {
+  try {
+    if (id) sessionStorage.setItem(LAST_SESSION_ID_KEY, id);
+    else sessionStorage.removeItem(LAST_SESSION_ID_KEY);
+  } catch { /* best-effort -- a refresh just falls back to a blank slate, same as today */ }
+}
+
 // ---- Per-browser device id (labels who's holding the cross-device sync lock) ----
 
 const DEVICE_ID_KEY = 'speak.deviceId';

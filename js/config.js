@@ -161,3 +161,28 @@ export function clearBlobSasUrl() {
 export function hasBlobSasUrl() {
   return !!loadBlobSasUrl();
 }
+
+// ---- Per-browser device id (labels who's holding the cross-device sync lock) ----
+
+const DEVICE_ID_KEY = 'speak.deviceId';
+
+/**
+ * A short id identifying this browser, for no purpose other than showing a
+ * human "locked by <id>" in the sync-lock UI (./sync/lock.js) -- never sent
+ * anywhere except written into the lock blob's own JSON body. Generated once
+ * and cached in localStorage, so it stays stable across reloads but differs
+ * per browser/profile (clearing site data gets a fresh one, same as every
+ * other localStorage-backed setting here).
+ */
+export function getDeviceId() {
+  try {
+    let id = localStorage.getItem(DEVICE_ID_KEY);
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random())).slice(0, 8);
+      localStorage.setItem(DEVICE_ID_KEY, id);
+    }
+    return id;
+  } catch {
+    return 'unknown';
+  }
+}

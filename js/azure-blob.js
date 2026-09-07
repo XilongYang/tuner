@@ -75,6 +75,19 @@ async function checkResponse(response, action) {
     err.notFound = true;
     throw err;
   }
+  // A conditional request (If-Match / If-None-Match, used by ./sync/lock.js
+  // and a caller doing optimistic-concurrency writes) that lost the race:
+  // someone else's write/delete already changed or removed the blob since we
+  // last looked. Standard HTTP has this as 412 Precondition Failed; Azure's
+  // Put Blob also uses 409 Conflict specifically for the "If-None-Match: *
+  // but the blob already exists" case. Both mean the same thing to a caller
+  // here -- tagged `.conflict` so it can be told apart from a real failure
+  // (network/permissions/etc.) and handled as "try again", not "give up".
+  if (response.status === 412 || response.status === 409) {
+    const err = new Error(`${action}: conflict (changed since last read)`);
+    err.conflict = true;
+    throw err;
+  }
   let detail = '';
   try { detail = (await response.text()).trim(); } catch { /* ignore */ }
   if (response.status === 403) {
@@ -89,17 +102,27 @@ async function checkResponse(response, action) {
  * didn't carry one -- some proxies/mocks strip it), so a caller that wants to
  * avoid an immediate redundant re-download of what it just wrote can cache it
  * directly instead of re-fetching to find out.
+ *
+ * `opts.ifNoneMatch: '*'` makes this a "create only, fail if it already
+ * exists" write; `opts.ifMatch: <etag>` makes it "replace only if it's still
+ * exactly this version" (optimistic concurrency). Neither is set by default,
+ * which is the original unconditional overwrite every other caller still
+ * wants. A precondition failure surfaces as the `.conflict`-tagged error from
+ * checkResponse() above, not a generic failure.
  */
-export async function uploadBytes(sasUrl, path, data, contentType = 'application/octet-stream') {
+export async function uploadBytes(sasUrl, path, data, contentType = 'application/octet-stream', opts = {}) {
   let response;
+  const headers = {
+    'x-ms-blob-type': 'BlockBlob',
+    'x-ms-version': API_VERSION,
+    'Content-Type': contentType,
+  };
+  if (opts.ifNoneMatch) headers['If-None-Match'] = opts.ifNoneMatch;
+  if (opts.ifMatch) headers['If-Match'] = opts.ifMatch;
   try {
     response = await fetchWithTimeout(blobUrl(sasUrl, path), {
       method: 'PUT',
-      headers: {
-        'x-ms-blob-type': 'BlockBlob',
-        'x-ms-version': API_VERSION,
-        'Content-Type': contentType,
-      },
+      headers,
       body: data,
     }, TRANSFER_TIMEOUT_MS);
   } catch (err) {
@@ -109,10 +132,10 @@ export async function uploadBytes(sasUrl, path, data, contentType = 'application
   return response.headers.get('ETag') || null;
 }
 
-/** Upload a JSON-serializable value as a block blob. */
-export function uploadJson(sasUrl, path, value) {
+/** Upload a JSON-serializable value as a block blob. See uploadBytes() for `opts` (conditional writes). */
+export function uploadJson(sasUrl, path, value, opts) {
   const bytes = new TextEncoder().encode(JSON.stringify(value));
-  return uploadBytes(sasUrl, path, bytes, 'application/json');
+  return uploadBytes(sasUrl, path, bytes, 'application/json', opts);
 }
 
 /** Download a blob's raw bytes as a Blob. Throws with `.notFound = true` if it doesn't exist. */
@@ -203,13 +226,25 @@ export async function listBlobs(sasUrl, prefix) {
   return names;
 }
 
-/** Delete one blob. Treats "already gone" (404) as success. Requires the SAS token's Delete ("d") permission. */
-export async function deleteBlob(sasUrl, path) {
+/**
+ * Delete one blob. Treats "already gone" (404) as success. Requires the SAS
+ * token's Delete ("d") permission.
+ *
+ * `opts.ifMatch: <etag>` makes this a conditional delete -- fails (as a
+ * `.conflict`-tagged error, see checkResponse()) if the blob's current ETag
+ * doesn't match, e.g. because someone else already replaced or deleted it.
+ * Used by ./sync/lock.js's release() so a device that overran the staleness
+ * timeout and had its lock stolen by another device can't then delete that
+ * new owner's lock out from under it.
+ */
+export async function deleteBlob(sasUrl, path, opts = {}) {
+  const headers = { 'x-ms-version': API_VERSION };
+  if (opts.ifMatch) headers['If-Match'] = opts.ifMatch;
   let response;
   try {
     response = await fetchWithTimeout(blobUrl(sasUrl, path), {
       method: 'DELETE',
-      headers: { 'x-ms-version': API_VERSION },
+      headers,
     }, METADATA_TIMEOUT_MS);
   } catch (err) {
     throw new Error(networkErrorMessage(`Delete of "${path}"`, err));

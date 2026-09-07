@@ -6,7 +6,7 @@
 import { Recorder } from '../recorder.js';
 import {
   els, sentences, setSentences, setCurrentSessionId, setCurrentSplitMode, isSentenceBusy,
-  refreshInputMaskOverlay, setSourceAudio,
+  refreshInputMaskOverlay, setSourceAudio, reflectGlobalHideCheckbox,
 } from '../state.js';
 import { render } from '../sentence-panel/index.js';
 import { refreshHistoryTreeIfOpen } from './panel.js';
@@ -65,6 +65,7 @@ export function openSession(item) {
   setSourceAudio(item.sourceAudioBlob || null, item.sourceAudioHash || null);
 
   setSentences((item.sentences || []).map(makeLiveSentence));
+  reflectGlobalHideCheckbox();
 
   setCurrentSessionId(item.id);
   render();
@@ -122,6 +123,7 @@ export function applyIncomingSessionUpdate(refreshed) {
 
   if (changed) {
     setSentences(next);
+    reflectGlobalHideCheckbox();
     render();
   }
   setCurrentSessionId(refreshed.id);

@@ -68,6 +68,7 @@ export const els = {
   blobStatus: $('#blob-status'),
   backupNowBtn: $('#backup-now-btn'),
   restoreNowBtn: $('#restore-now-btn'),
+  clearSyncLockBtn: $('#clear-sync-lock-btn'),
   blobActionStatus: $('#blob-action-status'),
   syncIndicator: $('#sync-indicator'),
   syncIndicatorLabel: $('#sync-indicator-label'),
@@ -99,6 +100,42 @@ export function refreshInputMaskOverlay() {
 // Global "hide text" switch; the default value for each per-sentence toggle.
 export let globalHideText = false;
 export function setGlobalHideText(value) { globalHideText = value; }
+
+/**
+ * Keep the global "hide text" checkbox (and the practice textarea's mask
+ * class) in step with whatever session is actually on screen. Call this
+ * right after wholesale-replacing `sentences` -- opening a different session
+ * from History, or a sync/restore bringing in a new copy of the one already
+ * open -- so the checkbox reflects THIS session's real hidden state instead
+ * of whatever this browser's global default happened to be left at. Without
+ * it, a session that was previously (or remotely) marked fully hidden opens
+ * with every row correctly masked -- render()/paintHidden() already handle
+ * that per sentence -- while the checkbox above the textarea still shows
+ * whatever the last unrelated toggle left it at, silently out of sync with
+ * what's actually on screen.
+ *
+ * Read-only with respect to the sentences themselves: unlike the checkbox's
+ * own change handler in app.js (which cascades a new value onto every
+ * sentence and persists it), this only ever reads their current `hidden`
+ * state, so it can never fight a per-row Hide/Show click or force a resync
+ * write of its own. It also doesn't touch localStorage (config.js's
+ * saveHideText) -- this reflects what's on screen right now, not a new
+ * standing default for sessions opened later.
+ *
+ * Left alone when there's nothing to read a state from (an empty/new
+ * session, e.g. right after "Restore from Azure" clears the screen) --
+ * `globalHideText` and the checkbox just keep whatever they already had.
+ * "Fully hidden" here means every sentence, not "at least one" -- matching
+ * the same all-or-nothing semantics the checkbox's own cascade already uses
+ * when going the other direction.
+ */
+export function reflectGlobalHideCheckbox() {
+  if (!sentences.length) return;
+  const allHidden = sentences.every((s) => s.hidden);
+  setGlobalHideText(allHidden);
+  if (els.globalHideInput) els.globalHideInput.checked = allHidden;
+  els.input.classList.toggle('input-masked', allHidden);
+}
 
 // ---- Sync "busy" tracking ----
 // A sentence is busy while something not yet reflected in IndexedDB is in

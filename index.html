@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tuner</title>
+  <title>Tuner — read-aloud &amp; pronunciation practice</title>
   <!-- Split by UI region, mirroring the js/ folder layout (sentence-panel/,
        history-panel/) -- order matters, it's the cascade order the old
        monolithic styles.css had these sections in. -->
@@ -139,6 +139,12 @@
         <div class="blob-actions">
           <button id="backup-now-btn" class="btn primary" type="button">Sync now</button>
           <button id="restore-now-btn" class="btn" type="button">Restore from Azure</button>
+          <!-- Manual override for an abandoned cross-device sync lock (see
+               js/sync/lock.js) -- normally a stale lock (>10 min old) is
+               reclaimed automatically by the next sync, so this is only for
+               a human who's seen "Sync skipped — locked by …" and knows the
+               other device isn't coming back. -->
+          <button id="clear-sync-lock-btn" class="btn danger" type="button">Clear sync lock</button>
         </div>
         <p id="blob-action-status" class="row-status" hidden></p>
       </div>

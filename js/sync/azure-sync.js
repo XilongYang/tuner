@@ -34,6 +34,7 @@ import {
   referencedBlobPaths, cleanupOrphanBlobs,
 } from './blob-paths.js';
 import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
+import { acquireLock, releaseLock, lockAgeMs } from './lock.js';
 import { uiHooks } from './ui-hooks.js';
 
 // No sentence-panel/history-panel imports in this file by design (F-01 in
@@ -80,6 +81,32 @@ export async function findSessionsChangedSinceSnapshot(sessions, localUpdatedAtA
 export async function syncWithAzure() {
   const sasUrl = loadBlobSasUrl();
   if (!sasUrl) { alert('Please save a container SAS URL first.'); return; }
+
+  // Cross-device lock: only one device may run the read-merge-write cycle
+  // below at a time (see ./lock.js's module comment for the full mechanism
+  // and why this exists -- it's a different, additional guard from the
+  // same-browser Web Locks mutex in ./scheduler.js). Acquired before
+  // disabling the buttons/showing any "syncing" status, so a lock miss reads
+  // to the user as "skipped this round" rather than a failed sync -- the
+  // buttons stay enabled and nothing about this device's own state changes.
+  setBlobActionStatus('Checking sync lock…', 'info');
+  let lockEtag;
+  try {
+    const lockResult = await acquireLock(sasUrl);
+    if (!lockResult.acquired) {
+      const who = lockResult.lock?.deviceId || 'another device';
+      const ago = lockResult.lock ? Math.round(lockAgeMs(lockResult.lock) / 1000) : null;
+      setBlobActionStatus(
+        `Sync skipped — locked by ${who}${ago != null ? ` (${ago}s ago)` : ''}.`,
+        'info',
+      );
+      return;
+    }
+    lockEtag = lockResult.etag;
+  } catch (err) {
+    setBlobActionStatus('Sync failed: could not acquire sync lock — ' + err.message, 'error');
+    return;
+  }
 
   els.backupNowBtn.disabled = true;
   els.restoreNowBtn.disabled = true;
@@ -546,6 +573,13 @@ export async function syncWithAzure() {
   } finally {
     els.backupNowBtn.disabled = false;
     els.restoreNowBtn.disabled = false;
+    // Best-effort: if this fails (network blip, or the lock was already
+    // stolen out from under us for overrunning LOCK_STALE_MS -- releaseLock()'s
+    // conditional delete then simply no-ops via its own conflict), there's
+    // nothing more useful to do than leave it for the next sync's staleness
+    // check or a manual "Clear sync lock" -- it must never mask whatever
+    // status message the sync itself just set above.
+    try { await releaseLock(sasUrl, lockEtag); } catch (err) { console.warn('Sync lock release failed:', err); }
   }
 }
 

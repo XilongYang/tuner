@@ -13,6 +13,7 @@ import { scheduleAutoSync, runSyncNow, runSyncExclusive, startAutoSync } from '.
 // codebase's cycles: both sides only call into each other from inside
 // functions, never at module-evaluation time.
 import { restoreFromAzure } from './restore.js';
+import { forceReleaseLock } from './lock.js';
 
 /** Millisecond-precision timestamp for the "Synced at ..." tooltip line --
  *  distinct from state.js's formatDate() (minute precision, used for session
@@ -104,6 +105,23 @@ export function initBlobPanel() {
 
   els.backupNowBtn.addEventListener('click', runSyncNow);
   els.restoreNowBtn.addEventListener('click', () => runSyncExclusive({ wait: true, fn: restoreFromAzure }));
+
+  // Manual override for an abandoned cross-device lock (see js/sync/lock.js)
+  // -- confirm()-guarded since this is a human deciding another device's
+  // in-progress sync (if there even is one) doesn't get to finish. Not
+  // routed through runSyncExclusive()/the Web Locks mutex: this isn't a sync
+  // itself, just a single unconditional delete of the lock blob.
+  els.clearSyncLockBtn.addEventListener('click', async () => {
+    const url = loadBlobSasUrl();
+    if (!url) { alert('Please save a container SAS URL first.'); return; }
+    if (!confirm('Clear the sync lock? Only do this if you\'re sure no other device is actively syncing right now — clearing an active lock can cause the two syncs to overwrite each other.')) return;
+    try {
+      await forceReleaseLock(url);
+      setBlobActionStatus('Sync lock cleared.', 'info');
+    } catch (err) {
+      setBlobActionStatus('Failed to clear sync lock: ' + err.message, 'error');
+    }
+  });
 
   updateBlobPanel();
   startAutoSync();

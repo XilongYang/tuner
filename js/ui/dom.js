@@ -23,6 +23,10 @@ export function el(tag, props = {}, children = []) {
     else if (key === 'text') node.textContent = value;
     else if (key === 'dataset') Object.assign(node.dataset, value);
     else if (key === 'on') for (const [event, handler] of Object.entries(value)) node.addEventListener(event, handler);
+    // A hyphenated name (aria-label, data-x) is an attribute, not a property.
+    // Assigning it as a property silently creates an expando that no CSS
+    // selector, no screen reader and no getAttribute ever sees.
+    else if (key.includes('-')) node.setAttribute(key, value);
     else node[key] = value;
   }
   for (const child of children) {

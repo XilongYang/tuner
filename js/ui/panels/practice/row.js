@@ -1,0 +1,206 @@
+// One sentence's row: its text, its controls, and a line for whatever the last
+// action had to say.
+//
+// A row is created once per sentence and updated in place afterwards (see
+// ../../dom.js's reconcile). Anything with a lifecycle -- the recorder, the
+// in-flight state of a button -- lives in the row's own closure, keyed to the
+// sentence id it was built for, so a repaint triggered by a background sync
+// cannot interrupt a recording or lose which button is busy.
+//
+// The row dispatches commands and renders their outcomes. It does not touch the
+// database or the network, and it does not decide anything: what a failed
+// score means, or whether a split can keep its audio, is the command's answer
+// to report.
+
+import { el, button } from '../../dom.js';
+import { renderSentenceText } from './sentence-text.js';
+
+/** What to say for an outcome a command reports by name rather than by message. */
+const REASONS = {
+  gone: 'That sentence is no longer here.',
+  superseded: 'Something changed while that was running, so it was not applied.',
+  refused: 'That split would leave an empty half.',
+  'no-credentials': 'Add your Azure key and region in Settings first.',
+  'no-recording': 'Record this sentence before scoring it.',
+  'no-reference-audio': 'This sentence has no reference audio to play.',
+  'no-selection': 'Select a word first.',
+  'not-a-word': 'That selection has no word in it.',
+  'already-recording': 'Already recording.',
+  'not-recording': 'Nothing was being recorded.',
+};
+
+const describe = (reason) => REASONS[reason] ?? reason;
+
+/**
+ * @param {object} spec
+ * @param {object} spec.sentence
+ * @param {object} spec.actions Command dispatchers, already bound to the store.
+ * @param {object} spec.player
+ * @param {(id: string) => object} spec.recorderFor
+ */
+export function createRow({ sentence: initial, actions, player, recorderFor }) {
+  const sentenceId = initial.id;
+  let sentence = initial;
+  let busy = false;
+
+  const row = el('div', { class: 'sentence-row' });
+  const textHost = el('div', { class: 'sentence-text-host' });
+  const status = el('p', { class: 'sentence-status', hidden: true });
+
+  const say = (message, kind = 'info') => {
+    status.hidden = !message;
+    status.textContent = message || '';
+    status.dataset.kind = kind;
+  };
+
+  /**
+   * Run one action with the row marked busy.
+   *
+   * Every control is disabled for the duration and re-enabled afterwards, on
+   * success and on failure alike. Disabling on entry and re-enabling only on
+   * success is how a control ends up permanently dead after an early return.
+   */
+  async function run(label, fn) {
+    if (busy) return;
+    busy = true;
+    refreshControls();
+    say(label, 'busy');
+    try {
+      const outcome = await fn();
+      if (outcome && outcome.ok === false) say(describe(outcome.reason), 'error');
+      else if (outcome?.message) say(outcome.message, 'info');
+      else say('');
+      return outcome;
+    } catch (err) {
+      say(err.message, 'error');
+    } finally {
+      busy = false;
+      refreshControls();
+    }
+  }
+
+  const speakBtn = button({
+    class: 'btn', text: 'Speak', title: 'Play the reference reading',
+    onClick: () => run('Preparing the reading…', async () => {
+      const outcome = await actions.speak(sentenceId);
+      return outcome.ok && outcome.synthesized ? { ...outcome, message: '' } : outcome;
+    }),
+  });
+
+  const recordBtn = button({
+    class: 'btn', text: 'Record',
+    onClick: () => {
+      const recorder = recorderFor(sentenceId);
+      if (recorder.isRecording) {
+        return run('Saving the take…', async () => {
+          const outcome = await actions.stopRecording(sentenceId, recorder);
+          refreshControls();
+          return outcome;
+        });
+      }
+      return run('Starting…', async () => {
+        const outcome = await actions.startRecording(sentenceId, recorder);
+        refreshControls();
+        return outcome;
+      });
+    },
+  });
+
+  const playbackBtn = button({
+    class: 'btn', text: 'Playback', title: 'Hear your own take',
+    onClick: () => {
+      if (!sentence.recording) return;
+      player.play(sentence.recording, `${sentenceId}:playback`);
+    },
+  });
+
+  const scoreBtn = button({
+    class: 'btn', text: 'Score',
+    onClick: () => run('Scoring…', () => actions.score(sentenceId)),
+  });
+
+  const hideBtn = button({
+    class: 'btn',
+    onClick: () => actions.toggleHidden(sentenceId, !sentence.hidden),
+  });
+
+  const langBtn = button({
+    class: 'btn',
+    title: 'Switch this sentence between Japanese and English',
+    onClick: () => actions.setLanguage(sentenceId, sentence.lang === 'ja' ? 'en' : 'ja'),
+  });
+
+  const vocabBtn = button({
+    class: 'btn', text: 'Add vocab', title: 'Record a word from this sentence',
+    onClick: () => run('Adding…', () => actions.addVocab(sentenceId)),
+  });
+
+  const controls = el('div', { class: 'sentence-controls' }, [
+    speakBtn, recordBtn, playbackBtn, scoreBtn, hideBtn, langBtn, vocabBtn,
+  ]);
+
+  const scoreLine = el('p', { class: 'sentence-score', hidden: true });
+
+  row.append(textHost, controls, scoreLine, status);
+
+  function refreshControls() {
+    const recorder = recorderFor(sentenceId);
+    const recording = recorder.isRecording;
+
+    row.classList.toggle('is-recording', recording);
+    // Record stays live while recording, or there would be no way to stop.
+    recordBtn.disabled = busy && !recording;
+    recordBtn.textContent = recording ? 'Stop' : 'Record';
+
+    for (const control of [speakBtn, scoreBtn, hideBtn, langBtn, vocabBtn]) {
+      control.disabled = busy || recording;
+    }
+    playbackBtn.disabled = busy || recording || !sentence.recording;
+    playbackBtn.hidden = !sentence.recording;
+    scoreBtn.hidden = !sentence.recording;
+    // Recording a word needs to know where words are.
+    vocabBtn.hidden = !sentence.words?.length;
+
+    hideBtn.textContent = sentence.hidden ? 'Show text' : 'Hide text';
+    langBtn.textContent = sentence.lang === 'ja' ? '日本語' : 'English';
+  }
+
+  function renderText() {
+    textHost.replaceChildren(renderSentenceText(sentence, {
+      onSplit: (charIndex, ms) => run('Splitting…', async () => {
+        const outcome = await actions.split(sentenceId, charIndex, ms);
+        if (outcome.ok && outcome.audioFollowed === false) {
+          return { ...outcome, message: 'Split. There was no audio timing at that position, so neither half kept a clip.' };
+        }
+        return outcome;
+      }),
+    }));
+  }
+
+  function renderScore() {
+    const assessment = sentence.assessment;
+    scoreLine.hidden = !assessment;
+    if (!assessment) return;
+    const overall = assessment.overall || {};
+    scoreLine.textContent = `Pronunciation ${Math.round(overall.pronunciation ?? 0)} · accuracy ${Math.round(overall.accuracy ?? 0)} · fluency ${Math.round(overall.fluency ?? 0)}`;
+  }
+
+  /** Repaint for a new version of the same sentence. */
+  function update(next) {
+    const textChanged = next.text !== sentence.text
+      || next.hidden !== sentence.hidden
+      || next.words !== sentence.words
+      || next.manualPoints !== sentence.manualPoints;
+
+    sentence = next;
+    if (textChanged) renderText();
+    renderScore();
+    refreshControls();
+  }
+
+  renderText();
+  renderScore();
+  refreshControls();
+
+  return { element: row, update, say };
+}

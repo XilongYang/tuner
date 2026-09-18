@@ -1,0 +1,80 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { segmentText, vocabKey } from '../../js/model/text.js';
+
+test('segmentText: splits on Japanese terminal punctuation, keeping it', () => {
+  assert.deepEqual(segmentText('おはよう。元気ですか？はい！'), ['おはよう。', '元気ですか？', 'はい！']);
+});
+
+test('segmentText: splits on English terminal punctuation, keeping it', () => {
+  assert.deepEqual(segmentText('One. Two! Three?'), ['One.', 'Two!', 'Three?']);
+});
+
+test('segmentText: a period inside a token does not split it', () => {
+  assert.deepEqual(segmentText('It costs 3.5 dollars.'), ['It costs 3.5 dollars.']);
+  assert.deepEqual(segmentText('Born in the U.S.A today'), ['Born in the U.S.A today']);
+});
+
+test('segmentText: an abbreviation ending a word DOES split -- documented, not fixed', () => {
+  // Asserting the real behaviour rather than an ideal. Recognising these needs
+  // an abbreviation list; see the note in model/text.js for why that trade is
+  // not taken. A wrong split is recoverable by merging the two pieces.
+  assert.deepEqual(segmentText('Mr. Smith arrived.'), ['Mr.', 'Smith arrived.']);
+  assert.deepEqual(segmentText('Popular in the U.S. today.'), ['Popular in the U.S.', 'today.']);
+});
+
+test('segmentText: a newline separates even without punctuation', () => {
+  assert.deepEqual(segmentText('Chapter one\nNo punctuation here\nThird line'),
+    ['Chapter one', 'No punctuation here', 'Third line']);
+});
+
+test('segmentText: blank lines and surrounding whitespace are dropped', () => {
+  assert.deepEqual(segmentText('  first.  \n\n\n   \n  second.  '), ['first.', 'second.']);
+});
+
+test('segmentText: runs of punctuation stay with their sentence', () => {
+  assert.deepEqual(segmentText('What?! Really…'), ['What?!', 'Really…']);
+});
+
+test('segmentText: a trailing fragment with no punctuation is still a sentence', () => {
+  assert.deepEqual(segmentText('Done. And then'), ['Done.', 'And then']);
+});
+
+test('segmentText: empty input gives an empty list, not [""]', () => {
+  assert.deepEqual(segmentText(''), []);
+  assert.deepEqual(segmentText(null), []);
+  assert.deepEqual(segmentText('   \n  '), []);
+});
+
+test('segmentText: repeated calls give identical results -- no regex state carried between them', () => {
+  // A module-level global regex would carry lastIndex across calls and make
+  // the second one wrong. Interleaving two inputs catches that.
+  const a = segmentText('One. Two. Three.');
+  const b = segmentText('Alpha. Beta.');
+  assert.deepEqual(segmentText('One. Two. Three.'), a);
+  assert.deepEqual(segmentText('Alpha. Beta.'), b);
+  assert.deepEqual(a, ['One.', 'Two.', 'Three.']);
+  assert.deepEqual(b, ['Alpha.', 'Beta.']);
+});
+
+test('vocabKey: strips punctuation and case so one word is one entry', () => {
+  assert.equal(vocabKey('Hello, world!'), 'helloworld');
+  assert.equal(vocabKey('hello world'), 'helloworld');
+  assert.equal(vocabKey('HELLO'), 'hello');
+});
+
+test('vocabKey: a trailing comma does not create a second entry', () => {
+  assert.equal(vocabKey('difficult,'), vocabKey('difficult'));
+});
+
+test('vocabKey: keeps Japanese text intact while dropping its punctuation', () => {
+  assert.equal(vocabKey('難しい。'), '難しい');
+  assert.equal(vocabKey('「勉強」'), '勉強');
+});
+
+test('vocabKey: input that reduces to nothing returns empty, for the caller to refuse', () => {
+  assert.equal(vocabKey('...'), '');
+  assert.equal(vocabKey('　 '), '');
+  assert.equal(vocabKey(''), '');
+  assert.equal(vocabKey(null), '');
+});

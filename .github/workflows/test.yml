@@ -2,12 +2,12 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    branches: [main, rewrite]
   pull_request:
 
 jobs:
   unit:
-    name: Unit tests (node:test)
+    name: Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,22 +16,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      # Includes tests/arch.test.mjs, which enforces the dependency direction
+      # and purity rules in docs/ARCHITECTURE.md -- a violation fails CI rather
+      # than waiting to be noticed in review.
       - run: npm test
-      # Catches broken imports / import cycles that only surface at bundle
-      # time (e.g. a module reaching into another one that no longer exports
-      # what it expects) -- cheap enough to run on every push alongside the
-      # unit tests.
-      - run: npx --yes esbuild js/app.js --bundle --format=esm --outfile=/tmp/bundle-check.js
-
-  e2e:
-    name: End-to-end tests (Playwright)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:e2e

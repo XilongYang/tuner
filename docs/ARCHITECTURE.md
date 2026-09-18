@@ -45,13 +45,18 @@ Dependencies point one way only. `tests/arch.test.mjs` enforces it.
 
 ```
 model/      pure data + rules. Imports NOTHING outside model/.
-platform/   thin wrappers over browser capabilities (mic, audio decode, playback, local config).
+platform/   thin wrappers over browser capabilities (mic, audio, playback, local settings).
 db/         IndexedDB. Imports model/.
 cloud/      Azure REST (blob, speech) + sync planning/execution. Imports model/.
 app/        the live session store + commands (use cases). Imports model/, db/, cloud/, platform/.
 ui/         DOM primitives + panels. Imports model/ and app/. NEVER db/ or cloud/.
 main.js     composition root. The only module allowed to import every layer.
 ```
+
+`model/` is the base of the pyramid: every layer may depend on it. It has no
+dependencies of its own, so it cannot take part in a cycle, and the alternative
+— forbidding, say, `platform/` from reading the locale codes — only duplicates
+domain constants into the layers kept away from them.
 
 Two consequences worth stating explicitly, because the previous design
 violated both:

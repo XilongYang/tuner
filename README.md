@@ -20,15 +20,16 @@ Built and tested so far:
 
 | Layer | What is in place |
 | --- | --- |
-| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `merge.js` (conflict rules), `text.js` (segmentation, vocab keys), `transcript.js` (re-segmenting a transcription), `lang.js` |
-| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize), `audio.js` (resample, normalise, WAV encode, decode, cut clips), `recorder.js` (+ its worklet) |
+| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `session.js` (split/merge/edit transforms, by id), `merge.js` (conflict rules), `text.js` (segmentation, vocab keys), `transcript.js` (re-segmenting a transcription), `lang.js` |
+| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize), `audio.js` (resample, normalise, WAV encode, decode, cut clips), `recorder.js` (+ its worklet), `player.js` (one clip at a time, owns object URLs), `settings.js` (credentials, SAS URL, preferences) |
+| `js/app/` | `store.js` (the session on screen: versioned, subscribable, changed by function of the current value) |
 | `js/db/` | `open.js` (`transact()`), `entities.js` (CRUD, atomic delete+tombstone, `applyPlan`) |
 | `js/cloud/` | `blob.js` (`container(sasUrl)`), `speech.js` (`speechClient(credentials)`: synthesis, assessment, transcription), `sync/plan.js` (pure planner), `sync/run.js` (transfer, publish, orphan sweep), `sync/lock.js` (cross-device lock) |
 | `js/ui/` | `dom.js` (`el`, `button`, keyed `reconcile`, `readNumber`) |
 
-Not yet written: the live session store and commands, the panels, local
-settings storage, playback, and `main.js`. The app does not run yet; what
-exists is the foundation it will be assembled from, and all of it is tested.
+Not yet written: the commands (the use cases the UI dispatches), the panels,
+and `main.js`. The app does not run yet; what exists is the foundation it will
+be assembled from, and all of it is tested.
 
 ## Running the tests
 

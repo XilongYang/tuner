@@ -26,10 +26,14 @@ function layerOf(relPath) {
 /**
  * What each layer is allowed to import. Reading down the list is reading the
  * dependency direction: every layer may only name layers below its own line.
+ *
+ * `model` is the base of the pyramid and every layer may depend on it -- it has
+ * no dependencies of its own, so it cannot create a cycle, and the alternative
+ * is duplicating domain constants into the layers forbidden to reach it.
  */
 const ALLOWED = {
   model: ['model'],
-  platform: ['platform'],
+  platform: ['platform', 'model'],
   db: ['db', 'model'],
   cloud: ['cloud', 'model'],
   app: ['app', 'model', 'db', 'cloud', 'platform'],

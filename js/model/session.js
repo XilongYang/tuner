@@ -1,0 +1,228 @@
+// Transforms on a session record: splitting a sentence, merging a run of them,
+// editing one, replacing the set.
+//
+// Pure, and addressed by id rather than by array position. That is not a style
+// choice: every one of these runs after slow asynchronous work (decoding audio,
+// scoring a take), and an index captured before that work no longer means what
+// it meant once a split, a merge or an arriving sync has reordered the list.
+// Taking ids means a stale caller either finds its sentence or does not, and
+// never edits a different one by accident.
+//
+// Timestamps and new ids are arguments rather than being generated here, so
+// these stay pure and their tests stay deterministic. The caller -- a command
+// -- supplies them, along with any audio it had to cut, since cutting audio is
+// a platform concern.
+
+import { splitText, isSplittable, partitionWords, partitionManualPoints, mergeWords, mergeSeams, chars } from './geometry.js';
+
+export const sentenceById = (session, id) => (session?.sentences || []).find((s) => s.id === id) || null;
+export const indexOfSentence = (session, id) => (session?.sentences || []).findIndex((s) => s.id === id);
+
+/** A sentence with no content and no timings: the shape every producer starts from. */
+export function blankSentence({ id, text, lang, now, ...rest }) {
+  return {
+    id,
+    text,
+    lang,
+    hidden: false,
+    updatedAt: now,
+    words: null,
+    manualPoints: null,
+    referenceSource: null,
+    sourceOffsetMs: null,
+    sourceDurationMs: null,
+    recording: null,
+    recordingHash: null,
+    reference: null,
+    referenceHash: null,
+    assessment: null,
+    assessmentHash: null,
+    ...rest,
+  };
+}
+
+/** The session's own fields changed; both clocks move. */
+const withMeta = (session, now, changes) => ({
+  ...session,
+  ...changes,
+  updatedAt: now,
+  metaUpdatedAt: now,
+});
+
+/** A sentence changed; the session's own fields did not, so metaUpdatedAt stays put. */
+const withSentences = (session, now, sentences) => ({
+  ...session,
+  sentences,
+  updatedAt: now,
+});
+
+/**
+ * Replace one sentence's fields.
+ *
+ * Returns the session unchanged (the same object) when there is no such
+ * sentence, so a caller acting on something that has since been split or merged
+ * away is a no-op rather than an error or a mis-targeted write.
+ */
+export function updateSentence(session, sentenceId, patch, now) {
+  const index = indexOfSentence(session, sentenceId);
+  if (index === -1) return session;
+
+  const sentences = [...session.sentences];
+  sentences[index] = { ...sentences[index], ...patch, updatedAt: now };
+  return withSentences(session, now, sentences);
+}
+
+/** Edit the session's own fields (its name, its folder). */
+export const updateSession = (session, patch, now) => withMeta(session, now, patch);
+
+/**
+ * Split one sentence in two at `charIndex`.
+ *
+ * The caller supplies the two new ids, and — when it was able to cut the audio —
+ * each half's `reference` blob, `referenceHash` and `range`. A half with no
+ * reference simply has none: the split still happens, because the text split is
+ * what the user asked for, and the caller reports that the audio could not
+ * follow.
+ *
+ * Returns null when the cut would leave a half with nothing but whitespace.
+ * `replacedIds` is what the caller must tombstone, so the sentence this split
+ * replaced cannot return from another device that has not seen the split yet.
+ *
+ * @returns {{session: object, replacedIds: string[], added: string[]}|null}
+ */
+export function splitSentence(session, { sentenceId, charIndex, leftId, rightId, now, left = {}, right = {} }) {
+  const index = indexOfSentence(session, sentenceId);
+  if (index === -1) return null;
+
+  const sentence = session.sentences[index];
+  if (!isSplittable(sentence.text, charIndex)) return null;
+
+  const texts = splitText(sentence.text, charIndex);
+  const words = partitionWords(sentence.words, charIndex);
+  const manual = partitionManualPoints(sentence.manualPoints, charIndex);
+
+  const half = (id, text, side, ownWords, ownManual) => blankSentence({
+    id,
+    text,
+    lang: sentence.lang,
+    now,
+    hidden: sentence.hidden,
+    words: ownWords.length ? ownWords : null,
+    manualPoints: ownManual.length ? ownManual : null,
+    // Reference audio survives only where the caller could cut it. Keeping the
+    // source markers without the audio would claim a clip that is not there.
+    referenceSource: side.reference ? sentence.referenceSource : null,
+    reference: side.reference ?? null,
+    referenceHash: side.reference ? (side.referenceHash ?? null) : null,
+    sourceOffsetMs: side.range?.offsetMs ?? null,
+    sourceDurationMs: side.range?.durationMs ?? null,
+  });
+
+  const sentences = [...session.sentences];
+  sentences.splice(index, 1,
+    half(leftId, texts.left, left, words.left, manual.left),
+    half(rightId, texts.right, right, words.right, manual.right));
+
+  return {
+    session: withSentences(session, now, sentences),
+    replacedIds: [sentenceId],
+    added: [leftId, rightId],
+  };
+}
+
+/**
+ * Merge a run of adjacent sentences into one.
+ *
+ * Texts are joined with no separator: a split keeps the whitespace at the cut on
+ * its left half, so rejoining restores exactly the original text. Inserting a
+ * separator here would add a space that was never there.
+ *
+ * The seams become manual cut points on the result, so the merge can be undone
+ * at exactly the positions it joined even where there are no word timings to
+ * offer those positions.
+ *
+ * Returns null unless the ids name two or more sentences that are adjacent and
+ * in order.
+ *
+ * @returns {{session: object, replacedIds: string[], added: string[]}|null}
+ */
+export function mergeSentences(session, { sentenceIds, newId, now, reference = null, referenceHash = null, range = null }) {
+  if (!sentenceIds || sentenceIds.length < 2) return null;
+
+  const indices = sentenceIds.map((id) => indexOfSentence(session, id));
+  if (indices.some((i) => i === -1)) return null;
+
+  const sorted = [...indices].sort((a, b) => a - b);
+  const adjacent = sorted.every((value, i) => i === 0 || value === sorted[i - 1] + 1);
+  if (!adjacent) return null;
+
+  const run = sorted.map((i) => session.sentences[i]);
+  const texts = run.map((s) => s.text);
+  const ranges = run.map((s) => (
+    s.sourceOffsetMs != null && s.sourceDurationMs != null
+      ? { offsetMs: s.sourceOffsetMs, durationMs: s.sourceDurationMs }
+      : null
+  ));
+
+  const merged = blankSentence({
+    id: newId,
+    text: texts.join(''),
+    // The run's first sentence decides: a merge is joining a sentence to what
+    // follows it, and one label has to cover the result.
+    lang: run[0].lang,
+    now,
+    hidden: run.every((s) => s.hidden),
+    words: mergeWords(run.map((s) => s.words), texts),
+    manualPoints: mergeSeams(texts, ranges),
+    referenceSource: reference ? run[0].referenceSource : null,
+    reference,
+    referenceHash: reference ? referenceHash : null,
+    sourceOffsetMs: range?.offsetMs ?? null,
+    sourceDurationMs: range?.durationMs ?? null,
+  });
+
+  const sentences = [...session.sentences];
+  sentences.splice(sorted[0], sorted.length, merged);
+
+  return {
+    session: withSentences(session, now, sentences),
+    replacedIds: run.map((s) => s.id),
+    added: [newId],
+  };
+}
+
+/**
+ * Whether a run of ids can be merged: at least two, all present, adjacent.
+ * Separate from `mergeSentences` so the UI can enable its control without
+ * building a result to find out.
+ */
+export function canMerge(session, sentenceIds) {
+  if (!sentenceIds || sentenceIds.length < 2) return false;
+  const indices = sentenceIds.map((id) => indexOfSentence(session, id));
+  if (indices.some((i) => i === -1)) return false;
+  const sorted = [...indices].sort((a, b) => a - b);
+  return sorted.every((value, i) => i === 0 || value === sorted[i - 1] + 1);
+}
+
+/**
+ * The practice text a session should be saved with.
+ *
+ * For a typed session it is what the user typed. For one built from an audio
+ * file there is no typed text, and the transcript is what the sentences
+ * themselves say -- deriving it keeps the two from drifting apart as sentences
+ * are split, merged and edited.
+ */
+export function derivedInputText(session) {
+  if (session.splitMode !== 'audio') return session.inputText ?? '';
+  return (session.sentences || []).map((s) => s.text).join('\n');
+}
+
+/** A one-line label for a session in a list: its name, else its opening words. */
+export function sessionLabel(session, limit = 40) {
+  if (session.name) return session.name;
+  const text = (session.sentences || [])[0]?.text || derivedInputText(session) || '';
+  const flat = text.replace(/\s+/g, ' ').trim();
+  if (!flat) return 'Untitled';
+  const cs = chars(flat);
+  return cs.length <= limit ? flat : `${cs.slice(0, limit).join('')}…`;
+}

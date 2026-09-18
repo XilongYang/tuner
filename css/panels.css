@@ -1,0 +1,128 @@
+/* The library and settings sidebars. */
+
+.panel-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.panel-tabs {
+  display: flex;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.panel-tab.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--ink);
+}
+
+.panel-empty {
+  margin: var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.panel-empty[hidden] { display: none; }
+
+.panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.library-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.library-open {
+  flex: 1 1 60%;
+  text-align: left;
+  border-color: transparent;
+  font-size: var(--text-base);
+}
+
+.library-meta {
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.vocab-row { flex-direction: column; align-items: stretch; }
+
+.vocab-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vocab-text {
+  flex: 1;
+  font-size: var(--text-lg);
+}
+
+.vocab-uses {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.vocab-use {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vocab-snippet {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.settings-section {
+  margin-bottom: var(--space-5);
+}
+
+.settings-section h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-faint);
+}
+
+.settings-state {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.settings-field {
+  display: block;
+  margin-bottom: var(--space-2);
+}
+
+.settings-field span {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

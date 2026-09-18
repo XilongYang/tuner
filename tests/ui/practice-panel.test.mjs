@@ -251,7 +251,7 @@ test('rows are added and removed as the session changes, in order', () => {
   const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
   h.store.replace(session([sentence('s1', 'One.'), sentence('new', 'Inserted.'), sentence('s2', 'Two.')]));
 
-  assert.deepEqual(rowsOf(h.container).map((r) => r.querySelector('.sentence-text').textContent.replace(/⁞/g, '')),
+  assert.deepEqual(rowsOf(h.container).map((r) => r.querySelector('.sentence-text').textContent),
     ['One.', 'Inserted.', 'Two.']);
 });
 

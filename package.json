@@ -5,7 +5,7 @@
   "scripts": {
     "test": "node --test \"tests/**/*.test.mjs\"",
     "test:pure": "node --test \"tests/{model,cloud}/**/*.test.mjs\"",
-    "test:e2e": "node tests-e2e/run-all.mjs",
+    "test:e2e": "node --test \"tests-e2e/**/*.test.mjs\"",
     "bundle-check": "npx --yes esbuild js/main.js --bundle --format=esm --outfile=/tmp/tuner-bundle-check.js"
   },
   "devDependencies": {

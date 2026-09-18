@@ -55,9 +55,11 @@ export function renderSentenceText(sentence, { onSplit }) {
 }
 
 function splitMarker(pointer, onSplit) {
+  // The glyph is decoration and comes from CSS, so a text-derived marker can be
+  // laid out as a zero-width hit area without an inline character forcing the
+  // sentence's own characters apart. `aria-label` is what the button is called.
   const marker = button({
     class: `split-marker split-marker--${pointer.kind}`,
-    text: '⁞',
     title: pointer.ms == null ? 'Split here (no audio timing at this position)' : 'Split here',
     'aria-label': 'Split here',
   });

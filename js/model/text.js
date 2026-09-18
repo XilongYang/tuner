@@ -55,6 +55,21 @@ export function segmentText(text) {
 }
 
 /**
+ * Which of the app's two languages a piece of text is in.
+ *
+ * Any kana or CJK character means Japanese; anything else is English. That is
+ * the whole rule, and it is right for what it is used for -- labelling freshly
+ * split text so the correct voice reads it back. A sentence it gets wrong is
+ * one toggle away from being right, which is a better trade than a heavier
+ * detector that is wrong in less obvious ways.
+ *
+ * @returns {'ja'|'en'}
+ */
+export function detectLang(text) {
+  return /[぀-ヿ㐀-䶿一-鿿豈-﫿]|[\u{20000}-\u{2ffff}]/u.test(text || '') ? 'ja' : 'en';
+}
+
+/**
  * The key a vocabulary entry is stored under: whitespace, punctuation and
  * symbols removed, lowercased. "Hello, world!" and "hello world" are therefore
  * the same entry, and so are a word picked with and without its trailing

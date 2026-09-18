@@ -7,9 +7,8 @@
 // was open left the user with no text box and no way back except a button whose
 // label no longer made sense.
 
-import { segmentText } from '../../model/text.js';
+import { segmentText, detectLang } from '../../model/text.js';
 import { blankSentence, derivedInputText, updateSession } from '../../model/session.js';
-import { DEFAULT_LANG } from '../../model/lang.js';
 
 /**
  * A session with nothing in it.
@@ -56,14 +55,22 @@ export function startNew({ store, deps, splitMode = 'auto' }) {
  * The session keeps the text as typed: it is what the user will edit if they
  * split again, and unlike an imported session there is nothing else to derive
  * it from.
+ *
+ * Each sentence's language is detected from its own text rather than one being
+ * chosen for the whole block, because a pasted lesson is regularly both -- a
+ * Japanese line and its English gloss -- and a sentence read back in the wrong
+ * voice is the first thing a user notices. `lang` overrides that where the
+ * caller knows better.
  */
-export function splitTypedText({ store, text, lang = DEFAULT_LANG, deps }) {
+export function splitTypedText({ store, text, lang = null, deps }) {
   const { ids, clock } = deps;
   const pieces = segmentText(text);
   if (!pieces.length) return { ok: false, reason: 'no-text' };
 
   const now = clock();
-  const sentences = pieces.map((piece) => blankSentence({ id: ids(), text: piece, lang, now }));
+  const sentences = pieces.map((piece) => blankSentence({
+    id: ids(), text: piece, lang: lang ?? detectLang(piece), now,
+  }));
 
   store.apply((current) => ({
     ...(current ?? emptySession({ id: ids(), now })),

@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tuner</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/controls.css">
+  <link rel="stylesheet" href="css/practice.css">
+  <link rel="stylesheet" href="css/panels.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1 class="app-title">Tuner</h1>
+    <nav class="app-nav">
+      <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
+      <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
+    </nav>
+  </header>
+
+  <main class="app-main">
+    <!-- The practice panel builds itself in here. -->
+    <section class="practice" id="practice" aria-label="Practice"></section>
+  </main>
+
+  <aside class="sidebar" id="library" hidden aria-label="Library"></aside>
+  <aside class="sidebar" id="settings" hidden aria-label="Settings"></aside>
+
+  <p class="app-status" id="app-status" role="status" hidden></p>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

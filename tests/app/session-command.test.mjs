@@ -101,7 +101,16 @@ test('splitTypedText: text that segments to nothing is refused', () => {
   assert.equal(h.store.get(), null, 'and nothing was put on screen');
 });
 
-test('splitTypedText: the chosen language is carried onto every sentence', () => {
+test('splitTypedText: each sentence gets the language of its own text', () => {
+  // A pasted lesson is regularly both: a Japanese line and its English gloss.
+  // One language for the whole block means half of it is read in the wrong
+  // voice, which is the first thing a user notices.
+  const h = harness();
+  splitTypedText({ store: h.store, text: '今日はいい天気ですね。\nThe weather is lovely today.', deps: h.deps });
+  assert.deepEqual(h.store.get().sentences.map((s) => s.lang), ['ja', 'en']);
+});
+
+test('splitTypedText: an explicit language overrides detection', () => {
   const h = harness();
   splitTypedText({ store: h.store, text: '今日は。はい。', lang: 'ja', deps: h.deps });
   assert.deepEqual(h.store.get().sentences.map((s) => s.lang), ['ja', 'ja']);

@@ -1,0 +1,147 @@
+/* The practice area: the text box, and one card per sentence. */
+
+.practice-input-area {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-bottom: var(--space-5);
+}
+
+.practice-input {
+  min-height: 7em;
+  resize: vertical;
+  line-height: 1.6;
+}
+
+.practice-input.is-locked {
+  background: var(--surface-sunken);
+  color: var(--ink-soft);
+}
+
+.practice-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.practice-count {
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.practice-status,
+.sentence-status,
+.panel-status {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.practice-status[hidden],
+.sentence-status[hidden],
+.panel-status[hidden] { display: none; }
+
+[data-kind="error"] { color: var(--danger); }
+[data-kind="busy"] { color: var(--busy); }
+
+.sentence-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.sentence-row {
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sentence-row.is-recording {
+  border-color: var(--recording);
+  box-shadow: inset 3px 0 0 var(--recording);
+}
+
+.sentence-text {
+  line-height: 1.9;
+  font-size: var(--text-lg);
+  word-break: break-word;
+}
+
+.sentence-text.is-hidden-text { color: var(--ink-faint); letter-spacing: 0.08em; }
+
+/* A cut marker sits between two characters, so it must take almost no width of
+   its own -- otherwise the sentence reads as if it had spaces in it. */
+/* The glyph comes from CSS, not the DOM: it is decoration, the button is named
+   by aria-label, and keeping it out of the text means a sentence's textContent
+   is the sentence. A plain vertical bar rather than a prettier cut mark (⁞,
+   U+205E) because the prettier ones are missing from common system fonts and
+   render as nothing at all, which is how this marker came to be invisible in a
+   headless browser once already. */
+.split-marker::before { content: '|'; }
+
+.split-marker {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0 1px;
+  margin: 0 -1px;
+  color: var(--border-strong);
+  font-size: 0.75em;
+  line-height: 1;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.split-marker:hover { color: var(--accent); }
+.split-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A position with real word timing can keep its audio when split; one derived
+   from the text cannot. Worth showing, since it changes what the split costs. */
+.split-marker--word { color: var(--accent); opacity: 0.55; }
+.split-marker--manual { color: var(--accent); opacity: 0.8; }
+
+/* Text-derived positions exist between every pair of characters, so they must
+   cost the line no width: fading them is not enough, because a nearly invisible
+   glyph still pushes the characters apart and the sentence ends up reading as if
+   it were spelled o u t   l i k e   t h i s -- worse in Japanese, which has no
+   spaces to begin with. So the button keeps a real 10px hit area and pulls it
+   back with equal negative margins: net advance zero, while still being a target
+   a pointer and a screen reader can find. It overlaps its neighbouring
+   characters, which is exactly where "split here" means.
+
+   It stays faint until the sentence is pointed at, and answers keyboard focus
+   too, so it is not hover-only. Nothing reflows when it lights up. */
+.split-marker--text {
+  display: inline-block;
+  width: 10px;
+  padding: 0;
+  margin: 0 -5px;
+  text-align: center;
+  vertical-align: baseline;
+}
+
+.split-marker--text::before { opacity: 0.18; }
+.sentence-row:hover .split-marker--text::before,
+.sentence-row:focus-within .split-marker--text::before { opacity: 0.6; }
+.split-marker--text:hover::before,
+.split-marker--text:focus-visible::before { opacity: 1; }
+
+.sentence-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.sentence-score {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+  font-variant-numeric: tabular-nums;
+}
+
+.sentence-score[hidden] { display: none; }

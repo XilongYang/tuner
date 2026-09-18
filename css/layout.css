@@ -1,0 +1,93 @@
+/* Page frame: a header, the practice area, and sidebars that slide over it. */
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: var(--header-h);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  /* Above the sidebars: a panel that covers its own toggle leaves Escape as the
+     only way to close it. */
+  z-index: 40;
+}
+
+.app-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.app-nav {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.app-main {
+  max-width: 820px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-4) var(--space-6);
+}
+
+/* Sidebars overlay rather than reflow, so opening one does not move the
+   sentence a user is in the middle of reading. */
+.sidebar {
+  position: fixed;
+  /* Starts below the header, so the button that opened it stays reachable. */
+  top: var(--header-h);
+  right: 0;
+  bottom: 0;
+  width: min(420px, 100vw);
+  padding: var(--space-4);
+  overflow-y: auto;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  z-index: 20;
+}
+
+.sidebar[hidden] { display: none; }
+
+.app-status {
+  position: fixed;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  font-size: var(--text-sm);
+  z-index: 30;
+}
+
+.app-status[hidden] { display: none; }
+.app-status[data-kind="error"] { color: var(--danger); border-color: var(--danger); }
+
+@media (max-width: 600px) {
+  .app-main { padding: var(--space-4) var(--space-3); }
+  .sidebar { width: 100vw; }
+}

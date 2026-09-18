@@ -20,3 +20,20 @@ jobs:
       # and purity rules in docs/ARCHITECTURE.md -- a violation fails CI rather
       # than waiting to be noticed in review.
       - run: npm test
+
+  e2e:
+    name: Browser tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # A separate job because it needs a browser download, which the unit job
+      # has no use for. It serves the repo root exactly as it is deployed, so it
+      # catches what unit tests structurally cannot: a module that does not load
+      # in a browser, and a page that comes back wrong after a reload.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

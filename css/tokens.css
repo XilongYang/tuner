@@ -1,0 +1,73 @@
+/* Colours, spacing and type, defined once.
+   The palette is stated in full for the light theme and only re-stated where
+   dark differs, so a colour can never exist in one theme and not the other. */
+
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --radius: 8px;
+  --radius-sm: 5px;
+
+  /* Fixed rather than measured, so the sidebar can start exactly below the
+     header without JavaScript reading a layout back. The header is given this
+     as its minimum height, so the two cannot drift apart. */
+  --header-h: 52px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 18px;
+
+  --bg: #faf9f7;
+  --surface: #ffffff;
+  --surface-sunken: #f2f0ed;
+  --border: #e0ddd8;
+  --border-strong: #c9c5be;
+
+  --ink: #1f1d1a;
+  --ink-soft: #57534e;
+  --ink-faint: #8a857e;
+
+  --accent: #2f6f5e;
+  --accent-ink: #ffffff;
+  --accent-soft: #e6f0ec;
+
+  --danger: #a33b32;
+  --danger-soft: #fbeceb;
+
+  --busy: #7a6a2f;
+  --recording: #b4342a;
+
+  --shadow: 0 1px 2px rgba(31, 29, 26, 0.06), 0 4px 12px rgba(31, 29, 26, 0.06);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1a1918;
+    --surface: #232221;
+    --surface-sunken: #1f1e1d;
+    --border: #383634;
+    --border-strong: #4d4a47;
+
+    --ink: #eceae7;
+    --ink-soft: #b3aea8;
+    --ink-faint: #8a857e;
+
+    --accent: #6fb39c;
+    --accent-ink: #12211d;
+    --accent-soft: #23342e;
+
+    --danger: #e08078;
+    --danger-soft: #35211f;
+
+    --busy: #d3bd76;
+    --recording: #e0776c;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+}

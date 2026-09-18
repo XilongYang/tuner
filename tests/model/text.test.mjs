@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { segmentText, vocabKey } from '../../js/model/text.js';
+import { segmentText, vocabKey, detectLang } from '../../js/model/text.js';
 
 test('segmentText: splits on Japanese terminal punctuation, keeping it', () => {
   assert.deepEqual(segmentText('おはよう。元気ですか？はい！'), ['おはよう。', '元気ですか？', 'はい！']);
@@ -77,4 +77,26 @@ test('vocabKey: input that reduces to nothing returns empty, for the caller to r
   assert.equal(vocabKey('　 '), '');
   assert.equal(vocabKey(''), '');
   assert.equal(vocabKey(null), '');
+});
+
+test('detectLang: any kana or CJK character means Japanese', () => {
+  assert.equal(detectLang('今日はいい天気ですね。'), 'ja');
+  assert.equal(detectLang('はい'), 'ja');
+  assert.equal(detectLang('カタカナ'), 'ja');
+  assert.equal(detectLang('漢字'), 'ja');
+});
+
+test('detectLang: text with none of those is English', () => {
+  assert.equal(detectLang('The weather is lovely today.'), 'en');
+  assert.equal(detectLang('3.5 dollars'), 'en');
+  assert.equal(detectLang(''), 'en');
+  assert.equal(detectLang(null), 'en');
+});
+
+test('detectLang: a mixed sentence counts as Japanese, which is the voice it needs', () => {
+  assert.equal(detectLang('この PDF を読んでください。'), 'ja');
+});
+
+test('detectLang: an astral CJK character is recognised', () => {
+  assert.equal(detectLang('𠮟る'), 'ja');
 });

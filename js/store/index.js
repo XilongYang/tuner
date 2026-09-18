@@ -35,3 +35,12 @@ export {
 } from './folders.js';
 export { exportAll, restoreSnapshot } from './snapshot.js';
 export { buildBackupZip, parseBackupZip, freshenImportTimestamps } from './backup.js';
+export {
+  normalizeVocabText,
+  getVocabEntry,
+  listVocab,
+  addVocabOccurrence,
+  upsertVocab,
+  removeVocabRecord,
+  deleteVocabEntry,
+} from './vocab.js';

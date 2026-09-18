@@ -9,10 +9,11 @@
 // later from the History sidebar.
 
 const DB_NAME = 'tuner-sessions';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 export const STORE = 'sessions';
 export const FOLDERS_STORE = 'folders';
 export const TOMBSTONES_STORE = 'tombstones';
+export const VOCAB_STORE = 'vocab';
 
 let dbPromise = null;
 
@@ -43,6 +44,15 @@ export function openDb() {
         // locally and then syncing just looks like "this device doesn't have
         // it (yet)" to the other side, which brings it right back.
         db.createObjectStore(TOMBSTONES_STORE, { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains(VOCAB_STORE)) {
+        // One row per distinct vocab entry, keyed by its own normalized-text
+        // id (see store/vocab.js's normalizeVocabText()) -- normalizing INTO
+        // the id itself is what makes "record the same word twice" collapse
+        // into one entry automatically, both locally and across devices via
+        // the same mergeById() sync already uses for sessions/folders,
+        // rather than needing a separate de-dup pass.
+        db.createObjectStore(VOCAB_STORE, { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);

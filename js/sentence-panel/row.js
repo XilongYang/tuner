@@ -14,6 +14,7 @@ import {
 import { splitAtPointer } from './split-actions.js';
 import { renderAssessment } from './assessment.js';
 import { slugify, downloadBlob } from './export-utils.js';
+import { showVocabPicker } from './vocab-picker.js';
 
 export function renderRow(sentence, index) {
   const row = document.createElement('div');
@@ -163,6 +164,20 @@ export function renderRow(sentence, index) {
   exportBtn.hidden = !sentence.assessment;
   actions.appendChild(exportBtn);
 
+  // "记录生词" (record vocab): only meaningful once real per-word spans
+  // exist on this sentence (sentence.words -- from an audio import's own
+  // segmentation, or a post-Speak ASR realignment of a synthesized clip, see
+  // tts-player.js's ensureTtsWords()) -- hidden until then, same convention
+  // as Playback/Score/Export above. Its own click handler (wireRow, below)
+  // shows the word-picker popup (vocab-picker.js).
+  const vocabBtn = document.createElement('button');
+  vocabBtn.className = 'btn';
+  vocabBtn.type = 'button';
+  vocabBtn.textContent = 'Add vocab';
+  vocabBtn.hidden = !(sentence.words && sentence.words.length);
+  sentence._vocabBtn = vocabBtn;
+  actions.appendChild(vocabBtn);
+
   body.appendChild(actions);
 
   // Status / error line
@@ -180,7 +195,9 @@ export function renderRow(sentence, index) {
   row.appendChild(body);
 
   // ---- Row interactions ----
-  wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exportBtn, status, result });
+  wireRow({
+    sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exportBtn, vocabBtn, status, result,
+  });
 
   // Restore an already-computed score (e.g. when reopening a saved session).
   if (sentence.assessment) {
@@ -263,7 +280,9 @@ function wireWordHighlight(audio, sentence, row) {
   audio.addEventListener('ended', stop);
 }
 
-function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exportBtn, status, result }) {
+function wireRow({
+  sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exportBtn, vocabBtn, status, result,
+}) {
   // Speak
   playBtn.addEventListener('click', async () => {
     // Toggle: clicking while it's playing stops it.
@@ -309,6 +328,7 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
           if (sentence.referenceUrl !== entry.url) return;
           sentence.words = words;
           refreshRowText(sentence);
+          vocabBtn.hidden = false;
           persistSession();
         });
         ttsAudio.src = entry.url;
@@ -453,6 +473,21 @@ function wireRow({ sentence, row, playBtn, recordBtn, playbackBtn, scoreBtn, exp
       setStatus(status, 'Export failed: ' + err.message, 'error');
     } finally {
       exportBtn.disabled = false;
+    }
+  });
+
+  // Record vocab: opens the word-picker popup (vocab-picker.js); its own
+  // Confirm button does the actual store writes, so this only reports the
+  // outcome once it resolves. `undefined` means the user cancelled/closed it
+  // without confirming -- nothing to report.
+  vocabBtn.addEventListener('click', async () => {
+    vocabBtn.disabled = true;
+    try {
+      const count = await showVocabPicker(sentence);
+      if (count === undefined) return;
+      setStatus(status, count ? `Added ${count} vocab entr${count === 1 ? 'y' : 'ies'}.` : 'No words selected.', 'info');
+    } finally {
+      vocabBtn.disabled = false;
     }
   });
 }

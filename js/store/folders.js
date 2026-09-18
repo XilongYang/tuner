@@ -2,9 +2,12 @@
 // full-history clear, and the incremental-sync folder counterpart to
 // sessions.js's upsertSessions().
 
-import { getStore, wrap, STORE, FOLDERS_STORE } from './db.js';
+import {
+  getStore, wrap, STORE, FOLDERS_STORE, VOCAB_STORE,
+} from './db.js';
 import { recordTombstone } from './tombstones.js';
 import { listSessions, updateSession } from './sessions.js';
+import { listVocab } from './vocab.js';
 
 // ---- Folders ----
 
@@ -68,22 +71,31 @@ export async function deleteFolder(id) {
 }
 
 /**
- * Delete all sessions and folders -- and, unlike a plain object-store clear(),
- * record a tombstone for each one first (same as deleteSession()/
- * deleteFolder() do individually). Without this, the next sync sees Azure
- * still holding everything this device just wiped and treats it as "this
- * device doesn't have it yet", downloading it all straight back.
+ * Delete all sessions, folders, AND the vocab library -- and, unlike a plain
+ * object-store clear(), record a tombstone for each one first (same as
+ * deleteSession()/deleteFolder()/deleteVocabEntry() do individually).
+ * Without this, the next sync sees Azure still holding everything this
+ * device just wiped and treats it as "this device doesn't have it yet",
+ * downloading it all straight back. Vocab is included per Aspen's own call
+ * (2026-09-14): "Clear All" wipes the whole local database, not just
+ * sessions/folders -- restoreSnapshot() (Import / Restore from Azure) already
+ * treats vocab as part of "the entire local database" the same way; this
+ * brings the other full-wipe entry point in line with it instead of leaving
+ * an inconsistency between the two.
  */
 export async function clearAll() {
-  const [folders, sessions] = await Promise.all([listFolders(), listSessions()]);
+  const [folders, sessions, vocab] = await Promise.all([listFolders(), listSessions(), listVocab()]);
 
   const s1 = await getStore('readwrite', STORE);
   await wrap(s1.clear());
   const s2 = await getStore('readwrite', FOLDERS_STORE);
   await wrap(s2.clear());
+  const s3 = await getStore('readwrite', VOCAB_STORE);
+  await wrap(s3.clear());
 
   for (const f of folders) await recordTombstone('folder', f.id);
   for (const s of sessions) await recordTombstone('session', s.id);
+  for (const v of vocab) await recordTombstone('vocab', v.id);
 }
 
 /** Folder counterpart to upsertSessions() -- see its docs. */

@@ -4,10 +4,12 @@
 // stores directly (bypassing tombstone recording, unlike store.clearAll())
 // so each test starts from a clean slate regardless of what an earlier test
 // in the same file left behind.
-import { getStore, wrap, STORE, FOLDERS_STORE, TOMBSTONES_STORE } from '../js/store/db.js';
+import {
+  getStore, wrap, STORE, FOLDERS_STORE, TOMBSTONES_STORE, VOCAB_STORE,
+} from '../js/store/db.js';
 
 export async function resetStores() {
-  for (const name of [STORE, FOLDERS_STORE, TOMBSTONES_STORE]) {
+  for (const name of [STORE, FOLDERS_STORE, TOMBSTONES_STORE, VOCAB_STORE]) {
     const s = await getStore('readwrite', name);
     await wrap(s.clear());
   }

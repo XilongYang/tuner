@@ -16,8 +16,15 @@ import { setBlobActionStatus } from './panel.js';
 import {
   BLOB_MANIFEST_PATH,
   blobRecordingPath, blobReferencePath, blobAssessmentPath, blobInputTextPath, blobSourceAudioPath,
+  blobVocabAudioPath,
 } from './blob-paths.js';
 import { uiHooks } from './ui-hooks.js';
+import {
+  SESSION_FIELDS, SESSION_OPTIONAL_FIELDS,
+  SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS,
+  VOCAB_ENTRY_FIELDS, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS,
+  pickFields, sessionMetaUpdatedAt, sentenceUpdatedAt,
+} from '../store/entity-schema.js';
 
 // No sentence-panel/history-panel imports here either -- same reasoning as
 // azure-sync.js's module comment (F-01): app.js wires the real render()/
@@ -59,14 +66,16 @@ export async function restoreFromAzure() {
     }
 
     const manifestSessions = manifest.sessions || [];
-    // Recordings, assessments, inputText and sourceAudio all live as their
-    // own blobs now (see azure-sync.js's syncWithAzure() big comment) -- a
-    // full restore has to fetch all four kinds, not just recordings.
+    const manifestVocab = manifest.vocab || [];
+    // Recordings, assessments, inputText, sourceAudio, and vocab occurrence
+    // audio all live as their own blobs now (see azure-sync.js's
+    // syncWithAzure() big comment) -- a full restore has to fetch every
+    // kind, not just recordings.
     const totalDownloads = manifestSessions.reduce((sum, session) => {
       const sentenceDownloads = (session.sentences || [])
         .filter((s) => s.hasRecording || s.hasReference || s.hasAssessment).length;
       return sum + sentenceDownloads + (session.hasInputText ? 1 : 0) + (session.hasSourceAudio ? 1 : 0);
-    }, 0);
+    }, 0) + manifestVocab.reduce((sum, entry) => sum + (entry.sources || []).filter((s) => s.hasAudio).length, 0);
 
     let downloaded = 0;
     const sessionsOut = [];
@@ -107,42 +116,48 @@ export async function restoreFromAzure() {
           assessment = await blobStore.downloadJson(sasUrl, blobAssessmentPath(session.id, s.id));
         }
         sentencesOut.push({
-          id: s.id,
-          text: s.text,
-          lang: s.lang,
-          hidden: s.hidden,
+          ...pickFields(s, SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS),
           assessment,
           recordingBlob,
-          recordingHash: s.recordingHash || null,
-          assessmentHash: s.assessmentHash || null,
           referenceBlob,
-          referenceHash: s.referenceHash || null,
-          referenceSource: s.referenceSource || null,
-          sourceOffsetMs: s.sourceOffsetMs ?? null,
-          sourceDurationMs: s.sourceDurationMs ?? null,
-          words: s.words || null,
-          manualPoints: s.manualPoints || null,
-          updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
+          updatedAt: sentenceUpdatedAt(s, session),
         });
       }
       sessionsOut.push({
-        id: session.id,
-        folderId: session.folderId,
-        name: session.name,
+        ...pickFields(session, SESSION_FIELDS, SESSION_OPTIONAL_FIELDS),
         inputText,
-        inputTextHash: session.inputTextHash || null,
-        splitMode: session.splitMode,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
+        metaUpdatedAt: sessionMetaUpdatedAt(session),
         sentences: sentencesOut,
         sourceAudioBlob,
-        sourceAudioHash: session.sourceAudioHash || null,
+      });
+    }
+
+    const vocabOut = [];
+    for (const entry of manifestVocab) {
+      const sourcesOut = [];
+      for (const s of entry.sources || []) {
+        let audioBlob = null;
+        if (s.hasAudio) {
+          downloaded++;
+          setBlobActionStatus(`Downloading vocab audio ${downloaded} / ${totalDownloads}…`, 'info');
+          audioBlob = await blobStore.downloadBytes(sasUrl, blobVocabAudioPath(entry.audioPathKey, s.occurrenceId));
+        }
+        sourcesOut.push({
+          ...pickFields(s, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS),
+          hasAudio: s.hasAudio,
+          audioBlob,
+        });
+      }
+      vocabOut.push({
+        ...pickFields(entry, VOCAB_ENTRY_FIELDS),
+        sources: sourcesOut,
       });
     }
 
     setBlobActionStatus('Writing to local storage…', 'info');
-    await store.restoreSnapshot({ folders: manifest.folders || [], sessions: sessionsOut, tombstones: manifest.tombstones || [] });
+    await store.restoreSnapshot({
+      folders: manifest.folders || [], sessions: sessionsOut, vocab: vocabOut, tombstones: manifest.tombstones || [],
+    });
 
     // The restored data lives in IndexedDB now; clear the live screen state
     // (any recordings held only in memory are gone) and let the user pick a
@@ -153,9 +168,10 @@ export async function restoreFromAzure() {
     els.input.value = '';
     uiHooks.render();
     uiHooks.refreshHistoryTreeIfOpen();
+    uiHooks.refreshVocabPanelIfOpen();
 
     setBlobActionStatus(
-      `Restore complete — ${sessionsOut.length} session(s), ${totalDownloads} file(s) downloaded.`,
+      `Restore complete — ${sessionsOut.length} session(s), ${vocabOut.length} vocab entr${vocabOut.length === 1 ? 'y' : 'ies'}, ${totalDownloads} file(s) downloaded.`,
       'recording',
     );
   } catch (err) {

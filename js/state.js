@@ -60,6 +60,12 @@ export const els = {
   clearHistoryBtn: $('#clear-history-btn'),
   historyIoStatus: $('#history-io-status'),
   historyTree: $('#history-tree'),
+  // Vocab library sidebar (js/vocab-panel/) -- same shell as the History
+  // sidebar just above, mutually exclusive with it.
+  toggleVocabPanel: $('#toggle-vocab-panel'),
+  vocabSidebar: $('#vocab-sidebar'),
+  vocabCloseBtn: $('#vocab-close-btn'),
+  vocabList: $('#vocab-list'),
   // Cloud backup (nested inside the Azure settings panel)
   blobSasInput: $('#blob-sas-url'),
   saveBlobBtn: $('#save-blob-btn'),

@@ -4,9 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tuner — read-aloud &amp; pronunciation practice</title>
-  <!-- Icons -->
-  <link rel="icon" href="/favicon.ico" type="image/x-icon">
-  <link rel="apple-touch-icon" href="/tuner_256.png">
   <!-- Split by UI region, mirroring the js/ folder layout (sentence-panel/,
        history-panel/) -- order matters, it's the cascade order the old
        monolithic styles.css had these sections in. -->
@@ -26,6 +23,8 @@
   <link rel="stylesheet" href="css/history-panel/tree.css">
   <link rel="stylesheet" href="css/history-panel/context-menu.css">
   <link rel="stylesheet" href="css/history-panel/modal.css">
+  <link rel="stylesheet" href="css/sentence-panel/vocab-picker.css">
+  <link rel="stylesheet" href="css/vocab-panel/panel.css">
   <link rel="stylesheet" href="css/footer.css">
   <link rel="stylesheet" href="css/responsive.css">
 </head>
@@ -47,6 +46,9 @@
         </div>
         <button id="toggle-history-panel" class="ghost-btn" type="button" aria-expanded="false">
           History
+        </button>
+        <button id="toggle-vocab-panel" class="ghost-btn" type="button" aria-expanded="false">
+          Vocab
         </button>
         <button id="toggle-key-panel" class="ghost-btn" type="button" aria-expanded="false">
           Azure settings
@@ -208,6 +210,18 @@
     </div>
     <p id="history-io-status" class="history-io-status" hidden></p>
     <div id="history-tree" class="history-tree"></div>
+  </aside>
+
+  <!-- Vocab library: words/phrases flagged as not understood or mispronounced
+       while practicing (js/sentence-panel/vocab-picker.js records them; this
+       is just the viewing UI) -- same shell as the History sidebar above,
+       mutually exclusive with it (js/vocab-panel/panel.js). -->
+  <aside id="vocab-sidebar" class="vocab-sidebar" aria-label="Vocabulary library">
+    <div class="vocab-sidebar-header">
+      <h2 class="section-title">Vocab library</h2>
+      <button id="vocab-close-btn" class="icon-btn" type="button" aria-label="Close vocabulary library">&times;</button>
+    </div>
+    <div id="vocab-list" class="vocab-list"></div>
   </aside>
 
   <script type="module" src="js/app.js"></script>

@@ -7,6 +7,7 @@ import {
 } from '../js/store/folders.js';
 import { createSession, getSession, listSessions } from '../js/store/sessions.js';
 import { listTombstones } from '../js/store/tombstones.js';
+import { addVocabOccurrence, listVocab } from '../js/store/vocab.js';
 
 beforeEach(resetStores);
 
@@ -71,17 +72,20 @@ test('deleteFolder: records a folder tombstone', async () => {
   assert.ok(tombstones.some((t) => t.id === `folder:${id}`));
 });
 
-test('clearAll: wipes every folder and session, tombstoning each one first', async () => {
+test('clearAll: wipes every folder, session, AND vocab entry, tombstoning each one first', async () => {
   const folderId = await createFolder({ name: 'F' });
   const sessionId = await createSession({ inputText: 'x', splitMode: 'auto', sentences: [] });
+  const vocabEntry = await addVocabOccurrence('word', 'en', { sentenceTextSnapshot: 'x' });
 
   await clearAll();
 
   assert.deepEqual(await listFolders(), []);
   assert.deepEqual(await listSessions(), []);
+  assert.deepEqual(await listVocab(), []);
   const tombstones = await listTombstones();
   assert.ok(tombstones.some((t) => t.id === `folder:${folderId}`));
   assert.ok(tombstones.some((t) => t.id === `session:${sessionId}`));
+  assert.ok(tombstones.some((t) => t.id === `vocab:${vocabEntry.id}`));
 });
 
 test('upsertFolders: writes already-merged records as-is; no-op on empty/undefined', async () => {

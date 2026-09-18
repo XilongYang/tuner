@@ -1,7 +1,7 @@
 // Full local-database backup: pack everything (folders, sessions -- text,
 // recordings, reference clips, an audio-imported session's original source
-// file, scores -- and deletion tombstones) into a single downloadable file,
-// and read one back in. Built on top of
+// file, scores -- the vocab library, and deletion tombstones) into a single
+// downloadable file, and read one back in. Built on top of
 // exportAll()/restoreSnapshot() (snapshot.js) and the app's own tiny ZIP
 // reader/writer (../zip.js); the file is a plain ZIP saved with a distinct
 // ".tuner" extension (see history-panel/panel.js) purely so double-clicking
@@ -10,6 +10,13 @@
 
 import { makeZip, readZip } from '../zip.js';
 import { exportAll, restoreSnapshot } from './snapshot.js';
+import {
+  FOLDER_FIELDS, FOLDER_OPTIONAL_FIELDS,
+  SESSION_FIELDS, SESSION_OPTIONAL_FIELDS,
+  SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS,
+  VOCAB_ENTRY_FIELDS, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS,
+  pickFields, sessionMetaUpdatedAt, sentenceUpdatedAt,
+} from './entity-schema.js';
 
 const FORMAT_VERSION = 1;
 
@@ -25,13 +32,13 @@ function extOf(path) {
 }
 
 /**
- * Build the full-backup ZIP: manifest.json (folders, tombstones, and every
- * session's fields with each sentence's recordingBlob/referenceBlob replaced
- * by a file reference) plus one file per recording/reference clip actually
- * present. Returns a ZIP Blob ready to download.
+ * Build the full-backup ZIP: manifest.json (folders, tombstones, vocab, and
+ * every session's fields with each sentence's recordingBlob/referenceBlob
+ * replaced by a file reference) plus one file per recording/reference/vocab
+ * audio clip actually present. Returns a ZIP Blob ready to download.
  */
 export async function buildBackupZip() {
-  const { folders, sessions, tombstones } = await exportAll();
+  const { folders, sessions, vocab, tombstones } = await exportAll();
   const files = [];
   const manifestSessions = [];
 
@@ -39,29 +46,14 @@ export async function buildBackupZip() {
     const sentencesOut = [];
     for (const s of session.sentences || []) {
       const entry = {
-        id: s.id,
-        text: s.text,
-        lang: s.lang,
-        hidden: s.hidden,
-        updatedAt: s.updatedAt || null,
-        recordingHash: s.recordingHash || null,
-        referenceHash: s.referenceHash || null,
-        referenceSource: s.referenceSource || null,
-        // Where this clip sits in the session's sourceAudioFile below --
-        // only meaningful when referenceSource === 'import'. See state.js's
-        // doc comment on sourceOffsetMs/sourceDurationMs.
-        sourceOffsetMs: s.sourceOffsetMs ?? null,
-        sourceDurationMs: s.sourceDurationMs ?? null,
-        // Azure's per-word timestamps + any manually-confirmed split
-        // points (state.js's doc comment) -- plain JSON, added additively
-        // so an OLDER app version reading a backup made by this one just
-        // ignores these two extra keys, and this version reading an OLDER
-        // backup gets `null` (same as "no Azure word data") for both. No
-        // FORMAT_VERSION bump needed for either direction.
-        words: s.words || null,
-        manualPoints: s.manualPoints || null,
+        ...pickFields(s, SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS),
+        // Azure's per-word timestamps + any manually-confirmed split points
+        // (state.js's doc comment), and the score itself -- plain JSON,
+        // added additively so an OLDER app version reading a backup made by
+        // this one just ignores these extra keys, and this version reading
+        // an OLDER backup gets `null` (same as "none yet") for all of them.
+        // No FORMAT_VERSION bump needed for either direction.
         assessment: s.assessment || null,
-        assessmentHash: s.assessmentHash || null,
         recordingFile: null,
         referenceFile: null,
       };
@@ -89,28 +81,52 @@ export async function buildBackupZip() {
     }
 
     manifestSessions.push({
-      id: session.id,
-      folderId: session.folderId ?? null,
-      name: session.name ?? null,
+      ...pickFields(session, SESSION_FIELDS, SESSION_OPTIONAL_FIELDS),
       inputText: session.inputText || '',
-      inputTextHash: session.inputTextHash || null,
-      splitMode: session.splitMode,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
+      metaUpdatedAt: sessionMetaUpdatedAt(session),
       sentences: sentencesOut,
       sourceAudioFile,
-      sourceAudioHash: session.sourceAudioHash || null,
+    });
+  }
+
+  // Vocab library (js/store/vocab.js): each entry's occurrences pack the same
+  // way a sentence's recording/reference does -- one file per occurrence
+  // that actually has audio, referenced from the manifest by path, keyed by
+  // the entry's own audioPathKey + occurrenceId (mirroring
+  // sync/blob-paths.js's blobVocabAudioPath(), just as files in a ZIP
+  // instead of blobs on Azure) rather than a session/sentence id, since an
+  // occurrence's source session/sentence may not even exist anymore.
+  const manifestVocab = [];
+  for (const entry of vocab || []) {
+    const sourcesOut = [];
+    for (const s of entry.sources || []) {
+      const out = {
+        ...pickFields(s, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS),
+        audioFile: null,
+      };
+      if (s.audioBlob) {
+        const path = `audio/vocab/${entry.audioPathKey}/${s.occurrenceId}.${extForMime(s.audioBlob.type)}`;
+        out.audioFile = path;
+        files.push({ name: path, data: new Uint8Array(await s.audioBlob.arrayBuffer()) });
+      }
+      sourcesOut.push(out);
+    }
+    manifestVocab.push({
+      ...pickFields(entry, VOCAB_ENTRY_FIELDS),
+      sources: sourcesOut,
     });
   }
 
   const manifest = {
     formatVersion: FORMAT_VERSION,
     exportedAt: new Date().toISOString(),
-    folders: (folders || []).map((f) => ({
-      id: f.id, name: f.name, parentId: f.parentId ?? null, createdAt: f.createdAt, updatedAt: f.updatedAt,
-    })),
+    folders: (folders || []).map((f) => pickFields(f, FOLDER_FIELDS, FOLDER_OPTIONAL_FIELDS)),
     tombstones: tombstones || [],
+    // Additive, like words/manualPoints above -- an OLDER app version reading
+    // a backup made by this one just ignores this key; this version reading
+    // an OLDER backup (no `vocab` key at all) gets `[]` in parseBackupZip()
+    // below, same as "no vocab library yet". No FORMAT_VERSION bump needed.
+    vocab: manifestVocab,
     sessions: manifestSessions,
   };
   files.unshift({ name: 'manifest.json', data: new TextEncoder().encode(JSON.stringify(manifest)) });
@@ -138,51 +154,48 @@ export async function parseBackupZip(arrayBuffer) {
   const sessions = (manifest.sessions || []).map((session) => {
     const sourceAudioBytes = session.sourceAudioFile ? byName.get(session.sourceAudioFile) : null;
     return {
-      id: session.id,
-      folderId: session.folderId ?? null,
-      name: session.name ?? null,
+      ...pickFields(session, SESSION_FIELDS, SESSION_OPTIONAL_FIELDS),
       inputText: session.inputText || '',
-      inputTextHash: session.inputTextHash || null,
-      splitMode: session.splitMode,
-      createdAt: session.createdAt,
-      updatedAt: session.updatedAt,
-      metaUpdatedAt: session.metaUpdatedAt || session.updatedAt || session.createdAt || 0,
+      metaUpdatedAt: sessionMetaUpdatedAt(session),
       sourceAudioBlob: sourceAudioBytes
         ? new Blob([sourceAudioBytes], { type: MIME_FOR_EXT[extOf(session.sourceAudioFile)] || 'application/octet-stream' })
         : null,
-      sourceAudioHash: session.sourceAudioHash || null,
       sentences: (session.sentences || []).map((s) => {
         const recordingBytes = s.recordingFile ? byName.get(s.recordingFile) : null;
         const referenceBytes = s.referenceFile ? byName.get(s.referenceFile) : null;
         return {
-          id: s.id,
-          text: s.text,
-          lang: s.lang,
-          hidden: s.hidden,
+          ...pickFields(s, SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS),
           assessment: s.assessment || null,
           recordingBlob: recordingBytes
             ? new Blob([recordingBytes], { type: MIME_FOR_EXT[extOf(s.recordingFile)] || 'application/octet-stream' })
             : null,
-          recordingHash: s.recordingHash || null,
-          assessmentHash: s.assessmentHash || null,
           referenceBlob: referenceBytes
             ? new Blob([referenceBytes], { type: MIME_FOR_EXT[extOf(s.referenceFile)] || 'application/octet-stream' })
             : null,
-          referenceHash: s.referenceHash || null,
-          referenceSource: s.referenceSource || null,
-          sourceOffsetMs: s.sourceOffsetMs ?? null,
-          sourceDurationMs: s.sourceDurationMs ?? null,
-          words: s.words || null,
-          manualPoints: s.manualPoints || null,
-          updatedAt: s.updatedAt || session.updatedAt || session.createdAt || 0,
+          updatedAt: sentenceUpdatedAt(s, session),
         };
       }),
     };
   });
 
+  const vocab = (manifest.vocab || []).map((entry) => ({
+    ...pickFields(entry, VOCAB_ENTRY_FIELDS),
+    sources: (entry.sources || []).map((s) => {
+      const audioBytes = s.audioFile ? byName.get(s.audioFile) : null;
+      return {
+        ...pickFields(s, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS),
+        hasAudio: !!audioBytes,
+        audioBlob: audioBytes
+          ? new Blob([audioBytes], { type: MIME_FOR_EXT[extOf(s.audioFile)] || 'application/octet-stream' })
+          : null,
+      };
+    }),
+  }));
+
   return {
     folders: manifest.folders || [],
     sessions,
+    vocab,
     tombstones: manifest.tombstones || [],
   };
 }
@@ -208,6 +221,13 @@ export function freshenImportTimestamps(snapshot) {
   return {
     folders: (snapshot.folders || []).map((f) => ({ ...f, updatedAt: now })),
     tombstones: snapshot.tombstones || [],
+    // Vocab entries merge by unioning sources[] (mergeVocabEntry() in
+    // sync/merge.js), not last-write-wins, so this isn't needed to avoid
+    // data loss the way it is for sessions below -- but it's still needed to
+    // "un-delete" a vocab entry this backup has that was since deleted (by a
+    // tombstone) on whatever this device syncs with next, same resurrection
+    // rule survivesTombstone() applies everywhere else.
+    vocab: (snapshot.vocab || []).map((entry) => ({ ...entry, updatedAt: now })),
     sessions: (snapshot.sessions || []).map((session) => ({
       ...session,
       updatedAt: now,

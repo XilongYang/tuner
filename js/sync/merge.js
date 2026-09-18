@@ -117,6 +117,39 @@ export function mergeSession(local, remote, tombstoneById) {
   };
 }
 
+/**
+ * Merge one vocab entry. Unlike a session, there's no per-field LWW to do --
+ * `id` (the normalized text) and `audioPathKey` are both pure functions of
+ * the entry's text, so they're identical on both sides by construction; the
+ * only real merge is `sources[]`, unioned by `occurrenceId` (a device that's
+ * already synced once and syncs again would otherwise re-add its own
+ * occurrences as duplicates every round). `text`/`lang` keep whichever side
+ * recorded this entry FIRST (min `createdAt`) purely for display
+ * consistency -- both sides normalize to the same id regardless of which
+ * casing/spacing wins, so this never affects merging, only what's shown.
+ */
+export function mergeVocabEntry(local, remote) {
+  if (!local) return { ...remote };
+  if (!remote) return { ...local };
+  const first = (local.createdAt ?? 0) <= (remote.createdAt ?? 0) ? local : remote;
+  const seen = new Set();
+  const sources = [];
+  for (const s of [...(local.sources || []), ...(remote.sources || [])]) {
+    if (seen.has(s.occurrenceId)) continue;
+    seen.add(s.occurrenceId);
+    sources.push(s);
+  }
+  return {
+    id: local.id,
+    text: first.text,
+    lang: first.lang,
+    audioPathKey: local.audioPathKey || remote.audioPathKey,
+    createdAt: Math.min(local.createdAt ?? Infinity, remote.createdAt ?? Infinity),
+    updatedAt: Math.max(local.updatedAt || 0, remote.updatedAt || 0),
+    sources,
+  };
+}
+
 /** Folder counterpart: no sub-structure, so a plain LWW on `updatedAt` is enough. */
 export function mergeFolder(local, remote) {
   if (!local) return { ...remote };

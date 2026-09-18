@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test",
+    "test": "node --experimental-test-module-mocks --test",
     "test:e2e": "node tests-e2e/run-all.mjs"
   },
   "devDependencies": {
     "fake-indexeddb": "^6.2.5",
+    "jsdom": "^30.0.1",
     "playwright": "^1.63.0"
   }
 }

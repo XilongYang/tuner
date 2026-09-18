@@ -55,6 +55,30 @@ export const blobInputTextPath = (sessionId) => `${BLOB_INPUTTEXT_PREFIX}${sessi
 export const BLOB_SOURCEAUDIO_PREFIX = 'tuner/sourceaudio/';
 export const blobSourceAudioPath = (sessionId) => `${BLOB_SOURCEAUDIO_PREFIX}${sessionId}.audio`;
 
+// A vocab entry's occurrence audio (js/store/vocab.js) -- always an
+// independent, freshly sliced-or-synthesized clip, never a pointer into a
+// session's own recordings/references, so a session being deleted never
+// invalidates one of these (see the module comment on mergeVocabEntry() in
+// ./merge.js for why this means no reference counting is needed either).
+// Keyed by the entry's own audioPathKey (a hash of its normalized text, not
+// the text itself -- see computeAudioPathKey() in ../store/vocab.js) rather
+// than sessionId/sentenceId, since one occurrence's source sentence may not
+// even exist anymore by the time this syncs.
+export const BLOB_VOCAB_AUDIO_PREFIX = 'tuner/vocab-audio/';
+export const blobVocabAudioPath = (audioPathKey, occurrenceId) => `${BLOB_VOCAB_AUDIO_PREFIX}${audioPathKey}/${occurrenceId}.audio`;
+
+/**
+ * Which blob paths a manifest's `vocab` array references -- same idea as
+ * referencedBlobPaths() below, just for the one vocab-audio prefix instead
+ * of five session-scoped ones.
+ */
+export function referencedVocabAudioPaths(manifestVocab) {
+  const vocab = manifestVocab || [];
+  return vocab.flatMap((entry) => (entry.sources || [])
+    .filter((s) => s.hasAudio)
+    .map((s) => blobVocabAudioPath(entry.audioPathKey, s.occurrenceId)));
+}
+
 /**
  * Which blob paths a manifest's `sessions` array (the shape syncWithAzure()
  * builds -- see its `manifest` object) references, split into the same five

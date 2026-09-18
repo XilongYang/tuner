@@ -31,11 +31,18 @@ import {
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
   BLOB_SOURCEAUDIO_PREFIX, blobSourceAudioPath,
+  BLOB_VOCAB_AUDIO_PREFIX, blobVocabAudioPath, referencedVocabAudioPaths,
   referencedBlobPaths, cleanupOrphanBlobs,
 } from './blob-paths.js';
-import { mergeTombstones, mergeById, mergeFolder, mergeSession, survivesTombstone } from './merge.js';
+import { mergeTombstones, mergeById, mergeFolder, mergeSession, mergeVocabEntry, survivesTombstone } from './merge.js';
 import { acquireLock, releaseLock, lockAgeMs } from './lock.js';
 import { uiHooks } from './ui-hooks.js';
+import {
+  SESSION_FIELDS, SESSION_OPTIONAL_FIELDS,
+  SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS,
+  VOCAB_ENTRY_FIELDS, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS,
+  pickFields, sessionMetaUpdatedAt,
+} from '../store/entity-schema.js';
 
 // No sentence-panel/history-panel imports in this file by design (F-01 in
 // the earlier coupling audit: a sync/data module reaching up into the UI
@@ -78,6 +85,30 @@ export async function findSessionsChangedSinceSnapshot(sessions, localUpdatedAtA
   return staleIds;
 }
 
+/**
+ * Same staleness check as findSessionsChangedSinceSnapshot(), for vocab
+ * entries -- keyed by `id` (normalized text) instead of a session id.
+ * Vocab has no dedicated "meta" update path the way a session does, but it
+ * has the same race: the user's own "Delete" action in the vocab panel
+ * (store.deleteVocabEntry()) is a single fast IndexedDB write, easily
+ * completed while a sync started moments earlier is still mid-flight (this
+ * function's `sessions` counterpart already covers Split/Merge/record races
+ * for sessions; vocab deletion is the equivalent gap for vocab). A local
+ * entry that's vanished entirely by the time this re-check runs (`!fresh`)
+ * is exactly that case -- deleted locally after this sync's snapshot was
+ * read -- and must not be resurrected by this sync's write-back.
+ */
+export async function findVocabChangedSinceSnapshot(vocabEntries, localVocabUpdatedAtAtStart, getVocabEntryFn) {
+  const staleIds = new Set();
+  for (const entry of vocabEntries) {
+    const startedAt = localVocabUpdatedAtAtStart.get(entry.id);
+    if (startedAt === undefined) continue;
+    const fresh = await getVocabEntryFn(entry.id);
+    if (!fresh || fresh.updatedAt !== startedAt) staleIds.add(entry.id);
+  }
+  return staleIds;
+}
+
 export async function syncWithAzure() {
   const sasUrl = loadBlobSasUrl();
   if (!sasUrl) { alert('Please save a container SAS URL first.'); return; }
@@ -112,7 +143,9 @@ export async function syncWithAzure() {
   els.restoreNowBtn.disabled = true;
   try {
     setBlobActionStatus('Reading local data…', 'info');
-    const { folders: localFolders, sessions: localSessions, tombstones: localTombstones } = await store.exportAll();
+    const {
+      folders: localFolders, sessions: localSessions, vocab: localVocab, tombstones: localTombstones,
+    } = await store.exportAll();
     // Snapshot of each session's `updatedAt` at the moment THIS sync started
     // reading -- checked again right before writing the merge result back
     // (see the "Saving merged data locally" step below). A sync round-trips
@@ -125,15 +158,21 @@ export async function syncWithAzure() {
     // edit the user just made -- confirmed in practice: splitting a sentence
     // right as an auto-sync/heartbeat round was already underway.
     const localUpdatedAtAtStart = new Map(localSessions.map((s) => [s.id, s.updatedAt]));
+    // Same snapshot, for vocab -- see findVocabChangedSinceSnapshot()'s doc
+    // comment for the race this closes (a vocab entry deleted via the vocab
+    // panel while this sync's network round-trip is still in flight).
+    const localVocabUpdatedAtAtStart = new Map(localVocab.map((v) => [v.id, v.updatedAt]));
 
     setBlobActionStatus('Checking remote backup…', 'info');
     // Key order matches the manifest built below (version, folders,
-    // tombstones, sessions -- exportedAt aside) so that when nothing exists
-    // remotely yet AND there's nothing local either, the no-op check at
-    // "nothing changed" below actually short-circuits instead of pointlessly
-    // uploading an empty manifest (this matters now that a sync can fire
-    // right on page load, before any local data exists).
-    let remoteManifest = { version: 4, folders: [], tombstones: [], sessions: [] };
+    // tombstones, vocab, sessions -- exportedAt aside) so that when nothing
+    // exists remotely yet AND there's nothing local either, the no-op check
+    // at "nothing changed" below actually short-circuits instead of
+    // pointlessly uploading an empty manifest (this matters now that a sync
+    // can fire right on page load, before any local data exists).
+    let remoteManifest = {
+      version: 5, folders: [], tombstones: [], vocab: [], sessions: [],
+    };
     try {
       const result = await blobStore.downloadJsonConditional(sasUrl, BLOB_MANIFEST_PATH, manifestEtagCache.etag);
       if (result.notModified) {
@@ -150,6 +189,7 @@ export async function syncWithAzure() {
     }
     const remoteFolders = remoteManifest.folders || [];
     const remoteSessions = remoteManifest.sessions || [];
+    const remoteVocab = remoteManifest.vocab || [];
     const remoteTombstones = remoteManifest.tombstones || [];
 
     const mergedTombstones = mergeTombstones(localTombstones, remoteTombstones);
@@ -203,6 +243,22 @@ export async function syncWithAzure() {
       }
     }
 
+    // Same "materialize into a fresh, self-contained Blob right now" as
+    // every other content kind above -- a vocab occurrence's audioBlob was
+    // just read out of IndexedDB via store.exportAll() too, keyed here by
+    // occurrenceId (not sessionId/sentenceId -- a vocab entry's sources can
+    // point at sessions/sentences that no longer exist, so occurrenceId is
+    // the only stable key an occurrence's audio ever has).
+    const localVocabAudioByOccurrence = new Map();
+    for (const entry of localVocab) {
+      for (const s of entry.sources || []) {
+        if (s.audioBlob) {
+          const freshBlob = new Blob([await s.audioBlob.arrayBuffer()], { type: s.audioBlob.type });
+          localVocabAudioByOccurrence.set(s.occurrenceId, { blob: freshBlob, hash: s.audioHash || null });
+        }
+      }
+    }
+
     const mergedFolders = mergeById(localFolders, remoteFolders, mergeFolder);
     // tombstoneById also lets mergeSession() (via mergeSentences() in
     // ./merge.js) drop a sentence that Merge/Split replaced, instead of a
@@ -210,6 +266,13 @@ export async function syncWithAzure() {
     // sentence right back in alongside the new one -- see mergeSentences()'s
     // doc comment.
     const mergedSessions = mergeById(localSessions, remoteSessions, (l, r) => mergeSession(l, r, tombstoneById));
+    // Vocab entries have no `__from`/LWW arbitration -- mergeVocabEntry()
+    // unions `sources[]` directly (see its doc comment in ./merge.js) -- so,
+    // unlike a session, there's no "which side won" to resolve per entry
+    // below; only per-source audio upload/download/reuse (see the
+    // localVocabAudioByOccurrence/remoteVocabSourceByOccurrence resolution
+    // further down).
+    const mergedVocab = mergeById(localVocab, remoteVocab, mergeVocabEntry);
 
     // Apply deletions: a tombstone beats a folder's/session's own `updatedAt`
     // unless something edited it again after the delete (see
@@ -218,8 +281,10 @@ export async function syncWithAzure() {
     // deleted never has its recordings fetched just to throw them away.
     const survivingFolders = mergedFolders.filter((f) => survivesTombstone('folder', f, tombstoneById));
     const survivingSessions = mergedSessions.filter((s) => survivesTombstone('session', s, tombstoneById));
+    const survivingVocab = mergedVocab.filter((v) => survivesTombstone('vocab', v, tombstoneById));
     const casualtyFolderIds = new Set(mergedFolders.filter((f) => !survivesTombstone('folder', f, tombstoneById)).map((f) => f.id));
     const casualtySessionIds = new Set(mergedSessions.filter((s) => !survivesTombstone('session', s, tombstoneById)).map((s) => s.id));
+    const casualtyVocabIds = new Set(mergedVocab.filter((v) => !survivesTombstone('vocab', v, tombstoneById)).map((v) => v.id));
 
     // A session/folder can end up pointing at a folder that just got deleted
     // above (e.g. it was moved into that folder on a device that never heard
@@ -239,7 +304,18 @@ export async function syncWithAzure() {
       const inputTextDownload = s.__metaFrom === 'remote' && s.inputTextHash ? 1 : 0;
       const sourceAudioDownload = s.__metaFrom === 'remote' && s.sourceAudioHash ? 1 : 0;
       return sum + sentenceDownloads + inputTextDownload + sourceAudioDownload;
-    }, 0);
+    }, 0) + survivingVocab.reduce((sum, entry) => sum + (entry.sources || [])
+      .filter((s) => s.hasAudio && !localVocabAudioByOccurrence.has(s.occurrenceId)).length, 0);
+
+    // Which occurrence's audio is already confirmed on Azure (by hash) --
+    // same "alreadyOnAzure" check every other content kind does against its
+    // own remote* array, just keyed by occurrenceId since a vocab source has
+    // no sessionId/sentenceId of its own to look up remoteSession/
+    // remoteSentence by (see the module comment on blobVocabAudioPath()).
+    const remoteVocabSourceByOccurrence = new Map();
+    for (const entry of remoteVocab) {
+      for (const s of entry.sources || []) remoteVocabSourceByOccurrence.set(s.occurrenceId, s);
+    }
 
     let downloadCount = 0;
     const recordingUploads = [];
@@ -247,6 +323,7 @@ export async function syncWithAzure() {
     const assessmentUploads = [];
     const inputTextUploads = [];
     const sourceAudioUploads = [];
+    const vocabAudioUploads = [];
     const finalSessions = [];
     for (const session of survivingSessions) {
       // Session-level content (inputText) -- resolved once per session, not per sentence.
@@ -374,6 +451,38 @@ export async function syncWithAzure() {
       });
     }
 
+    // Resolve each vocab entry's occurrence audio -- same
+    // upload-if-local-and-new / reuse-if-hash-matches / download-otherwise
+    // logic as a recording/reference above, just per-source instead of
+    // per-sentence (a source with no audio at all -- a text-only occurrence,
+    // see resolveVocabAudio()'s null-return cases -- is left alone either
+    // way).
+    const finalVocab = [];
+    for (const entry of survivingVocab) {
+      const sourcesOut = [];
+      for (const source of entry.sources || []) {
+        const localAudio = localVocabAudioByOccurrence.get(source.occurrenceId);
+        let audioBlob = null;
+        if (source.hasAudio) {
+          if (localAudio) {
+            audioBlob = localAudio.blob;
+            const remoteSource = remoteVocabSourceByOccurrence.get(source.occurrenceId);
+            const alreadyOnAzure = remoteSource && remoteSource.audioHash === source.audioHash;
+            if (!alreadyOnAzure) {
+              vocabAudioUploads.push({ audioPathKey: entry.audioPathKey, occurrenceId: source.occurrenceId, blob: audioBlob });
+            }
+          } else {
+            downloadCount++;
+            setBlobActionStatus(`Downloading vocab audio ${downloadCount} / ${totalMaybeDownloads}…`, 'info');
+            audioBlob = await blobStore.downloadBytes(sasUrl, blobVocabAudioPath(entry.audioPathKey, source.occurrenceId));
+          }
+        }
+        const { audioBlob: _drop, ...cleanSource } = source;
+        sourcesOut.push({ ...cleanSource, audioBlob });
+      }
+      finalVocab.push({ ...entry, sources: sourcesOut });
+    }
+
     for (let i = 0; i < recordingUploads.length; i++) {
       const { sessionId, sentenceId, blob } = recordingUploads[i];
       setBlobActionStatus(`Uploading recording ${i + 1} / ${recordingUploads.length}…`, 'info');
@@ -399,56 +508,49 @@ export async function syncWithAzure() {
       setBlobActionStatus(`Uploading source audio ${i + 1} / ${sourceAudioUploads.length}…`, 'info');
       await blobStore.uploadBytes(sasUrl, blobSourceAudioPath(sessionId), blob, blob.type || 'application/octet-stream');
     }
+    for (let i = 0; i < vocabAudioUploads.length; i++) {
+      const { audioPathKey, occurrenceId, blob } = vocabAudioUploads[i];
+      setBlobActionStatus(`Uploading vocab audio ${i + 1} / ${vocabAudioUploads.length}…`, 'info');
+      await blobStore.uploadBytes(sasUrl, blobVocabAudioPath(audioPathKey, occurrenceId), blob, blob.type || 'application/octet-stream');
+    }
 
-    // The manifest itself now only carries hashes for these three content
+    // The manifest itself only carries hashes for the blob-backed content
     // kinds, never the content -- an assessment (word/phoneme scores) used
     // to be by far the largest thing embedded here once anything was
     // scored, and inputText duplicated text already spread across
-    // `sentences[].text`. Both now live as their own small blobs (uploaded
-    // above), fetched only when a merge actually needs them.
+    // `sentences[].text`. Recordings, references, assessments, inputText,
+    // sourceAudio, and now vocab occurrence audio all live as their own
+    // small blobs (uploaded above), fetched only when a merge actually needs
+    // them.
     const manifest = {
-      version: 4,
+      version: 5,
       exportedAt: new Date().toISOString(),
       folders: survivingFolders,
       tombstones: mergedTombstones,
+      // Field lists (id/text/lang/... and their `?? null` defaults) come from
+      // ../store/entity-schema.js, the same single source of truth
+      // store/backup.js and this file's own restore.js build/parse from --
+      // only the has-flags below (hasInputText, hasRecording, etc.) are
+      // specific to this manifest's shape: unlike backup.js's ZIP, a hash
+      // alone doesn't say whether the blob is actually attached, so this
+      // format needs its own explicit boolean alongside it.
+      vocab: finalVocab.map((entry) => ({
+        ...pickFields(entry, VOCAB_ENTRY_FIELDS),
+        sources: (entry.sources || []).map((s) => ({
+          ...pickFields(s, VOCAB_SOURCE_FIELDS, VOCAB_SOURCE_OPTIONAL_FIELDS),
+          hasAudio: !!s.audioHash,
+        })),
+      })),
       sessions: finalSessions.map((session) => ({
-        id: session.id,
-        folderId: session.folderId,
-        name: session.name,
-        splitMode: session.splitMode,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        metaUpdatedAt: session.metaUpdatedAt,
+        ...pickFields(session, SESSION_FIELDS, SESSION_OPTIONAL_FIELDS),
+        metaUpdatedAt: sessionMetaUpdatedAt(session),
         hasInputText: !!session.inputTextHash,
-        inputTextHash: session.inputTextHash || null,
         hasSourceAudio: !!session.sourceAudioHash,
-        sourceAudioHash: session.sourceAudioHash || null,
         sentences: (session.sentences || []).map((s) => ({
-          id: s.id,
-          text: s.text,
-          lang: s.lang,
-          hidden: s.hidden,
+          ...pickFields(s, SENTENCE_FIELDS, SENTENCE_OPTIONAL_FIELDS),
           hasRecording: !!s.recordingHash,
-          recordingHash: s.recordingHash || null,
           hasAssessment: !!s.assessmentHash,
-          assessmentHash: s.assessmentHash || null,
           hasReference: !!s.referenceHash,
-          referenceHash: s.referenceHash || null,
-          referenceSource: s.referenceSource || null,
-          // Where this clip sits in the session's sourceAudioBlob (small
-          // plain values, so -- unlike the blob-backed fields above -- they
-          // travel directly in the manifest rather than as their own
-          // content-addressed blob; see state.js's doc comment).
-          sourceOffsetMs: s.sourceOffsetMs ?? null,
-          sourceDurationMs: s.sourceDurationMs ?? null,
-          // Azure's per-word timestamps (re-based to this sentence's own
-          // text) and any manually-confirmed extra split points -- small
-          // plain values like sourceOffsetMs/sourceDurationMs above, so they
-          // travel directly in the manifest too. See state.js's doc comment
-          // and sentence-panel/split-geometry.js's getSplitPointers().
-          words: s.words || null,
-          manualPoints: s.manualPoints || null,
-          updatedAt: s.updatedAt,
         })),
       })),
     };
@@ -490,13 +592,16 @@ export async function syncWithAzure() {
     try {
       setBlobActionStatus('Re-checking remote before cleanup…', 'info');
       let referenceSessions = manifest.sessions;
+      let referenceVocab = manifest.vocab;
       const freshManifest = await blobStore.downloadJsonConditional(sasUrl, BLOB_MANIFEST_PATH, null);
       if (!freshManifest.notModified) {
         referenceSessions = manifest.sessions.concat(freshManifest.value.sessions || []);
+        referenceVocab = manifest.vocab.concat(freshManifest.value.vocab || []);
       }
       const {
         recordingPaths, referencePaths, assessmentPaths, inputTextPaths, sourceAudioPaths,
       } = referencedBlobPaths(referenceSessions);
+      const vocabAudioPaths = referencedVocabAudioPaths(referenceVocab);
       // cleanupOrphanBlobs() itself never touches UI (see its doc comment in
       // blob-paths.js) -- this callback is what actually shows the progress
       // it reports.
@@ -506,6 +611,7 @@ export async function syncWithAzure() {
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_ASSESSMENTS_PREFIX, assessmentPaths, reportCleanupProgress);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_INPUTTEXT_PREFIX, inputTextPaths, reportCleanupProgress);
       cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_SOURCEAUDIO_PREFIX, sourceAudioPaths, reportCleanupProgress);
+      cleanedCount += await cleanupOrphanBlobs(sasUrl, BLOB_VOCAB_AUDIO_PREFIX, vocabAudioPaths, reportCleanupProgress);
     } catch (err) {
       cleanupWarning = ` (orphan cleanup skipped: ${err.message})`;
       console.warn('Orphan file cleanup skipped:', err);
@@ -513,6 +619,25 @@ export async function syncWithAzure() {
 
     setBlobActionStatus('Saving merged data locally…', 'info');
     await store.upsertFolders(survivingFolders);
+
+    // Re-check each surviving vocab entry's local state right now, same
+    // reasoning as the session staleness check below -- if the entry was
+    // deleted locally (or otherwise changed) while this sync's network
+    // round-trip was in flight, this sync's already-computed finalVocab is
+    // stale for it; write it back and it silently resurrects a deletion the
+    // user just made. Skip it this round -- the tombstone recordVocabEntry()
+    // wrote is real and newer, so the next sync (already scheduled by that
+    // same deleteVocabEntry() call, same as a session edit) removes it
+    // properly via the normal tombstone path instead of this shortcut.
+    const staleVocabIds = await findVocabChangedSinceSnapshot(finalVocab, localVocabUpdatedAtAtStart, store.getVocabEntry);
+    if (staleVocabIds.size) {
+      console.warn(`Sync: ${staleVocabIds.size} vocab entr${staleVocabIds.size === 1 ? 'y' : 'ies'} changed locally while this sync was in flight -- skipping this round's write for them; the next sync will pick them up.`);
+    }
+    const vocabToWrite = staleVocabIds.size
+      ? finalVocab.filter((v) => !staleVocabIds.has(v.id))
+      : finalVocab;
+    await store.upsertVocab(vocabToWrite);
+    for (const id of casualtyVocabIds) await store.removeVocabRecord(id);
 
     // Re-check each surviving session's local `updatedAt` right now,
     // immediately before writing -- see localUpdatedAtAtStart's doc comment
@@ -558,9 +683,10 @@ export async function syncWithAzure() {
       }
     }
     uiHooks.refreshHistoryTreeIfOpen();
+    uiHooks.refreshVocabPanelIfOpen();
 
     setBlobActionStatus(
-      `Sync complete — ${finalSessions.length} session(s), ${recordingUploads.length + referenceUploads.length + assessmentUploads.length + inputTextUploads.length} uploaded, ${downloadCount} downloaded` +
+      `Sync complete — ${finalSessions.length} session(s), ${finalVocab.length} vocab entr${finalVocab.length === 1 ? 'y' : 'ies'}, ${recordingUploads.length + referenceUploads.length + assessmentUploads.length + inputTextUploads.length + sourceAudioUploads.length + vocabAudioUploads.length} uploaded, ${downloadCount} downloaded` +
       (casualtySessionIds.size || casualtyFolderIds.size
         ? `, ${casualtySessionIds.size} session(s)/${casualtyFolderIds.size} folder(s) deleted`
         : '') +

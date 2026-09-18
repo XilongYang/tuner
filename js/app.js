@@ -25,6 +25,7 @@ import {
 import {
   initHistoryPanel, openHistorySidebar, openSession, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen,
 } from './history-panel/index.js';
+import { initVocabPanel, refreshVocabPanelIfOpen } from './vocab-panel/index.js';
 import { initBlobPanel, setSyncUiHooks } from './sync/index.js';
 
 // ---- Credentials panel ----
@@ -101,7 +102,9 @@ async function init() {
   // sync/data module reaching up into the UI layer). Wired before
   // initBlobPanel() starts the load-time/return-to-tab auto-sync, so a sync can never fire
   // before this is in place.
-  setSyncUiHooks({ render, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen });
+  setSyncUiHooks({
+    render, applyIncomingSessionUpdate, refreshHistoryTreeIfOpen, refreshVocabPanelIfOpen,
+  });
   initBlobPanel();
 
   // One-time housekeeping: give any session left over from before ids were
@@ -128,6 +131,7 @@ async function init() {
   }
 
   initHistoryPanel();
+  initVocabPanel();
   if (loadHistoryOpen()) openHistorySidebar();
 
   // Global "hide text" switch: load from localStorage, write back on change and

@@ -1,0 +1,99 @@
+/* ---- Vocab library sidebar content (shell rules shared with History live in
+   css/history-panel/sidebar.css -- see its module comment) ---- */
+.vocab-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 24px;
+  border-top: 1px solid var(--border);
+}
+.vocab-empty {
+  color: var(--text-faint);
+  font-size: 14px;
+  font-style: italic;
+  margin: 16px 8px;
+}
+
+.vocab-entry {
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.vocab-entry:last-child { border-bottom: none; }
+
+.vocab-entry-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vocab-entry-text {
+  flex: 1;
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.vocab-entry-count {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.vocab-play-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+}
+.vocab-sources-toggle {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+.vocab-delete-btn {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  padding: 5px 9px;
+}
+
+.vocab-entry-sources {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.vocab-source-line {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: var(--surface-2);
+  border-radius: var(--radius);
+}
+.vocab-source-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vocab-source-snippet {
+  flex: 1;
+  font-size: 13.5px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.vocab-source-play-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+}
+.vocab-source-meta {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}

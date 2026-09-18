@@ -6,6 +6,7 @@ import {
   BLOB_ASSESSMENTS_PREFIX, blobAssessmentPath,
   BLOB_INPUTTEXT_PREFIX, blobInputTextPath,
   BLOB_SOURCEAUDIO_PREFIX, blobSourceAudioPath,
+  BLOB_VOCAB_AUDIO_PREFIX, blobVocabAudioPath, referencedVocabAudioPaths,
   referencedBlobPaths,
 } from '../js/sync/blob-paths.js';
 
@@ -19,6 +20,7 @@ test('blob path builders: each nests under its own prefix and matches the consta
   assert.equal(blobAssessmentPath('sess1', 'sent1'), `${BLOB_ASSESSMENTS_PREFIX}sess1/sent1.json`);
   assert.equal(blobInputTextPath('sess1'), `${BLOB_INPUTTEXT_PREFIX}sess1.txt`);
   assert.equal(blobSourceAudioPath('sess1'), `${BLOB_SOURCEAUDIO_PREFIX}sess1.audio`);
+  assert.equal(blobVocabAudioPath('key1', 'occ1'), `${BLOB_VOCAB_AUDIO_PREFIX}key1/occ1.audio`);
 });
 
 test('blob path builders: distinct sessions/sentences never collide', () => {
@@ -60,4 +62,30 @@ test('referencedBlobPaths: missing/empty sessions array yields all-empty path se
   assert.deepEqual(result, {
     recordingPaths: [], referencePaths: [], assessmentPaths: [], inputTextPaths: [], sourceAudioPaths: [],
   });
+});
+
+test('referencedVocabAudioPaths: pulls a path per audio-bearing source, skipping text-only occurrences', () => {
+  const vocab = [
+    {
+      audioPathKey: 'keyA',
+      sources: [
+        { occurrenceId: 'occ1', hasAudio: true },
+        { occurrenceId: 'occ2', hasAudio: false },
+      ],
+    },
+    {
+      audioPathKey: 'keyB',
+      sources: [{ occurrenceId: 'occ3', hasAudio: true }],
+    },
+  ];
+  const result = referencedVocabAudioPaths(vocab);
+  assert.deepEqual(result, [
+    blobVocabAudioPath('keyA', 'occ1'),
+    blobVocabAudioPath('keyB', 'occ3'),
+  ]);
+});
+
+test('referencedVocabAudioPaths: missing/empty vocab array yields an empty list, not a throw', () => {
+  assert.deepEqual(referencedVocabAudioPaths(undefined), []);
+  assert.deepEqual(referencedVocabAudioPaths([]), []);
 });

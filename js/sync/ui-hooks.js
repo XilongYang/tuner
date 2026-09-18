@@ -1,17 +1,18 @@
 // Shared UI-callback registry for the sync/data layer. Both azure-sync.js
 // (the incremental merge sync) and restore.js (the full "replace everything"
-// restore) need to trigger the same three post-sync repaints, but neither
-// may import sentence-panel/history-panel directly -- see azure-sync.js's
-// module comment for the F-01 coupling-audit finding this exists to avoid (a
-// sync/data module reaching up into the UI layer is a reverse dependency).
-// Kept in its own tiny file rather than defined in (and imported from)
-// whichever of the two happened to need it first, so neither sync module
-// depends on the other just to share this.
+// restore) need to trigger the same post-sync repaints, but neither may
+// import sentence-panel/history-panel/vocab-panel directly -- see
+// azure-sync.js's module comment for the F-01 coupling-audit finding this
+// exists to avoid (a sync/data module reaching up into the UI layer is a
+// reverse dependency). Kept in its own tiny file rather than defined in (and
+// imported from) whichever of the two happened to need it first, so neither
+// sync module depends on the other just to share this.
 
 export let uiHooks = {
   render: () => {},
   applyIncomingSessionUpdate: () => {},
   refreshHistoryTreeIfOpen: () => {},
+  refreshVocabPanelIfOpen: () => {},
 };
 
 /** Called once by app.js (the composition root) to give the sync layer its

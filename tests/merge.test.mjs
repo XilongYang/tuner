@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  pickNewer, mergeSentences, mergeSession, mergeFolder, mergeById, mergeTombstones, survivesTombstone,
+  pickNewer, mergeSentences, mergeSession, mergeFolder, mergeVocabEntry, mergeById, mergeTombstones, survivesTombstone,
 } from '../js/sync/merge.js';
 
 test('pickNewer: picks b when strictly newer, a on tie or when a is newer', () => {
@@ -115,6 +115,31 @@ test('mergeFolder: plain LWW on updatedAt, with either side possibly absent', ()
   assert.equal(mergeFolder(b, a).name, 'B');
   assert.deepEqual(mergeFolder(null, b), { ...b });
   assert.deepEqual(mergeFolder(a, null), { ...a });
+});
+
+test('mergeVocabEntry: unions sources[] by occurrenceId, deduping an occurrence already present on both sides', () => {
+  const local = {
+    id: 'hello', text: 'Hello', lang: 'en', audioPathKey: 'k1', createdAt: 5, updatedAt: 10,
+    sources: [{ occurrenceId: 'o1', addedAt: 5 }, { occurrenceId: 'o2', addedAt: 8 }],
+  };
+  const remote = {
+    id: 'hello', text: 'hello', lang: 'en', audioPathKey: 'k1', createdAt: 2, updatedAt: 20,
+    sources: [{ occurrenceId: 'o2', addedAt: 8 }, { occurrenceId: 'o3', addedAt: 15 }],
+  };
+  const merged = mergeVocabEntry(local, remote);
+  assert.deepEqual(merged.sources.map((s) => s.occurrenceId), ['o1', 'o2', 'o3']);
+  // remote's createdAt (2) is earlier, so its text/lang win for display --
+  // this never affects the id/dedup key, which is identical on both sides.
+  assert.equal(merged.text, 'hello');
+  assert.equal(merged.createdAt, 2);
+  assert.equal(merged.updatedAt, 20);
+  assert.equal(merged.id, 'hello');
+});
+
+test('mergeVocabEntry: one side absent just falls back to the other', () => {
+  const entry = { id: 'x', text: 'x', sources: [{ occurrenceId: 'o1' }] };
+  assert.deepEqual(mergeVocabEntry(null, entry), { ...entry });
+  assert.deepEqual(mergeVocabEntry(entry, null), { ...entry });
 });
 
 test('mergeById: unions two lists by id, merging shared ids and appending remote-only ones', () => {

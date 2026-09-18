@@ -19,6 +19,7 @@ import { downloadBlob } from '../sentence-panel/export-utils.js';
 import { openConfirmModal, paintHistoryTree } from './panel.js';
 import { expandedFolders, collectDescendantFolderIds, sessionDisplayName } from './tree.js';
 import { showMovePicker } from './move-picker.js';
+import { refreshVocabPanelIfOpen } from '../vocab-panel/index.js';
 
 // Bumped at the start of every renderHistoryTree() call; a call only paints
 // if its own token is still the latest one when its awaited store read comes
@@ -219,16 +220,24 @@ export async function importHistory(file) {
     // would lose the very next sync's last-write-wins merge against
     // whatever is currently on Azure, and get quietly overwritten right
     // back -- see freshenImportTimestamps()'s doc comment in store/backup.js.
-    const { folders, sessions, tombstones } = store.freshenImportTimestamps(parsed);
+    const {
+      folders, sessions, vocab, tombstones,
+    } = store.freshenImportTimestamps(parsed);
     setHistoryIoStatus('Writing to local storage…', 'info');
-    await store.restoreSnapshot({ folders, sessions, tombstones });
+    await store.restoreSnapshot({
+      folders, sessions, vocab, tombstones,
+    });
     setCurrentSessionId(null);
     // Whatever session was on screen may no longer exist under this id --
     // same reasoning as confirmDeleteSession()/Clear all above.
     startNewSession();
     await renderHistoryTree();
+    refreshVocabPanelIfOpen();
     scheduleAutoSync();
-    setHistoryIoStatus(`Imported ${sessions.length} session(s), ${folders.length} folder(s).`, 'info');
+    setHistoryIoStatus(
+      `Imported ${sessions.length} session(s), ${folders.length} folder(s), ${(vocab || []).length} vocab entr${(vocab || []).length === 1 ? 'y' : 'ies'}.`,
+      'info',
+    );
   } catch (err) {
     setHistoryIoStatus('Import failed: ' + err.message, 'error');
   } finally {
@@ -241,7 +250,7 @@ export async function clearAllHistory() {
   // gated by a 3s countdown so it can't be clicked through on reflex.
   const step1 = await openConfirmModal({
     title: 'Clear all history?',
-    message: 'This permanently deletes every saved session and folder on '
+    message: 'This permanently deletes every saved session, folder, and vocab entry on '
       + 'this device -- and, once the next sync runs, on Azure too. This cannot be undone.',
     confirmLabel: 'Continue',
     danger: true,
@@ -251,7 +260,7 @@ export async function clearAllHistory() {
 
   const step2 = await openConfirmModal({
     title: 'Are you absolutely sure?',
-    message: 'Last chance -- every saved session and folder will be gone for good.',
+    message: 'Last chance -- every saved session, folder, and vocab entry will be gone for good.',
     confirmLabel: 'Delete everything',
     danger: true,
     countdownSeconds: 3,
@@ -266,6 +275,7 @@ export async function clearAllHistory() {
     // confirmDeleteSession() above.
     startNewSession();
     await renderHistoryTree();
+    refreshVocabPanelIfOpen(); // store.clearAll() now wipes vocab too -- repaint it if it's open.
     scheduleAutoSync();
   } catch (err) {
     alert('Failed to clear history: ' + err.message);

@@ -1,5 +1,10 @@
-/* ---- History sidebar (folder tree of saved sessions) ---- */
-.history-sidebar {
+/* ---- History sidebar (folder tree of saved sessions) ----
+   Shared shell rules also apply to .vocab-sidebar (js/vocab-panel/, see
+   css/vocab-panel/panel.css) -- Aspen asked for the vocab library panel to be
+   "History-sized" and mutually exclusive with it, so both sidebars share
+   this exact position/size/slide-in shell; only their header/toolbar/list
+   content differs. */
+.history-sidebar, .vocab-sidebar {
   position: fixed;
   top: 0;
   right: 0;
@@ -16,19 +21,19 @@
   visibility: hidden;
   transition: transform 0.2s ease, visibility 0.2s ease;
 }
-.history-sidebar.is-open {
+.history-sidebar.is-open, .vocab-sidebar.is-open {
   transform: translateX(0);
   visibility: visible;
 }
 
-.history-sidebar-header {
+.history-sidebar-header, .vocab-sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 20px 20px 16px;
   flex-shrink: 0;
 }
-.history-sidebar-header .section-title { margin: 0; }
+.history-sidebar-header .section-title, .vocab-sidebar-header .section-title { margin: 0; }
 
 .icon-btn {
   border: none;

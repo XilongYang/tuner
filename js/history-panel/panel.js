@@ -19,6 +19,7 @@ import {
 } from './actions.js';
 import { closeCtxMenu } from './context-menu.js';
 import { saveHistoryOpen } from '../config.js';
+import { closeVocabSidebar } from '../vocab-panel/index.js';
 
 let historyPanelOpen = false;
 
@@ -32,10 +33,15 @@ export function openHistorySidebar() {
   els.historySidebar.classList.add('is-open');
   els.toggleHistoryPanel.setAttribute('aria-expanded', 'true');
   saveHistoryOpen(true);
+  // Mutually exclusive with the vocab library sidebar (vocab-panel/panel.js)
+  // -- same "History-sized panel" Aspen asked for, one open at a time.
+  closeVocabSidebar();
   renderHistoryTree();
 }
 
-function closeHistorySidebar() {
+/** Exported so vocab-panel/panel.js's openVocabSidebar() can enforce the same
+ *  mutual exclusion the other way -- see its module comment. */
+export function closeHistorySidebar() {
   historyPanelOpen = false;
   els.historySidebar.classList.remove('is-open');
   els.toggleHistoryPanel.setAttribute('aria-expanded', 'false');

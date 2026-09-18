@@ -226,3 +226,36 @@ export function* walkContent(def, record, parentRef = {}) {
 export function presentContent(def, record, parentRef = {}) {
   return [...walkContent(def, record, parentRef)].filter((c) => c.hash !== null);
 }
+
+/**
+ * A copy of `record` with every content slot's value replaced by `resolve`,
+ * children included. The mirror of walkContent, and the only way content is
+ * attached to a record -- so a caller filling in bytes it just downloaded does
+ * not have to know where in the tree they belong.
+ *
+ * `resolve` receives the same slot shape walkContent yields and returns the
+ * value to store. Hashes are untouched: what content a record has is settled
+ * before this runs, and returning a different value for a slot does not silently
+ * change what it claims to be.
+ *
+ * @param {(slot: {kind: string, ref: object, field: string, hash: string|null, value: any}) => any} resolve
+ */
+export function mapContent(def, record, resolve, parentRef = {}) {
+  const ref = def.ref(record, parentRef);
+  const out = { ...record };
+  for (const [field, d] of def.entries) {
+    if (d.role === 'content') {
+      out[field] = resolve({
+        kind: d.kind,
+        ref,
+        field,
+        hash: record[hashKey(field)] ?? null,
+        value: record[field] ?? null,
+        owner: record,
+      });
+    } else if (d.role === 'children') {
+      out[field] = (record[field] || []).map((child) => mapContent(d.def, child, resolve, ref));
+    }
+  }
+  return out;
+}

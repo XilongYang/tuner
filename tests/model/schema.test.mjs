@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  entity, f, hashKey, toNode, fromNode, walkContent, presentContent,
+  entity, f, hashKey, toNode, fromNode, walkContent, presentContent, mapContent,
   SESSION, SENTENCE, VOCAB_ENTRY, FOLDER,
 } from '../../js/model/schema.js';
 import { contentPath } from '../../js/model/content.js';
@@ -107,6 +107,57 @@ test('presentContent: keeps only slots that actually hold content', () => {
     sentences: [{ id: 'sent1', recordingHash: null, referenceHash: 'fh', assessmentHash: null }],
   };
   assert.deepEqual(presentContent(SESSION, session).map((s) => s.kind), ['inputText', 'reference']);
+});
+
+test('mapContent: fills every content slot in the tree, children included', () => {
+  const session = {
+    id: 'sess1', inputTextHash: 'ih', inputText: null, sourceAudioHash: null, sourceAudio: null,
+    sentences: [{ id: 'sent1', recordingHash: 'rh', recording: null, referenceHash: null, reference: null, assessmentHash: null, assessment: null }],
+  };
+  const filled = mapContent(SESSION, session, (slot) => (slot.hash ? `BYTES:${slot.kind}` : null));
+
+  assert.equal(filled.inputText, 'BYTES:inputText');
+  assert.equal(filled.sourceAudio, null);
+  assert.equal(filled.sentences[0].recording, 'BYTES:recording');
+  assert.equal(filled.sentences[0].reference, null);
+});
+
+test('mapContent: the slot carries the ref, so a caller can look content up by path', () => {
+  const seen = [];
+  mapContent(SESSION, {
+    id: 'sess1', inputTextHash: null, sourceAudioHash: null,
+    sentences: [{ id: 'sent1', recordingHash: 'rh' }],
+  }, (slot) => { seen.push([slot.kind, slot.ref.sessionId, slot.ref.sentenceId]); return null; });
+
+  assert.deepEqual(seen, [
+    ['inputText', 'sess1', undefined],
+    ['sourceAudio', 'sess1', undefined],
+    ['recording', 'sess1', 'sent1'],
+    ['reference', 'sess1', 'sent1'],
+    ['assessment', 'sess1', 'sent1'],
+  ]);
+});
+
+test('mapContent: leaves hashes and plain fields alone, and does not mutate its input', () => {
+  const before = { id: 'sess1', name: 'Keep', inputTextHash: 'ih', inputText: 'old', sourceAudioHash: null, sentences: [] };
+  const snapshot = JSON.stringify(before);
+  const after = mapContent(SESSION, before, () => 'NEW');
+
+  assert.equal(after.inputTextHash, 'ih');
+  assert.equal(after.name, 'Keep');
+  assert.equal(JSON.stringify(before), snapshot);
+});
+
+test('mapContent and walkContent visit exactly the same slots', () => {
+  const entry = {
+    id: 'w', text: 'w', audioPathKey: 'k',
+    sources: [{ occurrenceId: 'o1', audioHash: 'a1' }, { occurrenceId: 'o2', audioHash: null }],
+  };
+  const walked = [...walkContent(VOCAB_ENTRY, entry)].map((s) => `${s.kind}:${s.ref.occurrenceId}`);
+  const mapped = [];
+  mapContent(VOCAB_ENTRY, entry, (s) => { mapped.push(`${s.kind}:${s.ref.occurrenceId}`); return s.value; });
+
+  assert.deepEqual(mapped, walked);
 });
 
 test('hashKey: one naming rule for every content field', () => {

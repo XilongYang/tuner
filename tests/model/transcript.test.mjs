@@ -1,0 +1,166 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildWordTimeline, padBounds, resegment, PAD_MS } from '../../js/model/transcript.js';
+
+/** A phrase as the cloud boundary normalises it. */
+const phrase = (lang, words, over = {}) => ({
+  lang,
+  text: words.map((w) => w.text).join(lang === 'ja' ? '' : ' '),
+  words,
+  ...over,
+});
+const word = (text, offsetMs, durationMs) => ({ text, offsetMs, durationMs });
+
+test('buildWordTimeline: English words are spaced and their char ranges recorded', () => {
+  const { text, words } = buildWordTimeline([phrase('en', [word('one', 0, 100), word('two', 200, 100)])]);
+  assert.equal(text, 'one two');
+  assert.deepEqual(words.map((w) => [w.start, w.end]), [[0, 3], [4, 7]]);
+});
+
+test('buildWordTimeline: Japanese words run together, with no inserted spaces', () => {
+  const { text, words } = buildWordTimeline([phrase('ja', [word('今日', 0, 100), word('は', 100, 50)])]);
+  assert.equal(text, '今日は');
+  assert.deepEqual(words.map((w) => [w.start, w.end]), [[0, 2], [2, 3]]);
+});
+
+test('buildWordTimeline: a phrase break becomes a space even between Japanese phrases', () => {
+  const { text } = buildWordTimeline([
+    phrase('ja', [word('そうです', 0, 200)]),
+    phrase('ja', [word('はい', 500, 100)]),
+  ]);
+  assert.equal(text, 'そうです はい');
+});
+
+test('buildWordTimeline: the phrase-break space is what keeps a sentence boundary visible', () => {
+  // A period only terminates when whitespace follows. Without the inserted
+  // space, "weeks." glued onto "Then" would hide the boundary entirely and the
+  // two sentences would merge into one.
+  const { text } = buildWordTimeline([
+    phrase('en', [word('Two', 0, 100), word('weeks.', 200, 200)]),
+    phrase('en', [word('Then', 800, 100)]),
+  ]);
+  assert.equal(text, 'Two weeks. Then');
+  assert.deepEqual(resegment([
+    phrase('en', [word('Two', 0, 100), word('weeks.', 200, 200)]),
+    phrase('en', [word('Then', 800, 100)]),
+  ]).map((s) => s.text), ['Two weeks.', 'Then']);
+});
+
+test('buildWordTimeline: words with no text are skipped', () => {
+  const { text, words } = buildWordTimeline([phrase('en', [word('one', 0, 10), word('', 20, 10), word('two', 30, 10)])]);
+  assert.equal(text, 'one two');
+  assert.equal(words.length, 2);
+});
+
+test('buildWordTimeline: no phrases gives empty output rather than throwing', () => {
+  assert.deepEqual(buildWordTimeline([]), { text: '', words: [] });
+  assert.deepEqual(buildWordTimeline(null), { text: '', words: [] });
+});
+
+test('padBounds: with no neighbours the full margin is applied on both sides', () => {
+  assert.deepEqual(padBounds({ startMs: 1000, endMs: 2000 }), {
+    offsetMs: 1000 - PAD_MS,
+    durationMs: 1000 + PAD_MS * 2,
+  });
+});
+
+test('padBounds: the margin is capped at half the silence to each neighbour', () => {
+  // 100ms of silence on the left: at most 50ms may be used, so two sentences
+  // padding toward each other meet at the midpoint and never overlap.
+  const result = padBounds({ startMs: 1000, endMs: 2000, prevEndMs: 900, nextStartMs: 2060 });
+  assert.equal(result.offsetMs, 950);
+  assert.equal(result.offsetMs + result.durationMs, 2030);
+});
+
+test('padBounds: two adjacent sentences pad toward each other without overlapping', () => {
+  const gapStart = 1000;
+  const gapEnd = 1100;
+  const left = padBounds({ startMs: 0, endMs: gapStart, nextStartMs: gapEnd });
+  const right = padBounds({ startMs: gapEnd, endMs: 2000, prevEndMs: gapStart });
+  assert.ok(left.offsetMs + left.durationMs <= right.offsetMs, 'the clips do not overlap');
+  assert.equal(left.offsetMs + left.durationMs, right.offsetMs, 'and they meet exactly at the midpoint');
+});
+
+test('padBounds: never starts before the file, and never runs past its end', () => {
+  assert.equal(padBounds({ startMs: 10, endMs: 500 }).offsetMs, 0);
+  const capped = padBounds({ startMs: 100, endMs: 1000, totalDurationMs: 1050 });
+  assert.equal(capped.offsetMs + capped.durationMs, 1050);
+});
+
+test('padBounds: touching neighbours means no margin at all, not a negative one', () => {
+  const result = padBounds({ startMs: 1000, endMs: 2000, prevEndMs: 1000, nextStartMs: 2000 });
+  assert.deepEqual(result, { offsetMs: 1000, durationMs: 1000 });
+});
+
+test('resegment: splits by punctuation rather than by the service\'s phrase boundaries', () => {
+  // One phrase containing two sentences -- exactly the case pause-based
+  // segmentation gets wrong.
+  const segments = resegment([
+    phrase('en', [word('Hello', 0, 200), word('there.', 300, 300), word('How', 900, 200), word('are', 1200, 100), word('you?', 1400, 300)]),
+  ]);
+  assert.deepEqual(segments.map((s) => s.text), ['Hello there.', 'How are you?']);
+});
+
+test('resegment: each sentence\'s range comes from the words it contains', () => {
+  const [first, second] = resegment([
+    phrase('en', [word('One.', 1000, 200), word('Two.', 5000, 200)]),
+  ], 10_000);
+
+  assert.ok(first.offsetMs < 1000 && first.offsetMs >= 1000 - PAD_MS);
+  assert.ok(first.offsetMs + first.durationMs <= 5000, 'the first clip stops short of the second sentence');
+  assert.ok(second.offsetMs >= 1200, 'and the second starts after the first');
+});
+
+test('resegment: per-word positions are re-based onto the sentence\'s own text', () => {
+  const [, second] = resegment([
+    phrase('en', [word('One.', 0, 200), word('Two', 1000, 200), word('three.', 1300, 300)]),
+  ]);
+  assert.equal(second.text, 'Two three.');
+  assert.deepEqual(second.words.map((w) => [w.charStart, w.charEnd]), [[0, 3], [4, 10]]);
+  assert.deepEqual(second.words.map((w) => w.offsetMs), [1000, 1300]);
+});
+
+test('resegment: word positions never fall outside the sentence they belong to', () => {
+  const segments = resegment([phrase('ja', [word('今日は。', 0, 500), word('はい。', 1000, 300)])]);
+  for (const segment of segments) {
+    for (const w of segment.words) {
+      assert.ok(w.charStart >= 0 && w.charEnd <= segment.text.length, `${w.charStart}..${w.charEnd} within "${segment.text}"`);
+    }
+  }
+});
+
+test('resegment: a sentence of mostly Japanese words is labelled ja, otherwise en', () => {
+  const ja = resegment([phrase('ja', [word('今日は', 0, 300), word('いい', 400, 200), word('天気。', 700, 300)])]);
+  assert.deepEqual(ja.map((s) => s.lang), ['ja']);
+
+  const en = resegment([phrase('en', [word('Nice', 0, 200), word('weather.', 300, 300)])]);
+  assert.deepEqual(en.map((s) => s.lang), ['en']);
+});
+
+test('resegment: a repeated sentence maps to its own occurrence, not the first one', () => {
+  const segments = resegment([
+    phrase('en', [word('Yes.', 0, 200), word('No.', 1000, 200), word('Yes.', 2000, 200)]),
+  ]);
+  assert.deepEqual(segments.map((s) => s.text), ['Yes.', 'No.', 'Yes.']);
+  // Each sentence takes the range of the word at its own position. The two
+  // identical "Yes." sentences must therefore differ -- if the second had
+  // re-matched the first's position, both would carry the same range and the
+  // third clip would play the first word's audio.
+  assert.deepEqual(segments.map((s) => Math.round(s.offsetMs)), [0, 880, 1880]);
+  assert.notEqual(segments[0].offsetMs, segments[2].offsetMs);
+});
+
+test('resegment: no usable word timing yields nothing, for the caller to fall back', () => {
+  assert.deepEqual(resegment([{ lang: 'en', text: 'No words here.', words: [] }]), []);
+  assert.deepEqual(resegment([]), []);
+  assert.deepEqual(resegment([{ lang: 'en', text: '   ', words: [] }]), []);
+});
+
+test('resegment: multiple phrases are stitched into one timeline before splitting', () => {
+  const segments = resegment([
+    phrase('en', [word('First', 0, 200), word('one', 300, 200)]),
+    phrase('en', [word('and', 700, 100), word('second.', 900, 400)]),
+  ]);
+  assert.deepEqual(segments.map((s) => s.text), ['First one and second.']);
+  assert.equal(segments[0].words.length, 4);
+});

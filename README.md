@@ -20,16 +20,15 @@ Built and tested so far:
 
 | Layer | What is in place |
 | --- | --- |
-| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `merge.js` (conflict rules), `text.js` (segmentation, vocab keys) |
-| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize) |
+| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `merge.js` (conflict rules), `text.js` (segmentation, vocab keys), `transcript.js` (re-segmenting a transcription), `lang.js` |
+| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize), `audio.js` (resample, normalise, WAV encode, decode, cut clips), `recorder.js` (+ its worklet) |
 | `js/db/` | `open.js` (`transact()`), `entities.js` (CRUD, atomic delete+tombstone, `applyPlan`) |
-| `js/cloud/` | `blob.js` (`container(sasUrl)` over the Azure REST API), `sync/plan.js` (pure planner), `sync/run.js` (transfer, publish, orphan sweep), `sync/lock.js` (cross-device lock) |
+| `js/cloud/` | `blob.js` (`container(sasUrl)`), `speech.js` (`speechClient(credentials)`: synthesis, assessment, transcription), `sync/plan.js` (pure planner), `sync/run.js` (transfer, publish, orphan sweep), `sync/lock.js` (cross-device lock) |
 | `js/ui/` | `dom.js` (`el`, `button`, keyed `reconcile`, `readNumber`) |
 
-Not yet written: the Azure speech clients (synthesis, assessment,
-transcription), audio decode/slice/encode, the recorder, the live session store
-and commands, the panels, and `main.js`. The app does not run yet; what exists
-is the foundation it will be assembled from, and all of it is tested.
+Not yet written: the live session store and commands, the panels, local
+settings storage, playback, and `main.js`. The app does not run yet; what
+exists is the foundation it will be assembled from, and all of it is tested.
 
 ## Running the tests
 

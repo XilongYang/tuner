@@ -2,28 +2,40 @@
 
 .btn {
   appearance: none;
+  font-family: var(--font);
+  font-size: 14px;
+  padding: 6px 16px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius);
   background: var(--surface);
   color: var(--ink);
-  font: inherit;
-  font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-3);
   cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
 }
 
-.btn:hover:not(:disabled) { background: var(--surface-sunken); }
-.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn:hover:not(:disabled) {
+  background: var(--surface-sunken);
+  border-color: var(--ink-faint);
+}
+
+.btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 
 .btn:disabled {
   opacity: 0.45;
   cursor: default;
 }
 
+/* The one filled button on the page, for the single thing worth doing next.
+   Ink rather than the accent: red is kept for recording and failure. */
 .btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #000;
+  border-color: #000;
 }
 
 .btn.danger {
@@ -32,22 +44,49 @@
 }
 .btn.danger:hover:not(:disabled) { background: var(--danger-soft); }
 
+.btn.danger.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn.danger.primary:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Playing back: the same button stops it, so it reads as pressed. */
+.btn.is-playing,
+.btn.is-playing:hover:not(:disabled) {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--bg);
+}
+
 .btn[hidden] { display: none; }
 
 input[type="text"],
 input[type="password"],
 textarea {
-  font: inherit;
+  font-family: var(--font);
+  font-size: var(--text-base);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: var(--space-2);
+  border-radius: var(--radius);
+  padding: 9px 11px;
   width: 100%;
 }
 
-input:focus-visible,
-textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* Credentials and URLs are strings to be compared character by character, so
+   they are set in mono where they are typed as well as where they are shown. */
+input[type="password"],
+input[type="text"].is-key { font-family: var(--mono); font-size: 14px; }
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--ink-soft);
+}
 
 /* ---- Modal ---- */
 
@@ -57,28 +96,30 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; 
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: rgba(20, 18, 16, 0.45);
-  z-index: 100;
+  background: rgba(20, 24, 32, 0.32);
+  z-index: 110;
 }
 
 .modal-card {
-  width: min(460px, 100%);
-  padding: var(--space-4);
+  width: min(420px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius);
   background: var(--surface);
-  box-shadow: var(--shadow);
+  box-shadow: 0 16px 40px rgba(20, 30, 50, 0.22);
 }
 
 .modal-title {
-  margin: 0 0 var(--space-2);
+  margin: 0 0 12px;
   font-size: var(--text-base);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .modal-body {
-  margin: 0 0 var(--space-4);
+  margin: 0 0 16px;
   color: var(--ink-soft);
-  font-size: var(--text-sm);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .modal-label {
@@ -91,5 +132,6 @@ textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; 
 .modal-actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--space-2);
+  gap: 10px;
+  margin-top: 14px;
 }

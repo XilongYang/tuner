@@ -1,6 +1,14 @@
 /* Colours, spacing and type, defined once.
-   The palette is stated in full for the light theme and only re-stated where
-   dark differs, so a colour can never exist in one theme and not the other. */
+
+   The design is the one this app has always had, and is deliberately the same
+   as the main site's: LaTeX.css academic style -- serif body and headings, cool
+   near-white background, near-black text, underlined links, flat and
+   restrained. Red is an accent for key moments only (recording, errors, a bad
+   score), never decoration. Numbers -- sentence index, counts, scores -- are set
+   in mono, because they are data.
+
+   There is deliberately no dark theme: this is a light-paper palette, and a
+   dark inversion of it is a different design rather than a variant of it. */
 
 :root {
   --space-1: 4px;
@@ -10,64 +18,61 @@
   --space-5: 24px;
   --space-6: 32px;
 
-  --radius: 8px;
-  --radius-sm: 5px;
+  --radius: 4px;
+  --radius-sm: 4px;
 
-  /* Fixed rather than measured, so the sidebar can start exactly below the
-     header without JavaScript reading a layout back. The header is given this
-     as its minimum height, so the two cannot drift apart. */
-  --header-h: 52px;
+  /* The masthead's height. Fixed rather than measured, so the sidebar can start
+     exactly below it without JavaScript reading a layout back; the header is
+     given this as its minimum height, so the two cannot drift apart. The
+     sidebar starts below the header rather than covering it, because these
+     panels are closed by the same button that opened them. */
+  --header-h: 114px;
 
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  /* Serif stack: prefer Latin Modern (if it is installed locally), then generic
+     serifs and CJK Mincho/Song. */
+  --font: "Latin Modern Roman", Georgia, "Times New Roman",
+          "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP",
+          "Songti SC", "Noto Serif SC", STSong, "SimSun", serif;
+  --mono: "Latin Modern Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
   --text-sm: 13px;
-  --text-base: 15px;
+  --text-base: 16px;
   --text-lg: 18px;
 
-  --bg: #faf9f7;
+  --bg: hsl(210, 20%, 98%);
   --surface: #ffffff;
-  --surface-sunken: #f2f0ed;
-  --border: #e0ddd8;
-  --border-strong: #c9c5be;
+  --surface-sunken: hsl(210, 18%, 95.5%);
+  --border: hsl(210, 16%, 90%);
+  --border-strong: hsl(210, 14%, 80%);
 
-  --ink: #1f1d1a;
-  --ink-soft: #57534e;
-  --ink-faint: #8a857e;
+  --ink: hsl(210, 15%, 12%);
+  --ink-soft: hsl(210, 9%, 42%);
+  --ink-faint: hsl(210, 12%, 62%);
 
-  --accent: #2f6f5e;
+  /* The accent is red and is spent sparingly: a hovered link, a recording row,
+     a failure. Anything that is merely "the main button" is ink instead. */
+  --accent: #ee5555;
   --accent-ink: #ffffff;
-  --accent-soft: #e6f0ec;
+  --accent-soft: hsl(0, 78%, 95%);
 
-  --danger: #a33b32;
-  --danger-soft: #fbeceb;
+  --danger: hsl(0, 62%, 45%);
+  --danger-soft: hsl(0, 78%, 95%);
 
-  --busy: #7a6a2f;
-  --recording: #b4342a;
+  --recording: #ee5555;
+  --busy: hsl(38, 58%, 42%);
 
-  --shadow: 0 1px 2px rgba(31, 29, 26, 0.06), 0 4px 12px rgba(31, 29, 26, 0.06);
+  /* Score bands, for assessment results. */
+  --good: hsl(145, 32%, 38%);
+  --good-soft: hsl(145, 30%, 93%);
+
+  /* Focus is marked in ink rather than in the accent: a red ring on every
+     focused control would spend the one loud colour on the commonest event. */
+  --focus: var(--ink-soft);
+
+  --shadow: 0 8px 24px rgba(20, 30, 50, 0.14);
+  --shadow-panel: -14px 0 32px rgba(20, 30, 50, 0.16);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1a1918;
-    --surface: #232221;
-    --surface-sunken: #1f1e1d;
-    --border: #383634;
-    --border-strong: #4d4a47;
-
-    --ink: #eceae7;
-    --ink-soft: #b3aea8;
-    --ink-faint: #8a857e;
-
-    --accent: #6fb39c;
-    --accent-ink: #12211d;
-    --accent-soft: #23342e;
-
-    --danger: #e08078;
-    --danger-soft: #35211f;
-
-    --busy: #d3bd76;
-    --recording: #e0776c;
-
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
+@media (max-width: 560px) {
+  :root { --header-h: 86px; }
 }

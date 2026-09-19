@@ -4,28 +4,35 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  margin-bottom: var(--space-5);
+  margin-bottom: 34px;
 }
 
 .practice-input {
   min-height: 7em;
   resize: vertical;
-  line-height: 1.6;
+  font-size: var(--text-base);
+  line-height: 1.75;
+  padding: 16px 18px;
 }
 
+/* An imported session's text mirrors the transcript read-only: editing it here
+   would drift from the clips already cut to match it. */
 .practice-input.is-locked {
   background: var(--surface-sunken);
   color: var(--ink-soft);
+  cursor: not-allowed;
 }
 
 .practice-controls {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 12px;
+  margin-top: 4px;
 }
 
 .practice-count {
   margin-left: auto;
+  font-family: var(--mono);
   font-size: var(--text-sm);
   color: var(--ink-faint);
 }
@@ -34,7 +41,7 @@
 .sentence-status,
 .panel-status {
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: 14px;
   color: var(--ink-soft);
 }
 
@@ -42,23 +49,37 @@
 .sentence-status[hidden],
 .panel-status[hidden] { display: none; }
 
-[data-kind="error"] { color: var(--danger); }
-[data-kind="busy"] { color: var(--busy); }
+/* Scoped to these three rather than written as a bare [data-kind] selector: the
+   floating page status carries the same attribute and has its own surface, and
+   a bare selector would repaint it from here. */
+.practice-status[data-kind="busy"],
+.sentence-status[data-kind="busy"],
+.panel-status[data-kind="busy"] { color: var(--busy); }
+
+.practice-status[data-kind="error"],
+.sentence-status[data-kind="error"],
+.panel-status[data-kind="error"] {
+  color: var(--danger);
+  background: var(--danger-soft);
+  padding: 8px 12px;
+  border-radius: var(--radius);
+}
 
 .sentence-list {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: 14px;
 }
 
 .sentence-row {
-  padding: var(--space-3);
+  padding: 18px 20px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 14px;
+  transition: border-color 0.15s;
 }
 
 .sentence-row.is-recording {
@@ -67,15 +88,16 @@
 }
 
 .sentence-text {
-  line-height: 1.9;
+  line-height: 1.7;
   font-size: var(--text-lg);
   word-break: break-word;
+  cursor: text;
 }
 
+/* Text hidden for practising from memory: the characters stay as they are and
+   are simply not painted, so nothing about the underlying text is altered. */
 .sentence-text.is-hidden-text { color: var(--ink-faint); letter-spacing: 0.08em; }
 
-/* A cut marker sits between two characters, so it must take almost no width of
-   its own -- otherwise the sentence reads as if it had spaces in it. */
 /* The glyph comes from CSS, not the DOM: it is decoration, the button is named
    by aria-label, and keeping it out of the text means a sentence's textContent
    is the sentence. A plain vertical bar rather than a prettier cut mark (⁞,
@@ -84,26 +106,28 @@
    headless browser once already. */
 .split-marker::before { content: '|'; }
 
+/* A cut marker sits between two characters, so it must take almost no width of
+   its own -- otherwise the sentence reads as if it had spaces in it. */
 .split-marker {
   appearance: none;
   border: 0;
   background: none;
   padding: 0 1px;
   margin: 0 -1px;
-  color: var(--border-strong);
-  font-size: 0.75em;
+  color: var(--ink-faint);
+  font-size: 0.72em;
   line-height: 1;
   cursor: pointer;
   vertical-align: baseline;
 }
 
 .split-marker:hover { color: var(--accent); }
-.split-marker:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.split-marker:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* A position with real word timing can keep its audio when split; one derived
    from the text cannot. Worth showing, since it changes what the split costs. */
-.split-marker--word { color: var(--accent); opacity: 0.55; }
-.split-marker--manual { color: var(--accent); opacity: 0.8; }
+.split-marker--word { color: var(--ink-faint); opacity: 0.85; }
+.split-marker--manual { color: var(--busy); }
 
 /* Text-derived positions exist between every pair of characters, so they must
    cost the line no width: fading them is not enough, because a nearly invisible
@@ -127,21 +151,28 @@
 
 .split-marker--text::before { opacity: 0.18; }
 .sentence-row:hover .split-marker--text::before,
-.sentence-row:focus-within .split-marker--text::before { opacity: 0.6; }
+.sentence-row:focus-within .split-marker--text::before { opacity: 0.55; }
 .split-marker--text:hover::before,
 .split-marker--text:focus-visible::before { opacity: 1; }
 
 .sentence-controls {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-2);
+  gap: 8px;
+  align-items: center;
 }
 
+/* Scores are data, so they are set in mono and their digits line up. */
 .sentence-score {
   margin: 0;
+  font-family: var(--mono);
   font-size: var(--text-sm);
   color: var(--ink-soft);
   font-variant-numeric: tabular-nums;
 }
 
 .sentence-score[hidden] { display: none; }
+
+@media (max-width: 560px) {
+  .sentence-row { padding: 16px; }
+}

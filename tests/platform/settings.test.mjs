@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createSettings, DEFAULT_VOICES, SETTINGS_KEYS } from '../../js/platform/settings.js';
+import { createSettings, SETTINGS_KEYS } from '../../js/platform/settings.js';
+import { DEFAULT_VOICES } from '../../js/model/voices.js';
 
 /** A storage that behaves like the real one, and can be told to misbehave. */
 function fakeStorage({ failOn = null, seed = {} } = {}) {

@@ -15,6 +15,18 @@ export const LOCALES = {
 
 export const DEFAULT_LANG = 'ja';
 
+/**
+ * What to call each language in the interface.
+ *
+ * English names, because the interface is in English. The sentence rows show
+ * the native name instead ("日本語"), since there the label is the language
+ * speaking for itself rather than a setting being described.
+ */
+export const LANG_NAMES = {
+  ja: 'Japanese',
+  en: 'English',
+};
+
 /** Locale for a lang, for a request. Falls back to the default rather than throwing: a
  *  record with an unexpected lang should still be speakable. */
 export const localeOf = (lang) => LOCALES[lang] || LOCALES[DEFAULT_LANG];

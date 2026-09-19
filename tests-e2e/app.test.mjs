@@ -215,6 +215,27 @@ test('settings report what is missing, and remember what is entered', async () =
   await context.close();
 });
 
+test('voices are picked from a list, and the choice survives a reload', async () => {
+  const { page, context } = await openApp();
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  const japanese = page.locator('[aria-label="Japanese voice"]');
+  const english = page.locator('[aria-label="English voice"]');
+
+  assert.equal(await japanese.inputValue(), 'ja-JP-NaokiNeural', 'opens on the voice in use');
+  assert.equal(await english.inputValue(), 'en-GB-OllieMultilingualNeural');
+  assert.ok((await japanese.locator('option').count()) > 1, 'and offers the others');
+
+  await japanese.selectOption('ja-JP-ShioriNeural');
+
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.tuner));
+  await page.getByRole('button', { name: 'Settings' }).click();
+  assert.equal(await page.locator('[aria-label="Japanese voice"]').inputValue(), 'ja-JP-ShioriNeural');
+
+  await context.close();
+});
+
 test('speaking a sentence asks the speech service and keeps the clip', async () => {
   const { page, context, errors } = await openApp();
 

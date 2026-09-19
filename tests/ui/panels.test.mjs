@@ -10,6 +10,7 @@ const { createPanelRegistry } = await import('../../js/ui/panels/registry.js');
 const { createLibraryPanel } = await import('../../js/ui/panels/library/panel.js');
 const { createSettingsPanel } = await import('../../js/ui/panels/settings/panel.js');
 const { createSettings } = await import('../../js/platform/settings.js');
+const { DEFAULT_VOICES } = await import('../../js/model/voices.js');
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const clickLabelled = (root, label) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)?.click();
@@ -356,11 +357,30 @@ test('settings: clearing the sync lock warns what it is for and asks first', asy
 
 test('settings: a voice choice is saved as it is changed', () => {
   const h = settingsHarness();
-  const input = inputLabelled(h.container, 'Voice for ja-JP');
-  input.value = 'ja-JP-KeitaNeural';
-  input.dispatchEvent(new dom.window.Event('change'));
+  const select = inputLabelled(h.container, 'Japanese voice');
+  select.value = 'ja-JP-KeitaNeural';
+  select.dispatchEvent(new dom.window.Event('change'));
 
   assert.equal(h.settings.voice('ja-JP'), 'ja-JP-KeitaNeural');
+});
+
+test('settings: the voice picker opens on the voice actually in use', () => {
+  const h = settingsHarness();
+  assert.equal(inputLabelled(h.container, 'Japanese voice').value, DEFAULT_VOICES['ja-JP']);
+  assert.equal(inputLabelled(h.container, 'English voice').value, DEFAULT_VOICES['en-US']);
+});
+
+test('settings: a stored voice outside the offered list is still shown, not silently replaced', () => {
+  // Otherwise the picker would show the first option while the app went on
+  // speaking with the stored one -- and the next repaint of the panel would
+  // make that lie true by saving what is displayed.
+  const h = settingsHarness();
+  h.settings.saveVoice('ja-JP', 'ja-JP-SomeVoiceNotInTheListNeural');
+  h.panel.refresh();
+
+  const select = inputLabelled(h.container, 'Japanese voice');
+  assert.equal(select.value, 'ja-JP-SomeVoiceNotInTheListNeural');
+  assert.equal(select.selectedOptions[0].textContent, 'ja-JP-SomeVoiceNotInTheListNeural');
 });
 
 test('settings: storage that refuses writes is reported rather than failing silently', () => {

@@ -7,7 +7,8 @@
 
 import { el, button } from '../../dom.js';
 import { confirmModal } from '../../modal.js';
-import { LANGS, LOCALES } from '../../../model/lang.js';
+import { LANGS, LANG_NAMES, LOCALES } from '../../../model/lang.js';
+import { voiceOptions } from '../../../model/voices.js';
 
 export function createSettingsPanel({ container, actions, settings }) {
   const status = el('p', { class: 'panel-status', hidden: true });
@@ -52,17 +53,35 @@ export function createSettingsPanel({ container, actions, settings }) {
   });
 
   // ---- Voices ----
-  const voiceInputs = new Map();
+  //
+  // A picker rather than a text field: a voice is chosen from what the service
+  // offers, and a mistyped name fails only later, at the point of speaking,
+  // with a service error that says nothing about what was wrong.
+  const voicePickers = new Map();
   const voiceRows = LANGS.map((lang) => {
     const locale = LOCALES[lang];
-    const input = el('input', { class: 'settings-input', type: 'text', 'aria-label': `Voice for ${locale}` });
-    input.addEventListener('change', () => {
-      settings.saveVoice(locale, input.value.trim() || undefined);
-      say(`Voice for ${locale} saved.`);
+    const select = el('select', { class: 'settings-input', 'aria-label': `${LANG_NAMES[lang]} voice` });
+    select.addEventListener('change', () => {
+      settings.saveVoice(locale, select.value);
+      say(`${LANG_NAMES[lang]} voice: ${select.selectedOptions[0]?.textContent ?? select.value}.`);
     });
-    voiceInputs.set(locale, input);
-    return el('label', { class: 'settings-field' }, [el('span', { text: locale }), input]);
+    voicePickers.set(locale, select);
+    return el('label', { class: 'settings-field' }, [el('span', { text: `${LANG_NAMES[lang]} voice` }), select]);
   });
+
+  /** Fill a picker with the voices on offer, plus whatever is currently chosen. */
+  function fillVoices(locale, select) {
+    const chosen = settings.voice(locale);
+    const options = voiceOptions(locale, chosen);
+    // Rebuilt only when the set of options actually differs, so re-opening the
+    // panel does not discard a dropdown the user has open.
+    const same = options.length === select.options.length
+      && options.every((option, index) => select.options[index].value === option.id);
+    if (!same) {
+      select.replaceChildren(...options.map((option) => el('option', { value: option.id, text: option.label })));
+    }
+    select.value = chosen;
+  }
 
   // ---- Cloud sync ----
   const sasInput = el('input', { class: 'settings-input', type: 'password', placeholder: 'Container SAS URL', 'aria-label': 'Container SAS URL' });
@@ -135,7 +154,7 @@ export function createSettingsPanel({ container, actions, settings }) {
     resourceInput.value = credentials?.resourceName ?? '';
     clearCredentials.disabled = !credentials;
 
-    for (const [locale, input] of voiceInputs) input.value = settings.voice(locale);
+    for (const [locale, select] of voicePickers) fillVoices(locale, select);
 
     const sasUrl = settings.sasUrl();
     sasState.textContent = sasUrl ? 'A sync container is configured.' : 'No sync container. Everything stays on this device.';

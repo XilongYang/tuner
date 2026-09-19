@@ -10,7 +10,8 @@
 // to, and none of it is ever written into a session record, so an exported
 // backup or a synced manifest can never carry a key.
 
-import { LANGS, LOCALES } from '../model/lang.js';
+import { DEFAULT_LANG, LOCALES } from '../model/lang.js';
+import { DEFAULT_VOICES } from '../model/voices.js';
 
 const KEYS = {
   credentials: 'tuner.credentials',
@@ -19,11 +20,6 @@ const KEYS = {
   deviceId: 'tuner.deviceId',
   lastSessionId: 'tuner.lastSessionId',
   historyOpen: 'tuner.historyOpen',
-};
-
-export const DEFAULT_VOICES = {
-  'ja-JP': 'ja-JP-NanamiNeural',
-  'en-US': 'en-US-JennyNeural',
 };
 
 const memoryFallback = () => {
@@ -124,7 +120,7 @@ export function createSettings(storage = defaultStorage()) {
     /** The chosen voice for a locale, falling back to a sensible default. */
     voice(locale) {
       const stored = readJson(KEYS.voices) || {};
-      return stored[locale] || DEFAULT_VOICES[locale] || DEFAULT_VOICES[LOCALES[LANGS[0]]];
+      return stored[locale] || DEFAULT_VOICES[locale] || DEFAULT_VOICES[LOCALES[DEFAULT_LANG]];
     },
     saveVoice(locale, voice) {
       const stored = readJson(KEYS.voices) || {};

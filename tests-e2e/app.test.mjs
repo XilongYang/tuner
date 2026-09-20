@@ -179,12 +179,13 @@ test('hiding a sentence masks it and withdraws its cut markers', async () => {
   await page.waitForSelector('.sentence-row');
   assert.ok(await page.locator('.split-marker').count() > 0);
 
+  const markers = await page.locator('.split-marker').count();
   await page.getByRole('button', { name: 'Hide', exact: true }).click();
 
-  assert.equal(await page.locator('.split-marker').count(), 0);
-  assert.equal(await page.locator('.sentence-mask').count(), 1);
+  assert.equal(await page.locator('.sentence-text.is-hidden-text').count(), 1);
+  assert.equal(await page.locator('.split-marker').count(), markers, 'still splittable while practising from memory');
   await page.getByRole('button', { name: 'Show', exact: true }).click();
-  assert.ok(await page.locator('.split-marker').count() > 0);
+  assert.equal(await page.locator('.sentence-text.is-hidden-text').count(), 0);
 
   await context.close();
 });
@@ -197,20 +198,20 @@ test('the header switch hides every sentence, and holds across a reload and a ne
   await page.waitForSelector('.sentence-row');
 
   await page.locator('#hide-all').check();
-  await page.waitForFunction(() => document.querySelectorAll('.sentence-mask').length === 2);
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-text.is-hidden-text').length === 2);
 
   await page.evaluate(() => window.tuner.autosave.flush());
   await page.reload();
   await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
   assert.equal(await page.locator('#hide-all').isChecked(), true, 'the switch reads the session it came back to');
-  assert.equal(await page.locator('.sentence-mask').count(), 2);
+  assert.equal(await page.locator('.sentence-text.is-hidden-text').count(), 2);
 
   // Splitting more text while practising from memory must not put it back.
   await page.getByRole('button', { name: 'New session' }).click();
   await page.fill('.practice-input', 'Three. Four.');
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
-  assert.equal(await page.locator('.sentence-mask').count(), 2);
+  assert.equal(await page.locator('.sentence-text.is-hidden-text').count(), 2);
 
   await context.close();
 });
@@ -315,12 +316,14 @@ test('settings report what is missing, and remember what is entered', async () =
   await page.locator('.settings-section').first().getByRole('button', { name: 'Save' }).click();
 
   assert.match(await page.locator('.settings-state').first().textContent(), /Configured for japaneast/);
-  assert.equal(await page.inputValue('[aria-label="Azure subscription key"]'), '', 'the key is not echoed back');
+  assert.equal(await page.locator('.settings-form').isVisible(), false, 'the form gives way to Clear');
+  assert.equal(await page.getByRole('button', { name: 'Clear', exact: true }).isVisible(), true);
 
   await page.reload();
   await page.waitForFunction(() => Boolean(window.tuner));
   await page.getByRole('button', { name: 'Settings' }).click();
   assert.match(await page.locator('.settings-state').first().textContent(), /Configured for japaneast/);
+  assert.equal(await page.locator('.settings-form').isVisible(), false);
 
   await context.close();
 });

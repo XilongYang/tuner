@@ -9,7 +9,7 @@ global.window = dom.window;
 global.document = dom.window.document;
 
 const { createPracticePanel } = await import('../../js/ui/panels/practice/panel.js');
-const { renderSentenceText, markersOf } = await import('../../js/ui/panels/practice/sentence-text.js');
+const { renderSentenceText, markersOf, setSpeaking } = await import('../../js/ui/panels/practice/sentence-text.js');
 const { createSessionStore } = await import('../../js/app/store.js');
 const { blankSentence, updateSentence } = await import('../../js/model/session.js');
 
@@ -37,6 +37,8 @@ function fakeRecorder() {
 function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverrides = {}) {
   const dispatched = [];
   const recorders = [];
+  const timeListeners = [];
+  const playbackListeners = [];
   const store = createSessionStore(initial);
   const container = document.createElement('div');
   document.body.replaceChildren(container);
@@ -61,11 +63,26 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
     container,
     store,
     actions,
-    player: { play: async (...args) => dispatched.push(['play', args[1]]), stop: () => {} },
+    player: {
+      play: async (...args) => dispatched.push(['play', args[1]]),
+      stop: () => {},
+      subscribe: (listener) => { playbackListeners.push(listener); return () => {}; },
+      onTime: (listener) => { timeListeners.push(listener); return () => { timeListeners.splice(timeListeners.indexOf(listener), 1); }; },
+    },
     createRecorder: () => { const r = fakeRecorder(); recorders.push(r); return r; },
   });
 
-  return { store, container, dispatched, panel, recorders };
+  return {
+    store,
+    container,
+    dispatched,
+    panel,
+    recorders,
+    /** Pretend a reference clip is playing, `elapsedMs` into it. */
+    tickPlayback: (token, elapsedMs) => { for (const listener of [...timeListeners]) listener(token, elapsedMs); },
+    playbackChanged: (token) => { for (const listener of [...playbackListeners]) listener(token); },
+    timeListeners,
+  };
 }
 
 const rowsOf = (container) => [...container.querySelectorAll('.sentence-row')];
@@ -240,15 +257,15 @@ test('a sync repaint mid-recording does not interrupt it', () => {
   assert.equal(h.recorders.filter((r) => r.disposed).length, 0, 'and no recorder was disposed');
 });
 
-test('hiding a sentence masks the text and withdraws its cut markers', () => {
+test('hiding a sentence masks the text but keeps its cut markers', () => {
   const h = harness();
   assert.ok(h.container.querySelector('.split-marker'), 'markers before');
 
   buttonIn(rowsOf(h.container)[0], 'Hide').click();
 
   const row = rowsOf(h.container)[0];
-  assert.equal(row.querySelector('.split-marker'), null, 'nothing to aim at when the text is masked');
-  assert.ok(row.querySelector('.sentence-mask'));
+  assert.ok(row.querySelector('.sentence-text').classList.contains('is-hidden-text'));
+  assert.ok(row.querySelector('.split-marker'), 'the cut markers stay: splitting from memory is a real thing to do');
   assert.equal(buttonIn(row, 'Show').getAttribute('aria-pressed'), 'true');
 });
 
@@ -345,14 +362,41 @@ test('renderSentenceText: a real word boundary carries its timestamp, including 
 
 test('renderSentenceText: the text reads back exactly, markers aside', () => {
   const element = renderSentenceText(sentence('s1', 'Alpha beta'), { onSplit: () => {} });
-  const chunks = [...element.querySelectorAll('.sentence-chunk')].map((c) => c.textContent).join('');
-  assert.equal(chunks, 'Alpha beta');
+  assert.equal(element.textContent, 'Alpha beta', 'markers contribute no text of their own');
 });
 
-test('renderSentenceText: a masked sentence shows its length and nothing else', () => {
-  const element = renderSentenceText(sentence('s1', 'Alpha', { hidden: true }), { onSplit: () => {} });
-  assert.equal(element.querySelector('.sentence-mask').textContent.length, 5);
-  assert.deepEqual(markersOf(element), []);
+test('renderSentenceText: every character carries its own position', () => {
+  const element = renderSentenceText(sentence('s1', 'Alpha beta'), { onSplit: () => {} });
+  assert.deepEqual(
+    [...element.querySelectorAll('.sentence-char')].map((c) => Number(c.dataset.charIndex)),
+    [0, 1, 2, 3, 4, 6, 7, 8, 9],
+    'the space is not a character to cut at or light up',
+  );
+});
+
+test('renderSentenceText: a masked sentence keeps its characters, its positions and its markers', () => {
+  // Masking is painted over the text by CSS. Dropping the characters would
+  // take the cut markers with them -- and splitting a sentence while
+  // practising it from memory is exactly when it is wanted.
+  const element = renderSentenceText(sentence('s1', 'Alpha beta', { hidden: true }), { onSplit: () => {} });
+
+  assert.ok(element.classList.contains('is-hidden-text'));
+  assert.equal(element.querySelectorAll('.sentence-char').length, 9);
+  assert.deepEqual(markersOf(element), [{ charIndex: 6, ms: null }]);
+});
+
+test('setSpeaking: lights the word being read and nothing else, and clears on null', () => {
+  const element = renderSentenceText(sentence('s1', 'Alpha beta'), { onSplit: () => {} });
+  const lit = () => [...element.querySelectorAll('.is-speaking')].map((c) => c.textContent).join('');
+
+  setSpeaking(element, { charStart: 6, charEnd: 10 });
+  assert.equal(lit(), 'beta');
+
+  setSpeaking(element, { charStart: 0, charEnd: 5 });
+  assert.equal(lit(), 'Alpha', 'the previous word is put out');
+
+  setSpeaking(element, null);
+  assert.equal(lit(), '');
 });
 
 // ---- Selecting and merging ----
@@ -481,4 +525,64 @@ test('Clear drops the selection without merging anything', () => {
 
   assert.equal(h.container.querySelector('.merge-bar').hidden, true);
   assert.deepEqual(h.dispatched, []);
+});
+
+// ---- Following a reading along the text ----
+
+const wordy = (over = {}) => session([sentence('s1', 'Alpha beta', {
+  words: [word(0, 5, 1000, 400), word(6, 10, 1500, 400)],
+  referenceSource: 'import',
+  sourceOffsetMs: 1000,
+  ...over,
+})]);
+
+const litIn = (container) => [...container.querySelectorAll('.sentence-char.is-speaking')].map((c) => c.textContent).join('');
+
+test('the word being read is lit, and put out when the reading moves on', () => {
+  const h = harness(wordy());
+
+  // The clip starts at 1000ms into the source, so 0ms in is that word.
+  h.tickPlayback('s1', 0);
+  assert.equal(litIn(h.container), 'Alpha');
+
+  h.tickPlayback('s1', 500);
+  assert.equal(litIn(h.container), 'beta', 'the clip is 500ms in, which is 1500ms in the source');
+
+  h.tickPlayback('s1', 450);
+  assert.equal(litIn(h.container), '', 'the pause between them lights nothing');
+});
+
+test('a masked sentence is followed too -- the characters are there, just not shown', () => {
+  const h = harness(wordy({ hidden: true }));
+  h.tickPlayback('s1', 0);
+  assert.equal(litIn(h.container), 'Alpha');
+});
+
+test('another sentence playing does not light this one', () => {
+  const h = harness(wordy());
+  h.tickPlayback('s2', 0);
+  assert.equal(litIn(h.container), '');
+});
+
+test('playback stopping puts the text out', () => {
+  const h = harness(wordy());
+  h.tickPlayback('s1', 0);
+  assert.equal(litIn(h.container), 'Alpha');
+
+  h.playbackChanged(null);
+  assert.equal(litIn(h.container), '');
+});
+
+test('a sentence with no word timings is simply not followed', () => {
+  const h = harness(session([sentence('s1', 'Alpha beta')]));
+  h.tickPlayback('s1', 1200);
+  assert.equal(litIn(h.container), '');
+});
+
+test('a row that leaves the list stops listening for playback', () => {
+  const h = harness(wordy());
+  assert.equal(h.timeListeners.length, 1);
+
+  h.store.replace(session([sentence('s9', 'Something else')]));
+  assert.equal(h.timeListeners.length, 1, 'the departed row unsubscribed, the new one subscribed');
 });

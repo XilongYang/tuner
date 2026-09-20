@@ -13,7 +13,8 @@
 // to report.
 
 import { el, button } from '../../dom.js';
-import { renderSentenceText } from './sentence-text.js';
+import { wordAt } from '../../../model/transcript.js';
+import { renderSentenceText, setSpeaking } from './sentence-text.js';
 
 /** What to say for an outcome a command reports by name rather than by message. */
 const REASONS = {
@@ -167,6 +168,27 @@ export function createRow({
   const body = el('div', { class: 'row-body' }, [textHost, controls, scoreLine, status]);
   row.append(head, body);
 
+  // Follow the reference reading along the text, a word at a time.
+  //
+  // Only the reference clip: it is the one whose words are timed. A recording
+  // of your own has no timings, and the browser's own voice reports none, so
+  // both simply leave the text alone rather than lighting something arbitrary.
+  //
+  // The clip starts where the sentence starts in the source file, so playback
+  // time has to be put back on the source's timeline before the words make
+  // sense -- an imported sentence's words are stamped on that timeline, not on
+  // its own clip's.
+  const stopFollowing = player.onTime?.((playingToken, elapsedMs) => {
+    if (playingToken !== sentenceId) return;
+    const base = sentence.referenceSource === 'import' ? (sentence.sourceOffsetMs ?? 0) : 0;
+    setSpeaking(textHost, wordAt(sentence.words, base + elapsedMs));
+  });
+
+  const stopWatchingPlayback = player.subscribe?.((playingToken) => {
+    if (playingToken !== sentenceId) setSpeaking(textHost, null);
+    refreshControls();
+  });
+
   function refreshControls() {
     const recorder = recorderFor(sentenceId);
     const recording = recorder.isRecording;
@@ -243,5 +265,14 @@ export function createRow({
   renderScore();
   refreshControls();
 
-  return { element: row, update, say };
+  return {
+    element: row,
+    update,
+    say,
+    /** Called when this row leaves the list, so nothing keeps calling into it. */
+    dispose() {
+      stopFollowing?.();
+      stopWatchingPlayback?.();
+    },
+  };
 }

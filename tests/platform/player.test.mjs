@@ -163,3 +163,50 @@ test('a null token plays without claiming to be any particular source', async ()
   assert.equal(player.current(), null);
   assert.equal(player.isPlaying(null), false, 'null never counts as "this one is playing"');
 });
+
+test('onTime: reports how far into the clip playback is, with its token', async () => {
+  const env = fakeAudioEnvironment();
+  const player = createPlayer(env.deps);
+  const ticks = [];
+  player.onTime((token, elapsedMs) => ticks.push([token, elapsedMs]));
+
+  await player.play(new Blob(['a']), 's1');
+  const element = env.last();
+  element.currentTime = 0.25;
+  element.ontimeupdate();
+  element.currentTime = 1.5;
+  element.ontimeupdate();
+
+  assert.deepEqual(ticks, [['s1', 250], ['s1', 1500]]);
+});
+
+test('onTime: unsubscribing stops the reports, so a row that is gone is not called', async () => {
+  const env = fakeAudioEnvironment();
+  const player = createPlayer(env.deps);
+  const ticks = [];
+  const stop = player.onTime((...args) => ticks.push(args));
+
+  await player.play(new Blob(['a']), 's1');
+  stop();
+  env.last().currentTime = 1;
+  env.last().ontimeupdate();
+
+  assert.deepEqual(ticks, []);
+});
+
+test('onTime: a time listener is not told about starts and stops, and buttons are not told about time', async () => {
+  const env = fakeAudioEnvironment();
+  const player = createPlayer(env.deps);
+  const states = [];
+  const ticks = [];
+  player.subscribe((token) => states.push(token));
+  player.onTime(() => ticks.push('tick'));
+
+  await player.play(new Blob(['a']), 's1');
+  env.last().currentTime = 0.1;
+  env.last().ontimeupdate();
+  player.stop();
+
+  assert.deepEqual(states, ['s1', null], 'one start, one stop -- no repaint per tick');
+  assert.deepEqual(ticks, ['tick']);
+});

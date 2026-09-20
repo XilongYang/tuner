@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWordTimeline, padBounds, resegment, PAD_MS } from '../../js/model/transcript.js';
+import { buildWordTimeline, padBounds, resegment, PAD_MS , wordAt} from '../../js/model/transcript.js';
 
 /** A phrase as the cloud boundary normalises it. */
 const phrase = (lang, words, over = {}) => ({
@@ -163,4 +163,30 @@ test('resegment: multiple phrases are stitched into one timeline before splittin
   ]);
   assert.deepEqual(segments.map((s) => s.text), ['First one and second.']);
   assert.equal(segments[0].words.length, 4);
+});
+
+test('wordAt: finds the word being spoken, and nothing between words', () => {
+  const words = [
+    { charStart: 0, charEnd: 3, offsetMs: 100, durationMs: 200 },
+    { charStart: 4, charEnd: 9, offsetMs: 500, durationMs: 300 },
+  ];
+
+  assert.equal(wordAt(words, 100).charStart, 0, 'the first instant of a word counts');
+  assert.equal(wordAt(words, 299).charStart, 0);
+  assert.equal(wordAt(words, 300), null, 'its last instant belongs to the gap, not to it');
+  assert.equal(wordAt(words, 400), null, 'a pause lights nothing');
+  assert.equal(wordAt(words, 700).charStart, 4);
+  assert.equal(wordAt(words, 900), null, 'past the end');
+  assert.equal(wordAt(words, 0), null, 'before the first');
+});
+
+test('wordAt: a word at 0ms is found -- 0 is a real timestamp', () => {
+  assert.equal(wordAt([{ charStart: 0, charEnd: 2, offsetMs: 0, durationMs: 50 }], 0).charEnd, 2);
+});
+
+test('wordAt: nothing to follow gives null rather than throwing', () => {
+  assert.equal(wordAt(null, 10), null);
+  assert.equal(wordAt([], 10), null);
+  assert.equal(wordAt([{ charStart: 0, charEnd: 1, offsetMs: null, durationMs: null }], 10), null);
+  assert.equal(wordAt([{ charStart: 0, charEnd: 1, offsetMs: 0, durationMs: 10 }], null), null);
 });

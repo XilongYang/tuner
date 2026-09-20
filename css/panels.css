@@ -134,6 +134,10 @@
   color: var(--ink-soft);
 }
 
+.settings-form[hidden] { display: none; }
+
+.settings-actions .btn[hidden] { display: none; }
+
 .settings-field {
   display: block;
   margin-bottom: 12px;

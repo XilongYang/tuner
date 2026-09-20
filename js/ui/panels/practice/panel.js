@@ -197,7 +197,11 @@ export function createPracticePanel({ container, store, actions, player, createR
       update: (_element, sentence, index) => rows.get(sentence.id)?.update(sentence, index),
     });
 
-    for (const id of [...rows.keys()]) if (!liveIds.has(id)) rows.delete(id);
+    for (const id of [...rows.keys()]) {
+      if (liveIds.has(id)) continue;
+      rows.get(id)?.dispose?.();
+      rows.delete(id);
+    }
     pruneRecorders(liveIds);
 
     mergeBar.hidden = selection.size === 0;
@@ -221,11 +225,17 @@ export function createPracticePanel({ container, store, actions, player, createR
     release() {
       for (const recorder of recorders.values()) recorder.dispose();
       recorders.clear();
+      // Rows are deliberately left alone: release() runs when the session on
+      // screen is replaced, and reopening the same session keeps the same
+      // sentence ids -- those rows stay on screen and must stay working.
+      // A row is disposed when it actually leaves the list, above.
     },
     say,
     destroy() {
       unsubscribe();
       this.release();
+      for (const row of rows.values()) row.dispose?.();
+      rows.clear();
     },
   };
 }

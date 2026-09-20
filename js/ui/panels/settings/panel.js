@@ -127,15 +127,24 @@ export function createSettingsPanel({ container, actions, settings }) {
     },
   });
 
+  // The fields and the Save button go away once credentials are stored: there
+  // is nothing to do with a stored key except replace it, and a form left
+  // standing with the key blanked out reads as though it had been lost. Clear
+  // brings them back.
+  const credentialForm = el('div', { class: 'settings-form' }, [
+    field('Key', keyInput),
+    field('Region', regionInput),
+    field('Resource name', resourceInput),
+    el('div', { class: 'settings-actions' }, [saveCredentials]),
+  ]);
+
   container.append(
     el('h2', { class: 'panel-title', text: 'Settings' }),
     status,
     section('Speech service', [
       credentialState,
-      field('Key', keyInput),
-      field('Region', regionInput),
-      field('Resource name', resourceInput),
-      el('div', { class: 'settings-actions' }, [saveCredentials, clearCredentials]),
+      credentialForm,
+      el('div', { class: 'settings-actions' }, [clearCredentials]),
     ]),
     section('Voices', voiceRows),
     section('Cloud sync', [
@@ -152,7 +161,8 @@ export function createSettingsPanel({ container, actions, settings }) {
       : 'Not configured. Speaking, scoring and audio import need a key and region.';
     regionInput.value = credentials?.region ?? '';
     resourceInput.value = credentials?.resourceName ?? '';
-    clearCredentials.disabled = !credentials;
+    credentialForm.hidden = Boolean(credentials);
+    clearCredentials.hidden = !credentials;
 
     for (const [locale, select] of voicePickers) fillVoices(locale, select);
 

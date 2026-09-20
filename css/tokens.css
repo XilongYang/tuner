@@ -59,6 +59,9 @@
   --danger-soft: hsl(0, 78%, 95%);
 
   --recording: #ee5555;
+  /* The word being read, as a reference clip plays. The deeper red rather than
+     the accent: it sits on text that has to stay readable while it is lit. */
+  --speaking: hsl(0, 62%, 45%);
   --busy: hsl(38, 58%, 42%);
 
   /* Score bands, for assessment results. */

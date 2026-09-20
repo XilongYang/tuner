@@ -29,9 +29,17 @@ export function createPlayer(deps = {}) {
   let url = null;
   let token = null;
   const listeners = new Set();
+  const timeListeners = new Set();
 
   const announce = () => {
     for (const listener of [...listeners]) listener(token);
+  };
+
+  // Kept apart from `announce`: buttons care when playback starts and stops,
+  // following a reading along the text cares four times a second, and mixing
+  // the two would repaint every button on every tick.
+  const announceTime = (elapsedMs) => {
+    for (const listener of [...timeListeners]) listener(token, elapsedMs);
   };
 
   function release() {
@@ -59,6 +67,15 @@ export function createPlayer(deps = {}) {
     },
 
     /**
+     * Called as playback advances, with the token and how far in it is, in ms.
+     * Returns an unsubscribe function, which a row that goes away must call.
+     */
+    onTime(listener) {
+      timeListeners.add(listener);
+      return () => timeListeners.delete(listener);
+    },
+
+    /**
      * Play `blob`, replacing anything already playing.
      *
      * `token` identifies the source for `isPlaying` -- typically the element or
@@ -83,6 +100,10 @@ export function createPlayer(deps = {}) {
       // decode would leave its URL -- and its Blob -- held forever.
       audio.onended = () => { release(); token = null; announce(); };
       audio.onerror = () => { release(); token = null; announce(); };
+      // The browser's own progress events: roughly four a second, which is what
+      // the old implementation followed a reading with and is accurate enough
+      // for it. Nothing here polls.
+      audio.ontimeupdate = () => announceTime((audio?.currentTime ?? 0) * 1000);
 
       announce();
       try {

@@ -183,3 +183,27 @@ function wordIndicesIn(words, start, end) {
   }
   return indices;
 }
+
+/**
+ * The word being spoken at `ms`, on the same timeline the words carry.
+ *
+ * Used to follow a reading along the text. Returns null between words and
+ * outside the sentence entirely -- silence is a real answer here, and a caller
+ * that highlighted the nearest word instead would leave one lit through every
+ * pause.
+ *
+ * The search is linear because a sentence has a handful of words; nothing here
+ * justifies a binary search that could be wrong at the boundaries.
+ *
+ * @param {{charStart: number, charEnd: number, offsetMs: number, durationMs: number}[]} words
+ * @param {number} ms
+ */
+export function wordAt(words, ms) {
+  if (!words?.length || ms == null) return null;
+  return words.find((word) => (
+    word.offsetMs != null
+    && word.durationMs != null
+    && ms >= word.offsetMs
+    && ms < word.offsetMs + word.durationMs
+  )) || null;
+}

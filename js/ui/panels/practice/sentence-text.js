@@ -15,9 +15,6 @@
 import { splitPointers, chars } from '../../../model/geometry.js';
 import { el, button, readNumber, writeNumber } from '../../dom.js';
 
-/** What a masked sentence shows instead of its text. */
-const MASK_CHAR = '•';
-
 /**
  * @param {object} sentence
  * @param {object} handlers
@@ -27,31 +24,53 @@ const MASK_CHAR = '•';
 export function renderSentenceText(sentence, { onSplit }) {
   const wrap = el('div', { class: 'sentence-text' });
 
-  if (sentence.hidden) {
-    // Masked for practice: the point is to read from the audio, so neither the
-    // text nor its cut positions are shown. Length is preserved, since how long
-    // the sentence is is part of what is being practised.
-    wrap.classList.add('is-hidden-text');
-    wrap.append(el('span', { class: 'sentence-mask', text: MASK_CHAR.repeat(chars(sentence.text).length) }));
-    return wrap;
-  }
+  // Masked for practice: the characters are still here, still in their places,
+  // and still carrying their positions -- the mask is painted over them by CSS
+  // and the text itself is never altered. That is what lets the cut markers
+  // stay (a sentence is often split precisely while practising it from memory)
+  // and what lets a reading be followed along a sentence that is not showing.
+  if (sentence.hidden) wrap.classList.add('is-hidden-text');
 
   const cs = chars(sentence.text);
   const pointers = splitPointers(sentence);
-  let cursor = 0;
-
+  const pointersAt = new Map();
   for (const pointer of pointers) {
-    if (pointer.charIndex > cursor) {
-      wrap.append(el('span', { class: 'sentence-chunk', text: cs.slice(cursor, pointer.charIndex).join('') }));
-    }
-    wrap.append(splitMarker(pointer, onSplit));
-    cursor = pointer.charIndex;
+    if (!pointersAt.has(pointer.charIndex)) pointersAt.set(pointer.charIndex, []);
+    pointersAt.get(pointer.charIndex).push(pointer);
   }
-  if (cursor < cs.length) {
-    wrap.append(el('span', { class: 'sentence-chunk', text: cs.slice(cursor).join('') }));
+
+  for (let i = 0; i <= cs.length; i++) {
+    for (const pointer of pointersAt.get(i) || []) wrap.append(splitMarker(pointer, onSplit));
+    if (i === cs.length) break;
+
+    // Whitespace stays a plain text node: a span per space would mask the gaps
+    // between words as if they were characters, and there is nothing to
+    // highlight or cut inside one.
+    const ch = cs[i];
+    if (/\s/u.test(ch)) wrap.append(ch);
+    else wrap.append(el('span', { class: 'sentence-char', text: ch, dataset: { charIndex: String(i) } }));
   }
 
   return wrap;
+}
+
+/**
+ * Light the characters of the word currently being spoken, and nothing else.
+ *
+ * Called on every playback tick, so it does the least it can: the characters
+ * that should be lit and are not get the class, the ones that are lit and
+ * should not lose it, and the rest are left alone. `word` is null between words
+ * and when playback stops, which clears the sentence.
+ */
+export function setSpeaking(element, word) {
+  const from = word?.charStart ?? -1;
+  const to = word?.charEnd ?? -1;
+
+  for (const span of element.querySelectorAll('.sentence-char')) {
+    const index = Number(span.dataset.charIndex);
+    const lit = index >= from && index < to;
+    span.classList.toggle('is-speaking', lit);
+  }
 }
 
 function splitMarker(pointer, onSplit) {

@@ -164,9 +164,31 @@
   cursor: text;
 }
 
-/* Text hidden for practising from memory: the characters stay as they are and
-   are simply not painted, so nothing about the underlying text is altered. */
-.sentence-text.is-hidden-text { color: var(--ink-faint); letter-spacing: 0.08em; }
+/* The word being read right now, while a reference clip plays. */
+.sentence-char.is-speaking { color: var(--speaking); }
+
+/* Text hidden for practising from memory: each character keeps its place and
+   its position in the sentence, is simply not painted, and a dot is drawn over
+   it instead. Nothing about the text itself is altered -- which is why the cut
+   markers still work, and why a reading can still be followed along it. */
+.sentence-text.is-hidden-text .sentence-char {
+  position: relative;
+  display: inline-block;
+  min-width: 0.85em;
+  color: transparent;
+  text-align: center;
+}
+
+.sentence-text.is-hidden-text .sentence-char::after {
+  content: '•';
+  position: absolute;
+  inset: 0;
+  color: var(--ink-faint);
+}
+
+/* The highlight colours the character itself, which is invisible here, so the
+   dot standing in for it has to take the colour instead. */
+.sentence-text.is-hidden-text .sentence-char.is-speaking::after { color: var(--speaking); }
 
 /* A cut marker floats above the gap it would cut at, anchored by a zero-size
    inline span. It is out of flow, so it costs the line no width: an inline

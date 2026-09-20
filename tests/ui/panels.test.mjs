@@ -14,6 +14,7 @@ const { DEFAULT_VOICES } = await import('../../js/model/voices.js');
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const clickLabelled = (root, label) => [...root.querySelectorAll('button')].find((b) => b.textContent === label)?.click();
+const buttonNamed = (root, label) => [...root.querySelectorAll('button')].find((b) => b.textContent === label);
 const confirmDialog = (label = 'Delete') => [...document.querySelectorAll('.modal-actions button')].find((b) => b.textContent === label)?.click();
 
 beforeEach(() => document.body.replaceChildren());
@@ -421,4 +422,32 @@ test('settings: storage that refuses writes is reported rather than failing sile
   assert.match(container.querySelector('.panel-status').textContent, /refusing to store settings/);
   assert.equal(inputLabelled(container, 'Azure subscription key').value, '',
     'and the key is still cleared from the page, since it was not kept anywhere');
+});
+
+test('settings: a stored key puts the form away and leaves Clear', () => {
+  const h = settingsHarness();
+  assert.equal(h.container.querySelector('.settings-form').hidden, false, 'nothing stored yet, so the form is there');
+
+  inputLabelled(h.container, 'Azure subscription key').value = 'a-key';
+  inputLabelled(h.container, 'Azure region').value = 'japaneast';
+  clickLabelled(h.container, 'Save');
+
+  assert.equal(h.container.querySelector('.settings-form').hidden, true);
+  assert.match(h.container.querySelector('.settings-state').textContent, /Configured for japaneast/);
+  assert.equal(buttonNamed(h.container, 'Clear').hidden, false);
+});
+
+test('settings: clearing the key brings the form back', async () => {
+  const h = settingsHarness();
+  h.settings.saveCredentials({ key: 'k', region: 'japaneast' });
+  h.panel.refresh();
+  assert.equal(h.container.querySelector('.settings-form').hidden, true);
+
+  clickLabelled(h.container, 'Clear');
+  await tick();
+  confirmDialog('Clear');
+  await tick();
+
+  assert.equal(h.container.querySelector('.settings-form').hidden, false);
+  assert.equal(buttonNamed(h.container, 'Clear').hidden, true);
 });

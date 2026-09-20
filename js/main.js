@@ -15,6 +15,7 @@ import { forceRelease } from './cloud/sync/lock.js';
 
 import { createSettings } from './platform/settings.js';
 import { createPlayer } from './platform/player.js';
+import { browserSpeech as createBrowserSpeech } from './platform/speech-synthesis.js';
 import { createRecorder } from './platform/recorder.js';
 import * as hash from './platform/hash.js';
 import * as audio from './platform/audio.js';
@@ -50,7 +51,20 @@ async function start() {
 
   const settings = createSettings();
   const store = createSessionStore();
-  const player = createPlayer();
+  const browserSpeech = createBrowserSpeech(window);
+  const clipPlayer = createPlayer();
+
+  // One sound at a time is the player's invariant, and the browser's own voice
+  // is a second source of sound it knows nothing about -- it plays through the
+  // speech engine, not through an audio element. Starting or stopping playback
+  // silences it here, so the rule holds across both.
+  const player = {
+    current: () => clipPlayer.current(),
+    isPlaying: (token) => clipPlayer.isPlaying(token),
+    subscribe: (listener) => clipPlayer.subscribe(listener),
+    play: (blob, token) => { browserSpeech.cancel(); return clipPlayer.play(blob, token); },
+    stop: () => { browserSpeech.cancel(); clipPlayer.stop(); },
+  };
 
   const statusLine = document.getElementById('app-status');
   const say = (message, kind = 'info') => {
@@ -89,7 +103,7 @@ async function start() {
   let releaseWorkspace = () => {};
 
   const commandDeps = {
-    db, hash, audio, settings, speech, player, ids, clock, saveRecord, autosave,
+    db, hash, audio, settings, speech, player, browserSpeech, ids, clock, saveRecord, autosave,
     release: () => releaseWorkspace(),
     tombstone: (sentenceIds) => db.tombstoneSentences(sentenceIds),
   };
@@ -178,7 +192,13 @@ async function start() {
       importAudio: (file, onProgress) => importAudio({ store, file, deps: commandDeps, onProgress }),
     },
   });
-  releaseWorkspace = () => practicePanel.release();
+  releaseWorkspace = () => {
+    // Leaving a session stops what it was saying, the browser's own voice
+    // included -- it is not a clip the player holds, so it would otherwise keep
+    // reading a sentence that is no longer on screen.
+    browserSpeech.cancel();
+    practicePanel.release();
+  };
 
   const library = createLibraryPanel({
     container: document.getElementById('library'),

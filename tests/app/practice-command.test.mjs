@@ -17,9 +17,15 @@ const session = (sentences, over = {}) => ({
 
 const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', now: 1, ...over });
 
-function harness({ sentences = [sentence('s1', 'Hello there.')], credentials = true, speechOver = {} } = {}) {
+function harness({
+  sentences = [sentence('s1', 'Hello there.')],
+  credentials = true,
+  speechOver = {},
+  browser = { available: true },
+} = {}) {
   const played = [];
   const calls = [];
+  const spoken = [];
 
   const speechClient = {
     synthesize: async (text, locale, voice) => { calls.push({ op: 'synthesize', text, locale, voice }); return clip([1]); },
@@ -45,7 +51,16 @@ function harness({ sentences = [sentence('s1', 'Hello there.')], credentials = t
         play: async (blob, token) => { played.push(token); return true; },
         stop: () => played.push('stop'),
       },
+      browserSpeech: {
+        available: () => browser.available,
+        speak: async (text, locale) => {
+          spoken.push({ text, locale });
+          if (browser.fails) throw new Error('The browser\'s built-in voice failed.');
+        },
+        cancel: () => spoken.push('cancel'),
+      },
     },
+    spoken,
   };
 }
 
@@ -98,8 +113,30 @@ test('speak: the stale hash is cleared, so the record never claims the old clip'
   assert.equal(h.store.get().sentences[0].referenceHash, null);
 });
 
-test('speak: without credentials it says so instead of failing obscurely', async () => {
+test('speak: without credentials the browser reads it, and says which voice that was', async () => {
   const h = harness({ credentials: false });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.viaBrowser, true);
+  assert.match(result.message, /browser's own voice/);
+  assert.deepEqual(h.spoken, [{ text: 'Hello there.', locale: 'en-US' }]);
+  assert.deepEqual(h.calls, [], 'the service was not called');
+});
+
+test('speak: the browser reading leaves no clip on the sentence -- there is nothing to keep', async () => {
+  const h = harness({ credentials: false });
+  await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+
+  const [only] = h.store.get().sentences;
+  assert.equal(only.reference, null, 'nothing to store, nothing to hash, nothing to sync');
+  assert.equal(only.referenceHash, null);
+  assert.equal(only.referenceSource, null);
+});
+
+test('speak: a browser that cannot speak at all still reports the missing key', async () => {
+  const h = harness({ credentials: false, browser: { available: false } });
   assert.deepEqual(await speak({ store: h.store, sentenceId: 's1', deps: h.deps }), { ok: false, reason: 'no-credentials' });
 });
 
@@ -271,4 +308,29 @@ test('setLanguage: an imported reference is real audio and survives', () => {
 test('setLanguage: setting the language it already has changes nothing', () => {
   const h = harness();
   assert.deepEqual(setLanguage({ store: h.store, sentenceId: 's1', lang: 'en', deps: h.deps }), { ok: false });
+});
+
+test('speak: a browser voice that fails is reported, not swallowed', async () => {
+  const h = harness({ credentials: false, browser: { available: true, fails: true } });
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /built-in voice failed/);
+});
+
+test('speak: the browser voice stops any clip that was playing -- one sound at a time', async () => {
+  const h = harness({ credentials: false });
+  await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.deepEqual(h.played, ['stop']);
+});
+
+test('speak: a stored clip is still preferred over the browser voice', async () => {
+  const h = harness({
+    credentials: false,
+    sentences: [sentence('s1', 'Hello there.', { reference: clip([7]), referenceSource: 'tts' })],
+  });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+
+  assert.deepEqual(result, { ok: true, synthesized: false, played: true });
+  assert.deepEqual(h.spoken, [], 'nothing was read aloud: the recording of it exists');
 });

@@ -24,7 +24,7 @@ const failure = (reason) => ({ ok: false, reason });
  * an imitation.
  */
 export async function speak({ store, sentenceId, deps, force = false }) {
-  const { speech, settings, player, clock } = deps;
+  const { speech, settings, player, clock, browserSpeech } = deps;
 
   const sentence = sentenceById(store.get(), sentenceId);
   if (!sentence) return failure('gone');
@@ -35,8 +35,28 @@ export async function speak({ store, sentenceId, deps, force = false }) {
   }
   if (sentence.referenceSource === 'import' && !force) return failure('no-reference-audio');
 
-  if (!settings.hasCredentials()) return failure('no-credentials');
   const locale = localeOf(sentence.lang);
+
+  // No key: fall back to the browser's own voice, which is worth having --
+  // practising against a flat reading beats practising against silence. It
+  // produces no clip, so nothing is stored, nothing syncs, and scoring still
+  // needs a key; the message says which voice was heard so that a reading that
+  // sounds wrong is not mistaken for the service's.
+  if (!settings.hasCredentials()) {
+    if (!browserSpeech?.available()) return failure('no-credentials');
+    player.stop();
+    try {
+      await browserSpeech.speak(sentence.text, locale);
+    } catch (err) {
+      return failure(err.message);
+    }
+    return {
+      ok: true,
+      synthesized: false,
+      viaBrowser: true,
+      message: "Read by the browser's own voice. Add an Azure key in Settings for a natural one.",
+    };
+  }
 
   let clip;
   try {

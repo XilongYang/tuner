@@ -7,6 +7,8 @@
   margin-bottom: 34px;
 }
 
+.practice-input[hidden] { display: none; }
+
 .practice-input {
   min-height: 7em;
   resize: vertical;

@@ -88,6 +88,33 @@ test('the text box shows the session text and Split starts a new session once sp
   assert.deepEqual(h.dispatched, [['startNew']]);
 });
 
+test('a session that has been split puts the text box away, with importing', () => {
+  // The text is the sentences below by then, each editable in its own right;
+  // the box could only be a stale copy that edits do nothing to.
+  const h = harness();
+  assert.equal(h.container.querySelector('.practice-input').hidden, true);
+  assert.equal(buttonIn(h.container, 'Import audio').hidden, true);
+  assert.equal(buttonIn(h.container, 'New session').hidden, false, 'the way back is still there');
+});
+
+test('with nothing split yet the box is there to type in', () => {
+  const h = harness(session([]));
+  const input = h.container.querySelector('.practice-input');
+  assert.equal(input.hidden, false);
+  assert.equal(input.readOnly, false);
+  assert.equal(buttonIn(h.container, 'Import audio').hidden, false);
+});
+
+test('starting a new session brings the box back', () => {
+  const h = harness();
+  h.store.replace(session([]));
+
+  const input = h.container.querySelector('.practice-input');
+  assert.equal(input.hidden, false);
+  assert.equal(input.readOnly, false);
+  assert.equal(buttonIn(h.container, 'Split').hidden, false);
+});
+
 test('with nothing split yet, Split dispatches the typed text', () => {
   const h = harness(session([]));
   const input = h.container.querySelector('.practice-input');

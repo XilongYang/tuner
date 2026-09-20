@@ -74,6 +74,23 @@ test('splitting typed text produces one row per sentence', async () => {
   await context.close();
 });
 
+test('splitting puts the text box away, and New session brings it back', async () => {
+  const { page, context } = await openApp();
+
+  await page.fill('.practice-input', 'One. Two.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  assert.equal(await page.locator('.practice-input').isVisible(), false);
+  assert.equal(await page.getByRole('button', { name: 'Import audio' }).isVisible(), false);
+
+  await page.getByRole('button', { name: 'New session' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 0);
+  assert.equal(await page.locator('.practice-input').isVisible(), true);
+
+  await context.close();
+});
+
 test('what was split survives a reload', async () => {
   // The whole persistence path -- autosave, hashing, IndexedDB -- exercised the
   // only way that proves it: by closing the page and coming back.

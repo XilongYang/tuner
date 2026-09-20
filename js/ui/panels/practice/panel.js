@@ -156,8 +156,17 @@ export function createPracticePanel({ container, store, actions, player, createR
     const text = session ? (derivedInputText(session) ?? '') : '';
     if (document.activeElement !== input && input.value !== text) input.value = text;
 
+    // Once a session is split, the box has nothing left to show: its text is
+    // the sentences below, each editable in its own right, and editing it here
+    // would do nothing to them -- for an imported session it cannot even be
+    // edited, since the clips were cut to match the transcript. So it goes
+    // away rather than sitting there greyed out inviting the attempt. It stays
+    // read-only as well, for the moment between a repaint and the eye.
+    input.hidden = locked;
     input.readOnly = locked;
     input.classList.toggle('is-locked', locked);
+    // Split has no text to act on any more, and importing a file would discard
+    // the session on screen rather than import into it.
     splitBtn.textContent = locked ? 'New session' : 'Split';
     importBtn.hidden = locked;
     count.textContent = sentences.length ? `${sentences.length} sentence${sentences.length === 1 ? '' : 's'}` : '';

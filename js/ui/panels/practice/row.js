@@ -34,16 +34,29 @@ const describe = (reason) => REASONS[reason] ?? reason;
 /**
  * @param {object} spec
  * @param {object} spec.sentence
+ * @param {number} spec.index Its position in the session, for the row's number.
  * @param {object} spec.actions Command dispatchers, already bound to the store.
  * @param {object} spec.player
  * @param {(id: string) => object} spec.recorderFor
+ * @param {(id: string, selected: boolean) => void} spec.onSelect
+ * @param {(id: string) => boolean} spec.isSelected
  */
-export function createRow({ sentence: initial, actions, player, recorderFor }) {
+export function createRow({ sentence: initial, index, actions, player, recorderFor, onSelect, isSelected }) {
   const sentenceId = initial.id;
   let sentence = initial;
+  let position = index;
   let busy = false;
 
   const row = el('div', { class: 'sentence-row' });
+
+  // Ticking rows is how sentences are chosen for merging. The checkbox lives on
+  // the row rather than in a mode of its own, so the choice can be made while
+  // reading -- and it survives a repaint, because reconcile updates this row
+  // instead of rebuilding it.
+  const selectBox = el('input', { class: 'row-select', type: 'checkbox' });
+  selectBox.addEventListener('change', () => onSelect?.(sentenceId, selectBox.checked));
+  const number = el('span', { class: 'row-index-num' });
+  const head = el('div', { class: 'row-index' }, [number, selectBox]);
   const textHost = el('div', { class: 'sentence-text-host' });
   const status = el('p', { class: 'sentence-status', hidden: true });
 
@@ -141,11 +154,19 @@ export function createRow({ sentence: initial, actions, player, recorderFor }) {
 
   const scoreLine = el('p', { class: 'sentence-score', hidden: true });
 
-  row.append(textHost, controls, scoreLine, status);
+  const body = el('div', { class: 'row-body' }, [textHost, controls, scoreLine, status]);
+  row.append(head, body);
 
   function refreshControls() {
     const recorder = recorderFor(sentenceId);
     const recording = recorder.isRecording;
+
+    // Two digits, so a list of ten or more does not shift as it is read.
+    number.textContent = String(position + 1).padStart(2, '0');
+    selectBox.setAttribute('aria-label', `Select sentence ${position + 1} for merging`);
+    const selected = Boolean(isSelected?.(sentenceId));
+    selectBox.checked = selected;
+    row.classList.toggle('is-selected', selected);
 
     row.classList.toggle('is-recording', recording);
     // Record stays live while recording, or there would be no way to stop.
@@ -185,14 +206,15 @@ export function createRow({ sentence: initial, actions, player, recorderFor }) {
     scoreLine.textContent = `Pronunciation ${Math.round(overall.pronunciation ?? 0)} · accuracy ${Math.round(overall.accuracy ?? 0)} · fluency ${Math.round(overall.fluency ?? 0)}`;
   }
 
-  /** Repaint for a new version of the same sentence. */
-  function update(next) {
+  /** Repaint for a new version of the same sentence, possibly at a new position. */
+  function update(next, nextIndex = position) {
     const textChanged = next.text !== sentence.text
       || next.hidden !== sentence.hidden
       || next.words !== sentence.words
       || next.manualPoints !== sentence.manualPoints;
 
     sentence = next;
+    position = nextIndex;
     if (textChanged) renderText();
     renderScore();
     refreshControls();

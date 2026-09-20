@@ -40,6 +40,55 @@ export function createPracticePanel({ container, store, actions, player, createR
   const count = el('span', { class: 'practice-count' });
   const list = el('div', { class: 'sentence-list' });
 
+  // Which sentences are ticked for merging. Held here rather than on the rows,
+  // so it survives a row being rebuilt and so the bar can read it in one place.
+  // Ids that are no longer in the session are dropped on every repaint -- a
+  // sentence that was merged or deleted elsewhere must not stay selected.
+  const selection = new Set();
+  const mergeLabel = el('span', { class: 'merge-bar-label' });
+  const mergeBtn = button({ class: 'btn primary', text: 'Merge', onClick: onMergeClicked });
+  const clearSelection = button({
+    class: 'btn', text: 'Clear',
+    onClick: () => { selection.clear(); render(store.get()); },
+  });
+  const mergeBar = el('div', { class: 'merge-bar', hidden: true }, [mergeLabel, mergeBtn, clearSelection]);
+
+  function onSelect(sentenceId, selected) {
+    if (selected) selection.add(sentenceId);
+    else selection.delete(sentenceId);
+    render(store.get());
+  }
+
+  /**
+   * Merge the ticked sentences, in the order they appear rather than the order
+   * they were ticked -- the command works on a run of adjacent sentences, and
+   * which end was clicked first says nothing about where they sit.
+   */
+  async function onMergeClicked() {
+    const session = store.get();
+    const ordered = (session?.sentences ?? [])
+      .map((sentence) => sentence.id)
+      .filter((id) => selection.has(id));
+    if (ordered.length < 2) return;
+
+    mergeBtn.disabled = true;
+    say('Merging…', 'busy');
+    try {
+      const outcome = await actions.merge(ordered);
+      if (!outcome.ok) {
+        say(describeMerge(outcome.reason), 'error');
+        return;
+      }
+      selection.clear();
+      say(outcome.audioFollowed === false
+        ? 'Merged. The audio could not be re-cut, so the merged sentence has no clip.'
+        : `Merged ${ordered.length} sentences.`);
+    } finally {
+      mergeBtn.disabled = false;
+      render(store.get());
+    }
+  }
+
   const say = (message, kind = 'info') => {
     status.hidden = !message;
     status.textContent = message || '';
@@ -109,23 +158,34 @@ export function createPracticePanel({ container, store, actions, player, createR
     importBtn.hidden = locked;
     count.textContent = sentences.length ? `${sentences.length} sentence${sentences.length === 1 ? '' : 's'}` : '';
 
+    const liveIds = new Set(sentences.map((s) => s.id));
+    for (const id of [...selection]) if (!liveIds.has(id)) selection.delete(id);
+
     reconcile(list, sentences, {
       key: (sentence) => sentence.id,
-      create: (sentence) => {
-        const row = createRow({ sentence, actions, player, recorderFor });
+      create: (sentence, index) => {
+        const row = createRow({
+          sentence, index, actions, player, recorderFor, onSelect, isSelected: (id) => selection.has(id),
+        });
         rows.set(sentence.id, row);
         return row.element;
       },
-      update: (_element, sentence) => rows.get(sentence.id)?.update(sentence),
+      update: (_element, sentence, index) => rows.get(sentence.id)?.update(sentence, index),
     });
 
-    const liveIds = new Set(sentences.map((s) => s.id));
     for (const id of [...rows.keys()]) if (!liveIds.has(id)) rows.delete(id);
     pruneRecorders(liveIds);
+
+    mergeBar.hidden = selection.size === 0;
+    mergeLabel.textContent = `${selection.size} selected`;
+    // Shown from one tick so the selection is visible and undoable, but merging
+    // needs two.
+    mergeBtn.hidden = selection.size < 2;
   }
 
   container.append(
     el('div', { class: 'practice-input-area' }, [input, el('div', { class: 'practice-controls' }, [splitBtn, importBtn, count]), status, fileInput]),
+    mergeBar,
     list,
   );
 
@@ -152,6 +212,13 @@ const progressText = (progress) => ({
   decoding: 'Decoding the file…',
   cutting: progress.total ? `Cutting clips ${progress.done ?? 0} / ${progress.total}…` : 'Cutting clips…',
 }[progress.stage] ?? 'Working…');
+
+const describeMerge = (reason) => ({
+  'not-adjacent': 'Those sentences are not next to each other. Merging joins a run, so pick sentences that follow one another.',
+  'no-session': 'There is nothing on screen to merge.',
+  superseded: 'The session changed while that was running. Nothing was merged -- try again.',
+  refused: 'Nothing was merged.',
+}[reason] ?? reason);
 
 const describeImport = (reason) => ({
   'no-credentials': 'Importing audio needs your Azure key and region. Add them in Settings.',

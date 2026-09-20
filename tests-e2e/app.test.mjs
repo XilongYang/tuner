@@ -117,6 +117,45 @@ test('splitting a sentence at a marker replaces it with two, and keeps the text 
   await context.close();
 });
 
+test('ticking two sentences and merging joins them back into one', async () => {
+  const { page, context, errors } = await openApp();
+
+  await page.fill('.practice-input', 'Alpha one. Beta two. Gamma three.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  const before = (await page.locator('.sentence-text').allTextContents()).join('');
+
+  await page.locator('.row-select').nth(0).check();
+  assert.equal(await page.locator('.merge-bar').isVisible(), true);
+  await page.locator('.row-select').nth(1).check();
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
+  assert.equal((await page.locator('.sentence-text').allTextContents()).join(''), before,
+    'the text is the same text, in one fewer sentence');
+  assert.equal(await page.locator('.merge-bar').isVisible(), false, 'and the selection is spent');
+  assert.deepEqual(errors, []);
+
+  await context.close();
+});
+
+test('merging sentences that are not adjacent is refused, in words', async () => {
+  const { page, context } = await openApp();
+
+  await page.fill('.practice-input', 'Alpha one. Beta two. Gamma three.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  await page.locator('.row-select').nth(0).check();
+  await page.locator('.row-select').nth(2).check();
+  await page.getByRole('button', { name: 'Merge', exact: true }).click();
+
+  await page.waitForFunction(() => document.querySelector('.practice-status')?.textContent.includes('not next to each other'));
+  assert.equal(await page.locator('.sentence-row').count(), 3, 'nothing was merged');
+
+  await context.close();
+});
+
 test('hiding a sentence masks it and withdraws its cut markers', async () => {
   const { page, context } = await openApp();
 

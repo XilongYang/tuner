@@ -52,6 +52,7 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
     toggleHidden: (id, hidden) => { dispatched.push(['toggleHidden', id, hidden]); store.apply((s) => updateSentence(s, id, { hidden }, 2)); },
     setLanguage: (id, lang) => { dispatched.push(['setLanguage', id, lang]); store.apply((s) => updateSentence(s, id, { lang }, 2)); },
     addVocab: async (id) => { dispatched.push(['addVocab', id]); return { ok: true }; },
+    merge: async (ids) => { dispatched.push(['merge', ids]); return { ok: true, audioFollowed: null }; },
     importAudio: async (file, onProgress) => { dispatched.push(['importAudio', file.name]); onProgress({ stage: 'transcribing' }); return { ok: true, count: 2, withAudio: 2 }; },
     ...actionOverrides,
   };
@@ -312,4 +313,105 @@ test('renderSentenceText: a masked sentence shows its length and nothing else', 
   const element = renderSentenceText(sentence('s1', 'Alpha', { hidden: true }), { onSplit: () => {} });
   assert.equal(element.querySelector('.sentence-mask').textContent.length, 5);
   assert.deepEqual(markersOf(element), []);
+});
+
+// ---- Selecting and merging ----
+
+const selectBoxes = (container) => [...container.querySelectorAll('.row-select')];
+const tick = (container, index) => {
+  const box = selectBoxes(container)[index];
+  box.checked = !box.checked;
+  box.dispatchEvent(new dom.window.Event('change'));
+};
+const settle = () => new Promise((r) => setTimeout(r, 0));
+
+test('rows are numbered from one, in two digits', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
+  assert.deepEqual([...h.container.querySelectorAll('.row-index-num')].map((n) => n.textContent), ['01', '02']);
+});
+
+test('the merge bar appears with one tick, and offers Merge only from two', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
+  const bar = h.container.querySelector('.merge-bar');
+  assert.equal(bar.hidden, true, 'nothing selected, nothing to say');
+
+  tick(h.container, 0);
+  assert.equal(bar.hidden, false);
+  assert.equal(bar.querySelector('.merge-bar-label').textContent, '1 selected');
+  assert.equal(buttonIn(bar, 'Merge').hidden, true, 'one sentence is not a merge');
+
+  tick(h.container, 1);
+  assert.equal(buttonIn(bar, 'Merge').hidden, false);
+});
+
+test('merging dispatches the ticked ids in session order, not the order they were ticked', async () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.'), sentence('s3', 'Three.')]));
+  tick(h.container, 2);
+  tick(h.container, 1);
+
+  buttonIn(h.container.querySelector('.merge-bar'), 'Merge').click();
+  await settle();
+
+  assert.deepEqual(h.dispatched.at(-1), ['merge', ['s2', 's3']]);
+});
+
+test('a merge that succeeds clears the selection and says what happened', async () => {
+  const h = harness(
+    session([sentence('s1', 'One.'), sentence('s2', 'Two.')]),
+    { merge: async (ids) => ({ ok: true, audioFollowed: null, added: ['s9'], ids }) },
+  );
+  tick(h.container, 0);
+  tick(h.container, 1);
+
+  buttonIn(h.container.querySelector('.merge-bar'), 'Merge').click();
+  await settle();
+
+  assert.equal(h.container.querySelector('.merge-bar').hidden, true);
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [false, false]);
+  assert.match(h.container.querySelector('.practice-status').textContent, /Merged 2 sentences/);
+});
+
+test('sentences that are not next to each other are refused with the reason, and stay selected', async () => {
+  const h = harness(
+    session([sentence('s1', 'One.'), sentence('s2', 'Two.'), sentence('s3', 'Three.')]),
+    { merge: async () => ({ ok: false, reason: 'not-adjacent' }) },
+  );
+  tick(h.container, 0);
+  tick(h.container, 2);
+
+  buttonIn(h.container.querySelector('.merge-bar'), 'Merge').click();
+  await settle();
+
+  assert.match(h.container.querySelector('.practice-status').textContent, /not next to each other/);
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [true, false, true], 'so it can be corrected, not redone');
+});
+
+test('a tick survives a repaint, which is what a background sync causes', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
+  tick(h.container, 0);
+
+  h.store.apply((s) => updateSentence(s, 's2', { lang: 'ja' }, 5));
+
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [true, false]);
+});
+
+test('a sentence that goes away is not left selected in the background', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
+  tick(h.container, 0);
+  tick(h.container, 1);
+
+  h.store.replace(session([sentence('s2', 'Two.')]));
+
+  assert.equal(h.container.querySelector('.merge-bar-label').textContent, '1 selected');
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [true]);
+});
+
+test('Clear drops the selection without merging anything', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.')]));
+  tick(h.container, 0);
+
+  buttonIn(h.container.querySelector('.merge-bar'), 'Clear').click();
+
+  assert.equal(h.container.querySelector('.merge-bar').hidden, true);
+  assert.deepEqual(h.dispatched, []);
 });

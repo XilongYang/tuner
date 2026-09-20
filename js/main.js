@@ -159,6 +159,7 @@ async function start() {
       splitText: (text) => session.splitTypedText({ store, text, deps: commandDeps }),
       startNew: () => session.startNew({ store, deps: commandDeps }),
       split: (sentenceId, charIndex, ms) => splitCommands.splitAtPointer({ store, sentenceId, charIndex, ms, deps: commandDeps }),
+      merge: (sentenceIds) => splitCommands.mergeSelected({ store, sentenceIds, deps: commandDeps }),
       speak: (sentenceId) => practice.speak({ store, sentenceId, deps: commandDeps }),
       score: (sentenceId) => practice.score({ store, sentenceId, deps: commandDeps }),
       startRecording: (sentenceId, recorder) => practice.startRecording({ store, sentenceId, recorder, deps: commandDeps }),

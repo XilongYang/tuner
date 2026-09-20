@@ -107,7 +107,7 @@ test('a cut marker passes its timestamp through, and null stays null', async () 
 });
 
 test('a cut marker with no timing passes null, not zero', async () => {
-  const h = harness(session([sentence('s1', 'abc')]));
+  const h = harness(session([sentence('s1', 'あいう')]));
   h.container.querySelector('.split-marker').click();
   await new Promise((r) => setTimeout(r, 0));
 
@@ -287,9 +287,14 @@ test('importing reports progress and then the outcome', async () => {
   assert.match(h.container.querySelector('.practice-status').textContent, /Imported 2 sentences/);
 });
 
-test('renderSentenceText: offers a marker at every interior position', () => {
-  const element = renderSentenceText(sentence('s1', 'abc'), { onSplit: () => {} });
+test('renderSentenceText: offers a marker at every interior position of unspaced text', () => {
+  const element = renderSentenceText(sentence('s1', 'あいう'), { onSplit: () => {} });
   assert.deepEqual(markersOf(element), [{ charIndex: 1, ms: null }, { charIndex: 2, ms: null }]);
+});
+
+test('renderSentenceText: English offers a marker per word start, not per letter', () => {
+  const element = renderSentenceText(sentence('s1', 'Alpha beta gamma.'), { onSplit: () => {} });
+  assert.deepEqual(markersOf(element), [{ charIndex: 6, ms: null }, { charIndex: 11, ms: null }]);
 });
 
 test('renderSentenceText: a real word boundary carries its timestamp, including 0', () => {

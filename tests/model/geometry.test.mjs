@@ -14,12 +14,22 @@ test('isSessionLocked: audio always locks; auto locks only once split', () => {
   assert.equal(isSessionLocked('auto', 1), true);
 });
 
-test('textSplitPoints: every interior position, never an end, ms always null', () => {
-  const points = textSplitPoints('abcd');
+test('textSplitPoints: every interior position of unspaced text, never an end, ms always null', () => {
+  const points = textSplitPoints('あいうえ');
   assert.deepEqual(points.map((p) => p.charIndex), [1, 2, 3]);
   assert.ok(points.every((p) => p.ms === null && p.kind === 'text'));
-  assert.deepEqual(textSplitPoints('a'), []);
+  assert.deepEqual(textSplitPoints('あ'), []);
   assert.deepEqual(textSplitPoints(''), []);
+});
+
+test('textSplitPoints: English is cut between words, not between letters', () => {
+  assert.deepEqual(textSplitPoints('Alpha beta gamma.').map((p) => p.charIndex), [6, 11]);
+  assert.deepEqual(textSplitPoints('Word').map((p) => p.charIndex), []);
+});
+
+test('textSplitPoints: a mixed sentence offers word starts and kana positions together', () => {
+  // Around PDF, never inside it; every kana gap as usual.
+  assert.deepEqual(textSplitPoints('この PDF を読む').map((p) => p.charIndex), [1, 3, 7, 8, 9]);
 });
 
 test('textSplitPoints: counts code points, so an astral character is one position', () => {
@@ -50,7 +60,7 @@ test('splitPointers: manual points are offered alongside words, sorted together'
 });
 
 test('splitPointers: no timing data at all falls back to text points with null ms', () => {
-  const points = splitPointers({ text: 'abc', words: null, manualPoints: null });
+  const points = splitPointers({ text: 'あいう', words: null, manualPoints: null });
   assert.deepEqual(points, [
     { charIndex: 1, ms: null, kind: 'text' },
     { charIndex: 2, ms: null, kind: 'text' },
@@ -58,7 +68,7 @@ test('splitPointers: no timing data at all falls back to text points with null m
 });
 
 test('splitPointers: an empty words array is the same as none -- still falls back', () => {
-  const points = splitPointers({ text: 'ab', words: [], manualPoints: [] });
+  const points = splitPointers({ text: 'あい', words: [], manualPoints: [] });
   assert.deepEqual(points, [{ charIndex: 1, ms: null, kind: 'text' }]);
 });
 

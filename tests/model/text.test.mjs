@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { segmentText, vocabKey, detectLang } from '../../js/model/text.js';
+import { segmentText, vocabKey, detectLang, canCutBetween } from '../../js/model/text.js';
 
 test('segmentText: splits on Japanese terminal punctuation, keeping it', () => {
   assert.deepEqual(segmentText('おはよう。元気ですか？はい！'), ['おはよう。', '元気ですか？', 'はい！']);
@@ -99,4 +99,27 @@ test('detectLang: a mixed sentence counts as Japanese, which is the voice it nee
 
 test('detectLang: an astral CJK character is recognised', () => {
   assert.equal(detectLang('𠮟る'), 'ja');
+});
+
+test('canCutBetween: between two kana, yes -- that is where a cut falls in Japanese', () => {
+  assert.equal(canCutBetween('今', '日'), true);
+  assert.equal(canCutBetween('す', '。'), true);
+});
+
+test('canCutBetween: inside an English word, no', () => {
+  assert.equal(canCutBetween('e', 'n'), false);
+  assert.equal(canCutBetween('3', '5'), false);
+  assert.equal(canCutBetween('U', '.'), false, 'nor between a word and its punctuation');
+  assert.equal(canCutBetween('.', 'S'), false);
+});
+
+test('canCutBetween: at the start of a word, yes', () => {
+  assert.equal(canCutBetween(' ', 'b'), true);
+  assert.equal(canCutBetween('\n', 'b'), true);
+});
+
+test('canCutBetween: never immediately before whitespace, which would begin the next half with a space', () => {
+  assert.equal(canCutBetween('a', ' '), false);
+  assert.equal(canCutBetween('。', ' '), false);
+  assert.equal(canCutBetween(' ', ' '), false);
 });

@@ -19,6 +19,8 @@
 // Speech-service field names are mapped to these at the cloud boundary, so no
 // vendor naming leaks past it.
 
+import { canCutBetween } from './text.js';
+
 /** @typedef {{ charStart: number, charEnd: number, offsetMs: number, durationMs: number }} Word */
 /** @typedef {{ charIndex: number, offsetMs: number|null }} ManualPoint */
 /** @typedef {{ charIndex: number, ms: number|null, kind: 'word'|'manual'|'text' }} SplitPoint */
@@ -41,16 +43,22 @@ export function isSessionLocked(splitMode, sentenceCount) {
 }
 
 /**
- * Synthetic cut points for a sentence with no timing data at all: every
- * position between two characters, minus the ends. `ms` is null for all of
+ * Synthetic cut points for a sentence with no timing data at all: the positions
+ * where a cut can legitimately fall, minus the ends. `ms` is null for all of
  * them -- there is no audio timeline information to offer, and saying so is
  * the point.
+ *
+ * Which positions those are is a question about writing, not about geometry,
+ * so canCutBetween answers it: every character gap in Japanese, word starts
+ * only in English.
  * @returns {SplitPoint[]}
  */
 export function textSplitPoints(text) {
-  const len = chars(text).length;
+  const cs = chars(text);
   const points = [];
-  for (let i = 1; i < len; i++) points.push({ charIndex: i, ms: null, kind: 'text' });
+  for (let i = 1; i < cs.length; i++) {
+    if (canCutBetween(cs[i - 1], cs[i])) points.push({ charIndex: i, ms: null, kind: 'text' });
+  }
   return points;
 }
 

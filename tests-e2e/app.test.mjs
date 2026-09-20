@@ -104,9 +104,10 @@ test('splitting a sentence at a marker replaces it with two, and keeps the text 
   await page.waitForSelector('.sentence-row');
 
   const before = await page.locator('.sentence-text').first().textContent();
-  // The marker before "beta": text-derived positions sit between every pair of
-  // characters, so the sixth is the space after "Alpha".
-  await page.locator('.split-marker').nth(5).click();
+  // English offers one position per word start, so this sentence has exactly
+  // two: before "beta" and before "gamma".
+  assert.equal(await page.locator('.split-marker').count(), 2);
+  await page.locator('.split-marker').first().click();
   await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
 
   const after = (await page.locator('.sentence-text').allTextContents()).join('');

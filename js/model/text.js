@@ -69,6 +69,37 @@ export function detectLang(text) {
   return /[぀-ヿ㐀-䶿一-鿿豈-﫿]|[\u{20000}-\u{2ffff}]/u.test(text || '') ? 'ja' : 'en';
 }
 
+// A character that belongs inside a written word: Latin letters and digits.
+// Kana and Han are deliberately excluded -- Japanese is written without spaces,
+// so counting its characters as word-internal would leave such a sentence with
+// no cut positions at all, which is precisely where per-character positions are
+// wanted.
+const WORD_CHAR = /[\p{Script=Latin}\p{Number}]/u;
+const SPACE = /\s/u;
+
+/**
+ * Whether a sentence may be cut between `before` and `after` when there is no
+ * audio timing to say where the words actually are.
+ *
+ * Japanese gets every position between two characters, because that is where a
+ * cut can legitimately fall. English gets word starts only: nobody cuts inside
+ * "sentence", and offering a position per letter buries the few worth having.
+ * A cut there must follow whitespace, which also keeps it off the end of a word
+ * and off its trailing punctuation -- splitText leaves the whitespace with the
+ * left half, so the right half begins with the next word.
+ *
+ * Mixed text falls out of the same rule rather than being special-cased:
+ * "この PDF を" offers the positions on either side of PDF and none inside it.
+ *
+ * @param {string} before The character to the left of the position.
+ * @param {string} after The character to the right of it.
+ */
+export function canCutBetween(before, after) {
+  if (SPACE.test(after)) return false;
+  if (SPACE.test(before)) return true;
+  return !WORD_CHAR.test(before) && !WORD_CHAR.test(after);
+}
+
 /**
  * The key a vocabulary entry is stored under: whitespace, punctuation and
  * symbols removed, lowercased. "Hello, world!" and "hello world" are therefore

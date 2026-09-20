@@ -63,13 +63,17 @@ export function startNew({ store, deps, splitMode = 'auto' }) {
  * caller knows better.
  */
 export function splitTypedText({ store, text, lang = null, deps }) {
-  const { ids, clock } = deps;
+  const { ids, clock, settings } = deps;
   const pieces = segmentText(text);
   if (!pieces.length) return { ok: false, reason: 'no-text' };
 
   const now = clock();
+  // New sentences start the way the global switch says this person is
+  // practising: splitting more text while practising from memory should not
+  // put the text back on screen.
+  const hidden = settings?.hideText?.() ?? false;
   const sentences = pieces.map((piece) => blankSentence({
-    id: ids(), text: piece, lang: lang ?? detectLang(piece), now,
+    id: ids(), text: piece, lang: lang ?? detectLang(piece), now, hidden,
   }));
 
   store.apply((current) => ({

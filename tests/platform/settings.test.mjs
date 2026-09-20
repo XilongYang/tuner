@@ -130,6 +130,17 @@ test('a deviceId can still be produced when storage refuses writes', () => {
   assert.equal(settings.deviceId(() => 'fresh'), 'fresh', 'sync can still name this device this session');
 });
 
+test('hideText: off until it is turned on, and remembered once it is', () => {
+  const settings = createSettings(fakeStorage());
+  assert.equal(settings.hideText(), false);
+
+  settings.saveHideText(true);
+  assert.equal(settings.hideText(), true);
+
+  settings.saveHideText(false);
+  assert.equal(settings.hideText(), false);
+});
+
 test('every setting lives under its own key, so nothing collides', () => {
   const storage = fakeStorage();
   const settings = createSettings(storage);
@@ -138,6 +149,7 @@ test('every setting lives under its own key, so nothing collides', () => {
   settings.saveVoice('ja-JP', 'v');
   settings.saveLastSessionId('s');
   settings.saveHistoryOpen(true);
+  settings.saveHideText(true);
   settings.deviceId(() => 'd');
 
   assert.deepEqual([...storage._map.keys()].sort(), Object.values(SETTINGS_KEYS).sort());

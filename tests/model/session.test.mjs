@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   sentenceById, indexOfSentence, blankSentence, updateSentence, updateSession,
   splitSentence, mergeSentences, canMerge, derivedInputText, sessionLabel, mergeSelectable
-} from '../../js/model/session.js';
+, setOnEverySentence} from '../../js/model/session.js';
 
 const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', now: 10, ...over });
 
@@ -247,3 +247,28 @@ test('mergeSelectable: an empty session offers nothing rather than throwing', ()
 function threeSentenceSession() {
   return { sentences: [{ id: 's1' }, { id: 's2' }, { id: 's3' }] };
 }
+
+test('setOnEverySentence: sets the field on the ones that differ, and stamps only those', () => {
+  const before = {
+    sentences: [
+      { id: 's1', hidden: false, updatedAt: 1 },
+      { id: 's2', hidden: true, updatedAt: 1 },
+    ],
+    updatedAt: 1,
+  };
+
+  const after = setOnEverySentence(before, { hidden: true }, 50);
+
+  assert.deepEqual(after.sentences.map((s) => [s.hidden, s.updatedAt]), [[true, 50], [true, 1]]);
+  assert.equal(after.updatedAt, 50);
+});
+
+test('setOnEverySentence: nothing to change gives back the same session, so nothing repaints or syncs', () => {
+  const before = { sentences: [{ id: 's1', hidden: true, updatedAt: 1 }], updatedAt: 1 };
+  assert.equal(setOnEverySentence(before, { hidden: true }, 50), before);
+});
+
+test('setOnEverySentence: an empty session is left alone rather than restamped', () => {
+  const before = { sentences: [], updatedAt: 1 };
+  assert.equal(setOnEverySentence(before, { hidden: true }, 50), before);
+});

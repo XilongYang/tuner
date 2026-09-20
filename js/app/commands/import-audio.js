@@ -77,6 +77,9 @@ export async function importAudio({ store, file, deps, onProgress = () => {} }) 
       text: part.text,
       lang: part.lang,
       now,
+      // New sentences start the way the global switch says this person is
+      // practising; arriving visible would undo it every time.
+      hidden: settings.hideText?.() ?? false,
       words: part.words?.length ? part.words : null,
       // A sentence whose clip could not be cut keeps no reference and no source
       // markers, rather than claiming audio that does not exist.

@@ -136,13 +136,19 @@ export function createRow({
     onClick: () => run('Scoring…', () => actions.score(sentenceId)),
   });
 
+  // Two chips rather than two buttons, and first rather than last. Both are
+  // settings on the sentence rather than things to do with it, and both are
+  // pressed rarely -- the language is usually right already, and hiding is
+  // mostly done for every sentence at once from the header. At full button
+  // weight they crowded out Speak and Record, which are the whole point of the
+  // row.
   const hideBtn = button({
-    class: 'btn',
+    class: 'row-chip',
     onClick: () => actions.toggleHidden(sentenceId, !sentence.hidden),
   });
 
   const langBtn = button({
-    class: 'btn',
+    class: 'row-chip',
     title: 'Switch this sentence between Japanese and English',
     onClick: () => actions.setLanguage(sentenceId, sentence.lang === 'ja' ? 'en' : 'ja'),
   });
@@ -153,7 +159,7 @@ export function createRow({
   });
 
   const controls = el('div', { class: 'sentence-controls' }, [
-    speakBtn, recordBtn, playbackBtn, scoreBtn, hideBtn, langBtn, vocabBtn,
+    langBtn, hideBtn, speakBtn, recordBtn, playbackBtn, scoreBtn, vocabBtn,
   ]);
 
   const scoreLine = el('p', { class: 'sentence-score', hidden: true });
@@ -193,8 +199,10 @@ export function createRow({
     // Recording a word needs to know where words are.
     vocabBtn.hidden = !sentence.words?.length;
 
-    hideBtn.textContent = sentence.hidden ? 'Show text' : 'Hide text';
-    langBtn.textContent = sentence.lang === 'ja' ? '日本語' : 'English';
+    hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
+    hideBtn.title = sentence.hidden ? 'Show this sentence\'s text' : 'Hide this sentence\'s text';
+    hideBtn.setAttribute('aria-pressed', String(Boolean(sentence.hidden)));
+    langBtn.textContent = sentence.lang === 'ja' ? 'JA' : 'EN';
   }
 
   function renderText() {

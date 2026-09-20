@@ -230,6 +230,34 @@
   align-items: center;
 }
 
+/* Settings on the sentence -- its language, whether its text is showing --
+   rather than things to do with it. Small, mono, quiet: they are pressed far
+   less often than Speak and Record, and at full button weight they crowded
+   those out. */
+.row-chip {
+  appearance: none;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 8px;
+  min-width: 34px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--ink-faint);
+  cursor: pointer;
+}
+
+.row-chip:hover:not(:disabled) { border-color: var(--border-strong); color: var(--ink); }
+.row-chip:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.row-chip:disabled { opacity: 0.45; cursor: default; }
+
+/* Hiding is on: say so, since the masked text alone could be a short sentence. */
+.row-chip[aria-pressed="true"] {
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
 /* Scores are data, so they are set in mono and their digits line up. */
 .sentence-score {
   margin: 0;

@@ -179,12 +179,38 @@ test('hiding a sentence masks it and withdraws its cut markers', async () => {
   await page.waitForSelector('.sentence-row');
   assert.ok(await page.locator('.split-marker').count() > 0);
 
-  await page.getByRole('button', { name: 'Hide text' }).click();
+  await page.getByRole('button', { name: 'Hide', exact: true }).click();
 
   assert.equal(await page.locator('.split-marker').count(), 0);
   assert.equal(await page.locator('.sentence-mask').count(), 1);
-  await page.getByRole('button', { name: 'Show text' }).click();
+  await page.getByRole('button', { name: 'Show', exact: true }).click();
   assert.ok(await page.locator('.split-marker').count() > 0);
+
+  await context.close();
+});
+
+test('the header switch hides every sentence, and holds across a reload and a new split', async () => {
+  const { page, context } = await openApp();
+
+  await page.fill('.practice-input', 'One. Two.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  await page.locator('#hide-all').check();
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-mask').length === 2);
+
+  await page.evaluate(() => window.tuner.autosave.flush());
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
+  assert.equal(await page.locator('#hide-all').isChecked(), true, 'the switch reads the session it came back to');
+  assert.equal(await page.locator('.sentence-mask').count(), 2);
+
+  // Splitting more text while practising from memory must not put it back.
+  await page.getByRole('button', { name: 'New session' }).click();
+  await page.fill('.practice-input', 'Three. Four.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
+  assert.equal(await page.locator('.sentence-mask').count(), 2);
 
   await context.close();
 });

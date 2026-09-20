@@ -11,7 +11,7 @@
 // everything that ever replaces that record, which is how a sync ended up
 // having to know that recorders exist.
 
-import { updateSentence, sentenceById } from '../../model/session.js';
+import { updateSentence, sentenceById, setOnEverySentence } from '../../model/session.js';
 import { localeOf } from '../../model/lang.js';
 
 const failure = (reason) => ({ ok: false, reason });
@@ -171,6 +171,20 @@ export async function score({ store, sentenceId, deps }) {
 export function toggleHidden({ store, sentenceId, hidden, deps }) {
   const changed = store.apply((current) => updateSentence(current, sentenceId, { hidden }, deps.clock()), 'hidden');
   return { ok: changed };
+}
+
+/**
+ * Hide or show every sentence at once, and remember it as the way this person
+ * is practising.
+ *
+ * The preference is saved whether or not there is a session on screen, because
+ * it governs the next one too -- sentences made from here on start hidden.
+ */
+export function setAllHidden({ store, hidden, deps }) {
+  const { clock, settings } = deps;
+  settings?.saveHideText(hidden);
+  const changed = store.apply((current) => setOnEverySentence(current, { hidden }, clock()), 'hidden-all');
+  return { ok: true, changed };
 }
 
 /**

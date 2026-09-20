@@ -244,22 +244,35 @@ test('hiding a sentence masks the text and withdraws its cut markers', () => {
   const h = harness();
   assert.ok(h.container.querySelector('.split-marker'), 'markers before');
 
-  buttonIn(rowsOf(h.container)[0], 'Hide text').click();
+  buttonIn(rowsOf(h.container)[0], 'Hide').click();
 
   const row = rowsOf(h.container)[0];
   assert.equal(row.querySelector('.split-marker'), null, 'nothing to aim at when the text is masked');
   assert.ok(row.querySelector('.sentence-mask'));
-  assert.equal(buttonIn(row, 'Show text').textContent, 'Show text');
+  assert.equal(buttonIn(row, 'Show').getAttribute('aria-pressed'), 'true');
+});
+
+test('the sentence settings come first and stay out of the way of Speak and Record', () => {
+  const h = harness();
+  const [row] = rowsOf(h.container);
+  const labels = [...row.querySelectorAll('.sentence-controls > *')].map((c) => c.textContent);
+
+  assert.deepEqual(labels.slice(0, 4), ['EN', 'Hide', 'Speak', 'Record']);
+  assert.deepEqual(
+    [...row.querySelectorAll('.row-chip')].map((c) => c.textContent),
+    ['EN', 'Hide'],
+    'and they are chips, not full buttons',
+  );
 });
 
 test('the language control shows and switches the sentence language', () => {
   const h = harness();
   const [row] = rowsOf(h.container);
-  assert.equal(buttonIn(row, 'English').textContent, 'English');
+  assert.equal(buttonIn(row, 'EN').textContent, 'EN');
 
-  buttonIn(row, 'English').click();
+  buttonIn(row, 'EN').click();
   assert.deepEqual(h.dispatched, [['setLanguage', 's1', 'ja']]);
-  assert.ok(buttonIn(rowsOf(h.container)[0], '日本語'));
+  assert.ok(buttonIn(rowsOf(h.container)[0], 'JA'));
 });
 
 test('a score is shown once there is one', () => {

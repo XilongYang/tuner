@@ -20,6 +20,7 @@ const KEYS = {
   deviceId: 'tuner.deviceId',
   lastSessionId: 'tuner.lastSessionId',
   historyOpen: 'tuner.historyOpen',
+  hideText: 'tuner.hideText',
 };
 
 const memoryFallback = () => {
@@ -147,6 +148,19 @@ export function createSettings(storage = defaultStorage()) {
     },
     saveLastSessionId(id) {
       return id ? write(KEYS.lastSessionId, id) : remove(KEYS.lastSessionId);
+    },
+
+    /**
+     * Whether text is hidden by default -- the global practice-from-memory
+     * switch. A preference rather than session data: it is how this person is
+     * practising today, not something about the sentences, and it has to still
+     * be in force for a session opened tomorrow.
+     */
+    hideText() {
+      return read(KEYS.hideText) === 'true';
+    },
+    saveHideText(hidden) {
+      return write(KEYS.hideText, hidden ? 'true' : 'false');
     },
 
     historyOpen() {

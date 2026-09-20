@@ -275,6 +275,25 @@ async function start() {
     }
   }
 
+  // ---- Practising from memory, for every sentence at once ----
+  //
+  // A mode rather than an action, so it is a switch in the header: the
+  // per-sentence chips are for the odd exception. The switch holds across
+  // sessions and across reloads, and newly split or imported sentences start
+  // the way it is set -- otherwise it would be undone by the next Split.
+  const hideAll = document.getElementById('hide-all');
+  hideAll.checked = settings.hideText();
+  hideAll.addEventListener('change', () => {
+    practice.setAllHidden({ store, hidden: hideAll.checked, deps: commandDeps });
+  });
+  // A session arriving from storage or a sync decides how the switch reads: it
+  // shows the state of what is on screen, and only a session hidden right
+  // through counts as hidden.
+  store.subscribe((current) => {
+    const sentences = current?.sentences ?? [];
+    if (sentences.length) hideAll.checked = sentences.every((sentence) => sentence.hidden);
+  });
+
   // Exposed for the end-to-end tests, which drive the app the way a person
   // does and need to seed and inspect stored data to do it.
   window.tuner = { store, db, settings, registry, commandDeps, runSync, autosave, practicePanel };

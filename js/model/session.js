@@ -72,6 +72,26 @@ export function updateSentence(session, sentenceId, patch, now) {
   return withSentences(session, now, sentences);
 }
 
+/**
+ * Set the same field on every sentence, touching only the ones that differ.
+ *
+ * A sentence already in the wanted state keeps its `updatedAt`: a global switch
+ * must not restamp the whole session and hand a sync a pile of changes that
+ * change nothing. When nothing differs, the session comes back unchanged (the
+ * same object), so a repaint is not provoked either.
+ */
+export function setOnEverySentence(session, patch, now) {
+  const sentences = session?.sentences || [];
+  const changes = sentences.some((sentence) => Object.entries(patch).some(([key, value]) => sentence[key] !== value));
+  if (!changes) return session;
+
+  return withSentences(session, now, sentences.map((sentence) => (
+    Object.entries(patch).every(([key, value]) => sentence[key] === value)
+      ? sentence
+      : { ...sentence, ...patch, updatedAt: now }
+  )));
+}
+
 /** Edit the session's own fields (its name, its folder). */
 export const updateSession = (session, patch, now) => withMeta(session, now, patch);
 

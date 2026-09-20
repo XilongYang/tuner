@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  speak, startRecording, stopRecording, score, toggleHidden, setLanguage,
+  speak, startRecording, stopRecording, score, toggleHidden, setLanguage, setAllHidden,
 } from '../../js/app/commands/practice.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence, updateSentence } from '../../js/model/session.js';
@@ -46,6 +46,8 @@ function harness({
       settings: {
         hasCredentials: () => credentials,
         voice: (locale) => `voice-for-${locale}`,
+        hideText: () => false,
+        saveHideText: () => true,
       },
       player: {
         play: async (blob, token) => { played.push(token); return true; },
@@ -333,4 +335,32 @@ test('speak: a stored clip is still preferred over the browser voice', async () 
 
   assert.deepEqual(result, { ok: true, synthesized: false, played: true });
   assert.deepEqual(h.spoken, [], 'nothing was read aloud: the recording of it exists');
+});
+
+test('setAllHidden: hides every sentence and remembers it as the way of practising', () => {
+  const saved = [];
+  const h = harness({ sentences: [sentence('s1', 'One.'), sentence('s2', 'Two.')] });
+  h.deps.settings.saveHideText = (value) => saved.push(value);
+
+  setAllHidden({ store: h.store, hidden: true, deps: h.deps });
+
+  assert.deepEqual(h.store.get().sentences.map((s) => s.hidden), [true, true]);
+  assert.deepEqual(saved, [true]);
+});
+
+test('setAllHidden: a sentence already in that state is not restamped, so a sync sees nothing', () => {
+  const h = harness({ sentences: [sentence('s1', 'One.', { hidden: true, updatedAt: 1 }), sentence('s2', 'Two.', { updatedAt: 1 })] });
+
+  setAllHidden({ store: h.store, hidden: true, deps: h.deps });
+
+  assert.deepEqual(h.store.get().sentences.map((s) => s.updatedAt), [1, 1000]);
+});
+
+test('setAllHidden: with nothing on screen the preference is still set, for the next session', () => {
+  const saved = [];
+  const h = harness({ sentences: [] });
+  h.deps.settings.saveHideText = (value) => saved.push(value);
+
+  assert.equal(setAllHidden({ store: h.store, hidden: true, deps: h.deps }).ok, true);
+  assert.deepEqual(saved, [true]);
 });

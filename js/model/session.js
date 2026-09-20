@@ -205,6 +205,32 @@ export function canMerge(session, sentenceIds) {
 }
 
 /**
+ * Which sentences may have their merge selection changed, given what is already
+ * selected.
+ *
+ * A merge joins a run, so the selection is held to a run as it is being made,
+ * rather than letting one be built that cannot be merged and refusing it
+ * afterwards. With nothing selected, anything can start one. With a run
+ * selected, the two sentences touching its ends can extend it and its own ends
+ * can give it up; one in the middle cannot, since dropping it would leave a
+ * hole.
+ *
+ * Returns ids, because ids are what a selection holds.
+ * @returns {Set<string>}
+ */
+export function mergeSelectable(session, selectedIds) {
+  const ids = (session?.sentences || []).map((sentence) => sentence.id);
+  const selected = new Set(selectedIds || []);
+  if (!selected.size) return new Set(ids);
+
+  const indices = ids.map((id, index) => (selected.has(id) ? index : -1)).filter((index) => index !== -1);
+  const first = indices[0];
+  const last = indices[indices.length - 1];
+
+  return new Set([ids[first - 1], ids[first], ids[last], ids[last + 1]].filter(Boolean));
+}
+
+/**
  * The practice text a session should be saved with.
  *
  * For a typed session it is what the user typed. For one built from an audio

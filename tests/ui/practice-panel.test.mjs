@@ -371,19 +371,46 @@ test('a merge that succeeds clears the selection and says what happened', async 
   assert.match(h.container.querySelector('.practice-status').textContent, /Merged 2 sentences/);
 });
 
-test('sentences that are not next to each other are refused with the reason, and stay selected', async () => {
+test('a sentence that would break the run cannot be ticked at all', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.'), sentence('s3', 'Three.'), sentence('s4', 'Four.')]));
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.disabled), [false, false, false, false], 'anything may start a selection');
+
+  tick(h.container, 1);
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.disabled), [false, false, false, true]);
+
+  tick(h.container, 2);
+  assert.deepEqual(
+    selectBoxes(h.container).map((b) => b.disabled),
+    [false, false, false, false],
+    'both neighbours extend the run, and both ends can give it up',
+  );
+});
+
+test('a sentence in the middle of the run cannot be unticked, which would leave a hole', () => {
+  const h = harness(session([sentence('s1', 'One.'), sentence('s2', 'Two.'), sentence('s3', 'Three.')]));
+  tick(h.container, 0);
+  tick(h.container, 1);
+  tick(h.container, 2);
+
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.disabled), [false, true, false]);
+});
+
+test('a refusal from the command is still reported, and leaves the selection alone', async () => {
+  // Unreachable from the controls now that the selection is held to a run, but
+  // the command refuses on its own account -- a sync can land between the tick
+  // and the click -- and the user has to be told.
   const h = harness(
-    session([sentence('s1', 'One.'), sentence('s2', 'Two.'), sentence('s3', 'Three.')]),
+    session([sentence('s1', 'One.'), sentence('s2', 'Two.')]),
     { merge: async () => ({ ok: false, reason: 'not-adjacent' }) },
   );
   tick(h.container, 0);
-  tick(h.container, 2);
+  tick(h.container, 1);
 
   buttonIn(h.container.querySelector('.merge-bar'), 'Merge').click();
   await settle();
 
   assert.match(h.container.querySelector('.practice-status').textContent, /not next to each other/);
-  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [true, false, true], 'so it can be corrected, not redone');
+  assert.deepEqual(selectBoxes(h.container).map((b) => b.checked), [true, true], 'so it can be corrected, not redone');
 });
 
 test('a tick survives a repaint, which is what a background sync causes', () => {

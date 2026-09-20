@@ -40,8 +40,11 @@ const describe = (reason) => REASONS[reason] ?? reason;
  * @param {(id: string) => object} spec.recorderFor
  * @param {(id: string, selected: boolean) => void} spec.onSelect
  * @param {(id: string) => boolean} spec.isSelected
+ * @param {(id: string) => boolean} spec.isSelectable
  */
-export function createRow({ sentence: initial, index, actions, player, recorderFor, onSelect, isSelected }) {
+export function createRow({
+  sentence: initial, index, actions, player, recorderFor, onSelect, isSelected, isSelectable,
+}) {
   const sentenceId = initial.id;
   let sentence = initial;
   let position = index;
@@ -54,6 +57,7 @@ export function createRow({ sentence: initial, index, actions, player, recorderF
   // reading -- and it survives a repaint, because reconcile updates this row
   // instead of rebuilding it.
   const selectBox = el('input', { class: 'row-select', type: 'checkbox' });
+  selectBox.title = 'Select this sentence for merging';
   selectBox.addEventListener('change', () => onSelect?.(sentenceId, selectBox.checked));
   const number = el('span', { class: 'row-index-num' });
   const head = el('div', { class: 'row-index' }, [number, selectBox]);
@@ -167,6 +171,13 @@ export function createRow({ sentence: initial, index, actions, player, recorderF
     const selected = Boolean(isSelected?.(sentenceId));
     selectBox.checked = selected;
     row.classList.toggle('is-selected', selected);
+    // A merge joins a run, so a sentence that would break the run cannot be
+    // ticked at all -- better than accepting the tick and refusing the merge.
+    const selectable = isSelectable ? isSelectable(sentenceId) : true;
+    selectBox.disabled = !selectable;
+    selectBox.title = selectable
+      ? 'Select this sentence for merging'
+      : 'Only sentences next to the ones already selected can be merged with them';
 
     row.classList.toggle('is-recording', recording);
     // Record stays live while recording, or there would be no way to stop.

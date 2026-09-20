@@ -13,7 +13,7 @@
 import { el, button, reconcile } from '../../dom.js';
 import { createRow } from './row.js';
 import { isSessionLocked } from '../../../model/geometry.js';
-import { derivedInputText } from '../../../model/session.js';
+import { derivedInputText, mergeSelectable } from '../../../model/session.js';
 
 /**
  * @param {object} spec
@@ -45,6 +45,10 @@ export function createPracticePanel({ container, store, actions, player, createR
   // Ids that are no longer in the session are dropped on every repaint -- a
   // sentence that was merged or deleted elsewhere must not stay selected.
   const selection = new Set();
+  // Which rows may be ticked, recomputed on every repaint. A panel-level
+  // binding rather than a local one, because the rows read it through a closure
+  // handed to them once, at creation.
+  let selectable = new Set();
   const mergeLabel = el('span', { class: 'merge-bar-label' });
   const mergeBtn = button({ class: 'btn primary', text: 'Merge', onClick: onMergeClicked });
   const clearSelection = button({
@@ -161,11 +165,22 @@ export function createPracticePanel({ container, store, actions, player, createR
     const liveIds = new Set(sentences.map((s) => s.id));
     for (const id of [...selection]) if (!liveIds.has(id)) selection.delete(id);
 
+    // Only a run can be merged, so only the sentences that keep the selection a
+    // run can be ticked: the rest are shown, but not pickable.
+    selectable = mergeSelectable(session, selection);
+
     reconcile(list, sentences, {
       key: (sentence) => sentence.id,
       create: (sentence, index) => {
         const row = createRow({
-          sentence, index, actions, player, recorderFor, onSelect, isSelected: (id) => selection.has(id),
+          sentence,
+          index,
+          actions,
+          player,
+          recorderFor,
+          onSelect,
+          isSelected: (id) => selection.has(id),
+          isSelectable: (id) => selectable.has(id),
         });
         rows.set(sentence.id, row);
         return row.element;

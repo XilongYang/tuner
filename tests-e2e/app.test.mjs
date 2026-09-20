@@ -139,7 +139,7 @@ test('ticking two sentences and merging joins them back into one', async () => {
   await context.close();
 });
 
-test('merging sentences that are not adjacent is refused, in words', async () => {
+test('sentences that would break the run cannot be selected at all', async () => {
   const { page, context } = await openApp();
 
   await page.fill('.practice-input', 'Alpha one. Beta two. Gamma three.');
@@ -147,11 +147,9 @@ test('merging sentences that are not adjacent is refused, in words', async () =>
   await page.waitForSelector('.sentence-row');
 
   await page.locator('.row-select').nth(0).check();
-  await page.locator('.row-select').nth(2).check();
-  await page.getByRole('button', { name: 'Merge', exact: true }).click();
 
-  await page.waitForFunction(() => document.querySelector('.practice-status')?.textContent.includes('not next to each other'));
-  assert.equal(await page.locator('.sentence-row').count(), 3, 'nothing was merged');
+  assert.equal(await page.locator('.row-select').nth(1).isEnabled(), true, 'the neighbour extends the run');
+  assert.equal(await page.locator('.row-select').nth(2).isEnabled(), false, 'the one beyond it does not');
 
   await context.close();
 });

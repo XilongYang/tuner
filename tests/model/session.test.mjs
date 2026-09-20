@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   sentenceById, indexOfSentence, blankSentence, updateSentence, updateSession,
-  splitSentence, mergeSentences, canMerge, derivedInputText, sessionLabel,
+  splitSentence, mergeSentences, canMerge, derivedInputText, sessionLabel, mergeSelectable
 } from '../../js/model/session.js';
 
 const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', now: 10, ...over });
@@ -216,3 +216,34 @@ test('sessionLabel: truncates by code point, so an astral character is never cut
   const label = sessionLabel(session([sentence('a', '𠮟'.repeat(30))]), 5);
   assert.equal(label, `${'𠮟'.repeat(5)}…`);
 });
+
+test('mergeSelectable: with nothing selected, any sentence can start a run', () => {
+  const s = threeSentenceSession();
+  assert.deepEqual([...mergeSelectable(s, [])], ['s1', 's2', 's3']);
+  assert.deepEqual([...mergeSelectable(s, null)], ['s1', 's2', 's3']);
+});
+
+test('mergeSelectable: a selected run offers its neighbours and its own ends', () => {
+  const s = threeSentenceSession();
+  assert.deepEqual([...mergeSelectable(s, ['s2'])].sort(), ['s1', 's2', 's3']);
+  assert.deepEqual([...mergeSelectable(s, ['s1'])].sort(), ['s1', 's2'], 'nothing before the first');
+});
+
+test('mergeSelectable: the middle of a run is not offered -- dropping it would leave a hole', () => {
+  const s = threeSentenceSession();
+  assert.deepEqual([...mergeSelectable(s, ['s1', 's2', 's3'])].sort(), ['s1', 's3']);
+});
+
+test('mergeSelectable: ids that are no longer in the session do not widen the run', () => {
+  const s = threeSentenceSession();
+  assert.deepEqual([...mergeSelectable(s, ['s2', 'gone'])].sort(), ['s1', 's2', 's3']);
+});
+
+test('mergeSelectable: an empty session offers nothing rather than throwing', () => {
+  assert.deepEqual([...mergeSelectable({ sentences: [] }, ['s1'])], []);
+  assert.deepEqual([...mergeSelectable(null, [])], []);
+});
+
+function threeSentenceSession() {
+  return { sentences: [{ id: 's1' }, { id: 's2' }, { id: 's3' }] };
+}

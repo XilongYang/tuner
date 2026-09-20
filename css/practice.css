@@ -140,6 +140,13 @@
   accent-color: var(--ink);
 }
 
+/* Not pickable because it would break the run being selected, rather than
+   broken: faded and inert, with the reason in its tooltip. */
+.row-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .row-body {
   flex: 1;
   min-width: 0;

@@ -140,7 +140,7 @@ test('ticking two sentences and merging joins them back into one', async () => {
   await page.fill('.practice-input', 'Alpha one. Beta two. Gamma three.');
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await page.waitForSelector('.sentence-row');
-  const before = (await page.locator('.sentence-text').allTextContents()).join('');
+  const before = (await page.locator('.sentence-text').allTextContents()).join(' ');
 
   await page.locator('.row-select').nth(0).check();
   assert.equal(await page.locator('.merge-bar').isVisible(), true);
@@ -148,8 +148,8 @@ test('ticking two sentences and merging joins them back into one', async () => {
   await page.getByRole('button', { name: 'Merge', exact: true }).click();
 
   await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
-  assert.equal((await page.locator('.sentence-text').allTextContents()).join(''), before,
-    'the text is the same text, in one fewer sentence');
+  assert.equal((await page.locator('.sentence-text').allTextContents()).join(' '), before,
+    'the text reads the same, in one fewer sentence -- the merged seam gets back its space');
   assert.equal(await page.locator('.merge-bar').isVisible(), false, 'and the selection is spent');
   assert.deepEqual(errors, []);
 

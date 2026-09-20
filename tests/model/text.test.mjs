@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { segmentText, vocabKey, detectLang, canCutBetween } from '../../js/model/text.js';
+import { segmentText, vocabKey, detectLang, canCutBetween , seamSeparator} from '../../js/model/text.js';
 
 test('segmentText: splits on Japanese terminal punctuation, keeping it', () => {
   assert.deepEqual(segmentText('おはよう。元気ですか？はい！'), ['おはよう。', '元気ですか？', 'はい！']);
@@ -122,4 +122,25 @@ test('canCutBetween: never immediately before whitespace, which would begin the 
   assert.equal(canCutBetween('a', ' '), false);
   assert.equal(canCutBetween('。', ' '), false);
   assert.equal(canCutBetween(' ', ' '), false);
+});
+
+test('seamSeparator: English sentences rejoin with the space segmentation trimmed', () => {
+  assert.equal(seamSeparator('One sentence.', 'Two sentences.'), ' ');
+  assert.equal(seamSeparator('終わり。', 'Next one.'), ' ', 'one Latin side is enough');
+});
+
+test('seamSeparator: Japanese rejoins with nothing', () => {
+  assert.equal(seamSeparator('今日はいい天気ですね。', '散歩に行きましょう。'), '');
+  assert.equal(seamSeparator('はい', 'いいえ'), '');
+});
+
+test('seamSeparator: a seam that already has its whitespace gets nothing, so a split rejoins exactly', () => {
+  assert.equal(seamSeparator('Alpha ', 'beta'), '');
+  assert.equal(seamSeparator('Alpha', ' beta'), '');
+});
+
+test('seamSeparator: nothing to join, nothing to insert', () => {
+  assert.equal(seamSeparator('', 'beta'), '');
+  assert.equal(seamSeparator('Alpha', ''), '');
+  assert.equal(seamSeparator(null, null), '');
 });

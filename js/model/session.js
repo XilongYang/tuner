@@ -14,6 +14,7 @@
 // a platform concern.
 
 import { splitText, isSplittable, partitionWords, partitionManualPoints, mergeWords, mergeSeams, chars } from './geometry.js';
+import { seamSeparator } from './text.js';
 
 export const sentenceById = (session, id) => (session?.sentences || []).find((s) => s.id === id) || null;
 export const indexOfSentence = (session, id) => (session?.sentences || []).findIndex((s) => s.id === id);
@@ -153,9 +154,13 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
 /**
  * Merge a run of adjacent sentences into one.
  *
- * Texts are joined with no separator: a split keeps the whitespace at the cut on
- * its left half, so rejoining restores exactly the original text. Inserting a
- * separator here would add a space that was never there.
+ * Two sentences that came from one split rejoin exactly: the split kept the
+ * whitespace at the cut on its left half, so the seam already carries whatever
+ * stood there. Two sentences that came from segmenting a block of text do not:
+ * segmentation trimmed each one, and the space between them was dropped there.
+ * seamSeparator() puts back what that seam needs -- a space between Latin text,
+ * nothing between Japanese -- so the merged sentence reads as it was written.
+ * It is not a cosmetic matter: this text is what gets read aloud and scored.
  *
  * The seams become manual cut points on the result, so the merge can be undone
  * at exactly the positions it joined even where there are no word timings to
@@ -177,7 +182,13 @@ export function mergeSentences(session, { sentenceIds, newId, now, reference = n
   if (!adjacent) return null;
 
   const run = sorted.map((i) => session.sentences[i]);
-  const texts = run.map((s) => s.text);
+
+  // Each piece carries the separator that belongs after it, so a word's
+  // position inside its own piece is unchanged and the seam between two pieces
+  // lands at the start of the next one -- which is where splitting again cuts,
+  // leaving the separator on the left half exactly as a split always does.
+  const own = run.map((s) => s.text);
+  const texts = own.map((text, i) => (i === own.length - 1 ? text : text + seamSeparator(text, own[i + 1])));
   const ranges = run.map((s) => (
     s.sourceOffsetMs != null && s.sourceDurationMs != null
       ? { offsetMs: s.sourceOffsetMs, durationMs: s.sourceDurationMs }

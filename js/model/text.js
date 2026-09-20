@@ -101,6 +101,28 @@ export function canCutBetween(before, after) {
 }
 
 /**
+ * What belongs between two sentences being joined back together: a single
+ * space, or nothing.
+ *
+ * Splitting keeps the whitespace at the cut on the left half, so joining those
+ * two halves needs nothing and is exactly lossless. But sentences made by
+ * segmenting a block of text are trimmed -- the space that stood between them
+ * was dropped there, not here -- so joining those with nothing produces text
+ * that was never written: "One sentence.Two sentences.". That is not only ugly
+ * on screen; it is what gets sent to be read aloud and scored against.
+ *
+ * Japanese is written without spaces, so a seam between two of its characters
+ * takes nothing. A seam where either side is Latin takes a space.
+ */
+export function seamSeparator(left, right) {
+  if (!left || !right) return '';
+  const before = left[left.length - 1];
+  const after = right[0];
+  if (SPACE.test(before) || SPACE.test(after)) return '';
+  return WORD_CHAR.test(before) || WORD_CHAR.test(after) ? ' ' : '';
+}
+
+/**
  * The key a vocabulary entry is stored under: whitespace, punctuation and
  * symbols removed, lowercased. "Hello, world!" and "hello world" are therefore
  * the same entry, and so are a word picked with and without its trailing

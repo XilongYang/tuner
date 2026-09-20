@@ -129,13 +129,50 @@ test('splitSentence: the halves inherit hidden, so a masked sentence stays maske
   assert.deepEqual(after.sentences.map((s) => s.hidden), [true, true]);
 });
 
-test('mergeSentences: joins a run into one, with no separator inserted', () => {
+test('mergeSentences: joins a run into one, adding nothing where the seam already has its space', () => {
   const before = session([sentence('a', 'one'), sentence('b', 'Alpha '), sentence('c', 'beta'), sentence('d', 'four')]);
   const result = mergeSentences(before, { sentenceIds: ['b', 'c'], newId: 'M', now: 500 });
 
   assert.deepEqual(result.session.sentences.map((s) => s.id), ['a', 'M', 'd']);
   assert.equal(result.session.sentences[1].text, 'Alpha beta');
   assert.deepEqual(result.replacedIds, ['b', 'c']);
+});
+
+test('mergeSentences: two segmented English sentences get back the space segmentation trimmed', () => {
+  // Without it the result is "One sentence.Two sentences." -- text nobody wrote,
+  // and text that then gets read aloud and scored in that state.
+  const before = session([sentence('a', 'One sentence.'), sentence('b', 'Two sentences.')]);
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  assert.equal(after.sentences[0].text, 'One sentence. Two sentences.');
+});
+
+test('mergeSentences: Japanese is joined with nothing, because that is how it is written', () => {
+  const before = session([sentence('a', '今日はいい天気ですね。'), sentence('b', '散歩に行きましょう。')]);
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  assert.equal(after.sentences[0].text, '今日はいい天気ですね。散歩に行きましょう。');
+});
+
+test('mergeSentences: an inserted separator shifts the words and the seam past it', () => {
+  const before = session([
+    sentence('a', 'One.', { words: [word(0, 4, 100, 50)] }),
+    sentence('b', 'Two.', { words: [word(0, 4, 300, 50)] }),
+  ]);
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+
+  assert.equal(after.sentences[0].text, 'One. Two.');
+  assert.deepEqual(after.sentences[0].words, [word(0, 4, 100, 50), word(5, 9, 300, 50)]);
+  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 5, offsetMs: null }],
+    'the seam sits at the start of the second piece, so splitting there leaves the space on the left');
+});
+
+test('mergeSentences: splitting at the seam a merge created gives the pieces back', () => {
+  const before = session([sentence('a', 'One.'), sentence('b', 'Two.')]);
+  const merged = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 }).session;
+  const seam = merged.sentences[0].manualPoints[0].charIndex;
+
+  const split = splitSentence(merged, { sentenceId: 'M', charIndex: seam, leftId: 'L', rightId: 'R', now: 2 });
+  assert.deepEqual(split.session.sentences.map((s) => s.text), ['One. ', 'Two.'],
+    'the separator goes with the left half, exactly as a split always leaves whitespace');
 });
 
 test('mergeSentences: split then merge restores the original text exactly', () => {
@@ -167,7 +204,7 @@ test('mergeSentences: ids given out of order still merge the run correctly', () 
   const before = session([sentence('a', 'one'), sentence('b', 'two'), sentence('c', 'three')]);
   const { session: after } = mergeSentences(before, { sentenceIds: ['c', 'b'], newId: 'M', now: 1 });
   assert.deepEqual(after.sentences.map((s) => s.id), ['a', 'M']);
-  assert.equal(after.sentences[1].text, 'twothree');
+  assert.equal(after.sentences[1].text, 'two three');
 });
 
 test('mergeSentences: non-adjacent sentences are refused', () => {

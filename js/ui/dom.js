@@ -81,7 +81,15 @@ const KEY_ATTR = 'reconcileKey';
  *
  * `update` is optional: a row type that renders everything from immutable data
  * needs no update pass. It receives the existing element so it can patch just
- * what changed.
+ * what changed, and may instead return a freshly built element to take its
+ * place -- which is the honest thing to do for a row that is cheaper to rebuild
+ * than to patch. What it must not do is swap the element out of the DOM itself
+ * (`element.replaceWith(...)`): the key lives on the element, so the
+ * replacement arrives unkeyed while the original is still the row this pass is
+ * placing, and the list ends up holding both. That produced a library showing
+ * every session twice, where deleting either copy made both disappear -- they
+ * were one record all along. Doing it detaches the element, which is detected
+ * below and refused.
  *
  * @template T
  * @param {Element} container
@@ -89,7 +97,7 @@ const KEY_ATTR = 'reconcileKey';
  * @param {object} spec
  * @param {(item: T, index: number) => string} spec.key
  * @param {(item: T, index: number) => Element} spec.create
- * @param {(element: Element, item: T, index: number) => void} [spec.update]
+ * @param {(element: Element, item: T, index: number) => void|Element} [spec.update]
  * @returns {{ created: string[], updated: string[], removed: string[] }}
  */
 export function reconcile(container, items, { key, create, update }) {
@@ -117,7 +125,16 @@ export function reconcile(container, items, { key, create, update }) {
     const k = keys[i];
     let node = existing.get(k);
     if (node) {
-      if (update) update(node, items[i], i);
+      if (update) {
+        const replacement = update(node, items[i], i);
+        if (replacement && replacement !== node) {
+          node.remove();
+          node = replacement;
+          node.dataset[KEY_ATTR] = k;
+        } else if (node.parentNode !== container) {
+          throw new Error(`reconcile: update detached the row for ${k} instead of returning its replacement`);
+        }
+      }
       updated.push(k);
       existing.delete(k);
     } else {

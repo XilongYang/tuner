@@ -70,7 +70,10 @@ export function createLibraryPanel({ container, actions, player }) {
     reconcile(list, sessions, {
       key: (session) => session.id,
       create: (session) => sessionRow(session),
-      update: (element, session) => element.replaceWith(sessionRow(session)),
+      // A row is cheaper to rebuild than to patch, so it is rebuilt and handed
+      // back for reconcile to swap in -- see its note on why a row must not
+      // replace itself.
+      update: (_element, session) => sessionRow(session),
     });
   }
 
@@ -122,7 +125,7 @@ export function createLibraryPanel({ container, actions, player }) {
     reconcile(list, entries, {
       key: (entry) => entry.id,
       create: (entry) => vocabRow(entry),
-      update: (element, entry) => element.replaceWith(vocabRow(entry)),
+      update: (_element, entry) => vocabRow(entry),
     });
   }
 

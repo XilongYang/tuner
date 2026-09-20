@@ -173,3 +173,41 @@ test('reconcile: foreign unkeyed children are cleared out, not left to drift', (
   reconcile(container, rows(['a']), spec);
   assert.deepEqual([...container.children].map((c) => c.tagName), ['DIV']);
 });
+
+test('reconcile: an update that returns a new element swaps it in, keyed, in place', () => {
+  reconcile(container, rows(['a', 'b', 'c']), spec);
+  const rebuild = {
+    ...spec,
+    update: (_node, item) => el('div', { class: 'row rebuilt', text: item.label }),
+  };
+
+  reconcile(container, rows(['a', 'b', 'c']), rebuild);
+
+  assert.equal(container.children.length, 3, 'one row per key, not two');
+  assert.deepEqual([...container.children].map((c) => c.textContent), ['A', 'B', 'C']);
+  assert.ok([...container.children].every((c) => c.classList.contains('rebuilt')), 'the returned rows are what is shown');
+});
+
+test('reconcile: a rebuilding list stays at one row per key however often it is repainted', () => {
+  // The bug this guards: the library rebuilt each row by calling
+  // element.replaceWith() and returning nothing, so every session was listed
+  // twice -- and deleting either copy made both vanish, because there was only
+  // ever one record.
+  const rebuild = { ...spec, update: (_node, item) => el('div', { class: 'row', text: item.label }) };
+  for (let i = 0; i < 4; i++) reconcile(container, rows(['a', 'b']), rebuild);
+
+  assert.equal(container.children.length, 2);
+});
+
+test('reconcile: an update that replaces the row itself is refused rather than duplicating it', () => {
+  reconcile(container, rows(['a']), spec);
+  const selfReplacing = {
+    ...spec,
+    update: (node, item) => { node.replaceWith(el('div', { class: 'row', text: item.label })); },
+  };
+
+  assert.throws(
+    () => reconcile(container, rows(['a']), selfReplacing),
+    /update detached the row for a/,
+  );
+});

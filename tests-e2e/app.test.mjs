@@ -161,6 +161,35 @@ test('the library lists a saved session and opens it', async () => {
   await context.close();
 });
 
+test('reopening the library lists the session once, not once per visit', async () => {
+  // The path a user actually took: split, open the library, click the session
+  // that is already on screen, open the library again -- and see it twice, with
+  // deleting either copy taking both away.
+  const { page, context, errors } = await openApp();
+
+  await page.fill('.practice-input', 'One. Two.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  // Autosave writes on a delay, and the library lists what is stored.
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  for (let visit = 0; visit < 2; visit++) {
+    await page.getByRole('button', { name: 'Library' }).click();
+    await page.waitForSelector('.library-row');
+    await page.locator('.library-open').first().click();
+    await page.waitForTimeout(50);
+  }
+
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('.library-row');
+  assert.equal(await page.locator('.library-row').count(), 1);
+  // Whether the list duplicates rows or refuses to repaint at all, this catches
+  // it: a repaint that throws lands here as a page error.
+  assert.deepEqual(errors, []);
+
+  await context.close();
+});
+
 test('deleting a session asks first, and removes it', async () => {
   const { page, context } = await openApp();
 

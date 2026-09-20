@@ -130,6 +130,24 @@ test('library: opening it lists the saved sessions', async () => {
   assert.equal(h.container.hidden, false);
 });
 
+test('library: reopening it lists each session once, not once per visit', async () => {
+  // The bug: rows were rebuilt by replacing themselves, which left the old row
+  // in place alongside the new one. Every reopen added another copy of every
+  // session, and deleting any copy made them all disappear -- one record was
+  // behind all of them.
+  const h = libraryHarness({ sessions: [session('a'), session('b')] });
+
+  for (let visit = 0; visit < 3; visit++) {
+    h.panel.setOpen(true);
+    await tick();
+    h.panel.setOpen(false);
+  }
+
+  h.panel.setOpen(true);
+  await tick();
+  assert.equal(h.container.querySelectorAll('.library-row').length, 2);
+});
+
 test('library: a session opens when its label is clicked', async () => {
   const h = libraryHarness();
   h.panel.setOpen(true);

@@ -55,9 +55,14 @@ export function renderSentenceText(sentence, { onSplit }) {
 }
 
 function splitMarker(pointer, onSplit) {
-  // The glyph is decoration and comes from CSS, so a text-derived marker can be
-  // laid out as a zero-width hit area without an inline character forcing the
-  // sentence's own characters apart. `aria-label` is what the button is called.
+  // The marker floats above the character gap rather than sitting in it: it is
+  // wrapped in a zero-size inline anchor and positioned out of flow from there,
+  // so it costs the line no width. An inline marker would shove the following
+  // characters apart and change where the line wraps -- badly so in Japanese,
+  // where a text-derived position exists between every pair of characters.
+  //
+  // The glyph is decoration and comes from CSS; `aria-label` is what the button
+  // is called.
   const marker = button({
     class: `split-marker split-marker--${pointer.kind}`,
     title: pointer.ms == null ? 'Split here (no audio timing at this position)' : 'Split here',
@@ -72,7 +77,7 @@ function splitMarker(pointer, onSplit) {
   marker.addEventListener('click', () => {
     onSplit(Number(marker.dataset.charIndex), readNumber(marker, 'ms'));
   });
-  return marker;
+  return el('span', { class: 'split-anchor' }, [marker]);
 }
 
 /** The positions a rendered sentence is offering, for a test or a caller that needs to know. */

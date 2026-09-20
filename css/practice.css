@@ -98,62 +98,60 @@
    are simply not painted, so nothing about the underlying text is altered. */
 .sentence-text.is-hidden-text { color: var(--ink-faint); letter-spacing: 0.08em; }
 
-/* The glyph comes from CSS, not the DOM: it is decoration, the button is named
-   by aria-label, and keeping it out of the text means a sentence's textContent
-   is the sentence. A plain vertical bar rather than a prettier cut mark (⁞,
-   U+205E) because the prettier ones are missing from common system fonts and
-   render as nothing at all, which is how this marker came to be invisible in a
-   headless browser once already. */
-.split-marker::before { content: '|'; }
+/* A cut marker floats above the gap it would cut at, anchored by a zero-size
+   inline span. It is out of flow, so it costs the line no width: an inline
+   marker pushes the characters apart and changes where the line wraps, and in
+   Japanese -- where a text-derived position sits between every pair of
+   characters -- it turns the sentence into s p a c e d   o u t text.
 
-/* A cut marker sits between two characters, so it must take almost no width of
-   its own -- otherwise the sentence reads as if it had spaces in it. */
-.split-marker {
-  appearance: none;
-  border: 0;
-  background: none;
-  padding: 0 1px;
-  margin: 0 -1px;
-  color: var(--ink-faint);
-  font-size: 0.72em;
-  line-height: 1;
-  cursor: pointer;
+   -26px was measured against this text's 18px/1.7 line, and is a compromise
+   rather than clearance: the gap between two wrapped lines is about 5px while
+   the triangle is ~10px tall, so no offset both clears the current line and
+   stays off the line above. This leans to the wrapped-line side, overlapping
+   only the current line's leading, which is empty space above the glyphs. It is
+   an `em`-free value on purpose: an em here would be relative to the button's
+   own 10px font, not the text's. Re-measure if the text's size or line-height
+   changes. */
+.split-anchor {
+  display: inline-block;
+  position: relative;
+  width: 0;
+  height: 0;
   vertical-align: baseline;
 }
 
-.split-marker:hover { color: var(--accent); }
+.split-marker {
+  appearance: none;
+  position: absolute;
+  left: 0;
+  top: -26px;
+  transform: translateX(-50%);
+  padding: 0 2px;
+  margin: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-faint);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  z-index: 1;
+}
+
+.split-marker::before { content: '▾'; }
+
+.split-marker:hover {
+  color: var(--accent);
+  transform: translateX(-50%) scale(1.4);
+}
+
 .split-marker:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* A position with real word timing can keep its audio when split; one derived
-   from the text cannot. Worth showing, since it changes what the split costs. */
-.split-marker--word { color: var(--ink-faint); opacity: 0.85; }
+   from the text cannot, and is a guess at where to cut rather than a verified
+   boundary. Worth distinguishing, since it changes what the split costs. */
 .split-marker--manual { color: var(--busy); }
-
-/* Text-derived positions exist between every pair of characters, so they must
-   cost the line no width: fading them is not enough, because a nearly invisible
-   glyph still pushes the characters apart and the sentence ends up reading as if
-   it were spelled o u t   l i k e   t h i s -- worse in Japanese, which has no
-   spaces to begin with. So the button keeps a real 10px hit area and pulls it
-   back with equal negative margins: net advance zero, while still being a target
-   a pointer and a screen reader can find. It overlaps its neighbouring
-   characters, which is exactly where "split here" means.
-
-   It stays faint until the sentence is pointed at, and answers keyboard focus
-   too, so it is not hover-only. Nothing reflows when it lights up. */
-.split-marker--text {
-  display: inline-block;
-  width: 10px;
-  padding: 0;
-  margin: 0 -5px;
-  text-align: center;
-  vertical-align: baseline;
-}
-
-.split-marker--text::before { opacity: 0.18; }
-.sentence-row:hover .split-marker--text::before,
-.sentence-row:focus-within .split-marker--text::before { opacity: 0.55; }
-.split-marker--text:hover::before,
-.split-marker--text:focus-visible::before { opacity: 1; }
+.split-marker--text { opacity: 0.55; }
+.split-marker--text:hover { opacity: 1; }
 
 .sentence-controls {
   display: flex;

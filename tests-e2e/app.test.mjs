@@ -22,8 +22,27 @@ let browser;
 
 before(async () => {
   server = await startServer();
-  browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
+  browser = await chromium.launch({
+    // Playback has to actually run for the reading to be followed along the
+    // text, and nothing here is a user gesture as far as the browser is
+    // concerned.
+    args: ['--autoplay-policy=no-user-gesture-required'],
+    ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
+  });
 });
+
+/** A WAV tone, so a stubbed speech service can answer with real audio. */
+function toneWav(ms, rate = 24000) {
+  const samples = Math.floor(rate * ms / 1000);
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0); header.writeUInt32LE(36 + samples * 2, 4); header.write('WAVE', 8);
+  header.write('fmt ', 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+  header.write('data', 36); header.writeUInt32LE(samples * 2, 40);
+  const body = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i++) body.writeInt16LE(Math.round(Math.sin(2 * Math.PI * 440 * (i / rate)) * 9000), i * 2);
+  return Buffer.concat([header, body]);
+}
 
 after(async () => {
   await browser?.close();
@@ -413,6 +432,76 @@ test('without credentials, speaking says what to do rather than failing obscurel
 
   await page.waitForSelector('.sentence-status:not([hidden])');
   assert.match(await page.locator('.sentence-status').textContent(), /Azure key and region/);
+
+  await context.close();
+});
+
+test('a reading is followed along the text, a word at a time', async () => {
+  const { page, context, errors } = await openApp();
+
+  // The service reads the sentence, and -- asked afterwards -- says where each
+  // word fell in what it read. Synthesis alone reports no timings at all, so
+  // this second round trip is the only source of them for a typed session.
+  await context.route('**/cognitiveservices/v1', (route) => route.fulfill({
+    status: 200, headers: { 'Content-Type': 'audio/wav' }, body: toneWav(2000),
+  }));
+  await context.route('**/speechtotext/transcriptions:transcribe**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      durationMilliseconds: 2000,
+      phrases: [{
+        locale: 'en-US',
+        words: [
+          { text: 'Alpha', offsetMilliseconds: 0, durationMilliseconds: 600 },
+          { text: 'beta', offsetMilliseconds: 700, durationMilliseconds: 500 },
+          { text: 'gamma.', offsetMilliseconds: 1300, durationMilliseconds: 600 },
+        ],
+      }],
+    }),
+  }));
+
+  await page.evaluate(() => window.tuner.settings.saveCredentials({ key: 'k', region: 'r', resourceName: 'res' }));
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.tuner));
+
+  await page.fill('.practice-input', 'Alpha beta gamma.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.getByRole('button', { name: 'Speak' }).click();
+
+  await page.waitForFunction(() => (window.tuner.store.get().sentences[0].words || []).length === 3);
+
+  const lit = () => page.evaluate(() => [...document.querySelectorAll('.sentence-char.is-speaking')].map((c) => c.textContent).join(''));
+  await page.waitForFunction(() => document.querySelector('.sentence-char.is-speaking')?.textContent === 'A');
+  assert.equal(await lit(), 'Alpha', 'the first word is lit while it is being read');
+
+  await page.waitForFunction(() => [...document.querySelectorAll('.sentence-char.is-speaking')].map((c) => c.textContent).join('') === 'beta');
+  assert.equal(await lit(), 'beta', 'and the highlight moves on with the reading');
+
+  assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a reading with no word timings leaves the text alone rather than guessing', async () => {
+  const { page, context } = await openApp();
+
+  await context.route('**/cognitiveservices/v1', (route) => route.fulfill({
+    status: 200, headers: { 'Content-Type': 'audio/wav' }, body: toneWav(600),
+  }));
+  // No resource name, so there is nothing to ask for timings with.
+  await page.evaluate(() => window.tuner.settings.saveCredentials({ key: 'k', region: 'r' }));
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.tuner));
+
+  await page.fill('.practice-input', 'Alpha beta gamma.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.getByRole('button', { name: 'Speak' }).click();
+  await page.waitForTimeout(500);
+
+  assert.equal(await page.locator('.sentence-char.is-speaking').count(), 0);
+  assert.equal(await page.evaluate(() => window.tuner.store.get().sentences[0].words), null);
 
   await context.close();
 });

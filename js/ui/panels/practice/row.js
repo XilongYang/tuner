@@ -178,13 +178,15 @@ export function createRow({
   // time has to be put back on the source's timeline before the words make
   // sense -- an imported sentence's words are stamped on that timeline, not on
   // its own clip's.
-  const stopFollowing = player.onTime?.((playingToken, elapsedMs) => {
+  // Not optional calls: a player without these is a broken player, and failing
+  // here is how that gets noticed rather than quietly losing the highlight.
+  const stopFollowing = player.onTime((playingToken, elapsedMs) => {
     if (playingToken !== sentenceId) return;
     const base = sentence.referenceSource === 'import' ? (sentence.sourceOffsetMs ?? 0) : 0;
     setSpeaking(textHost, wordAt(sentence.words, base + elapsedMs));
   });
 
-  const stopWatchingPlayback = player.subscribe?.((playingToken) => {
+  const stopWatchingPlayback = player.subscribe((playingToken) => {
     if (playingToken !== sentenceId) setSpeaking(textHost, null);
     refreshControls();
   });
@@ -271,8 +273,8 @@ export function createRow({
     say,
     /** Called when this row leaves the list, so nothing keeps calling into it. */
     dispose() {
-      stopFollowing?.();
-      stopWatchingPlayback?.();
+      stopFollowing();
+      stopWatchingPlayback();
     },
   };
 }

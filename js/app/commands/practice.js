@@ -13,6 +13,7 @@
 
 import { updateSentence, sentenceById, setOnEverySentence } from '../../model/session.js';
 import { localeOf } from '../../model/lang.js';
+import { alignWordsToText } from '../../model/transcript.js';
 
 const failure = (reason) => ({ ok: false, reason });
 
@@ -69,10 +70,62 @@ export async function speak({ store, sentenceId, deps, force = false }) {
     reference: clip,
     referenceHash: null, // stamped on save; a stale hash here would claim the old clip
     referenceSource: 'tts',
+    // Whatever word timings this sentence had described a clip that is now
+    // gone. Keeping them would leave the reading followed along the wrong
+    // words and vocabulary cut from the wrong moments.
+    words: null,
   }, clock()), 'speak');
 
   const played = await player.play(clip, sentenceId);
-  return { ok: true, synthesized: true, played };
+
+  // Learning where the words fall in the new clip takes another round trip, and
+  // playback must not wait for it: the reading starts now, and the highlight
+  // joins in when it can. Returned rather than dropped so a caller -- a test --
+  // can wait for it; the panel ignores it.
+  return { ok: true, synthesized: true, played, aligning: alignReference({ store, sentenceId, clip, deps }) };
+}
+
+/**
+ * Recover word timings for a synthesized clip, by transcribing the reading back.
+ *
+ * Synthesis says nothing about where each word ended up, and that is what the
+ * karaoke highlight, the exact cut markers and vocabulary clips are all made
+ * of. Transcribing the clip is the only way to find out.
+ *
+ * Best-effort throughout: it needs the resource name that fast transcription
+ * requires, which Speak itself does not, and a failure here must never disturb
+ * a reading that is already playing. Every outcome is reported rather than
+ * thrown, and nothing is written unless the sentence still holds the very clip
+ * this ran on -- by the time it answers, the sentence may have been split,
+ * merged, or spoken again.
+ */
+export async function alignReference({ store, sentenceId, clip, deps }) {
+  const { speech, settings, clock } = deps;
+
+  if (!settings.credentials()?.resourceName) return failure('no-resource-name');
+
+  const sentence = sentenceById(store.get(), sentenceId);
+  if (!sentence || sentence.reference !== clip) return failure('superseded');
+  const text = sentence.text;
+  const locale = localeOf(sentence.lang);
+
+  let transcript;
+  try {
+    transcript = await speech().transcribe(clip, [locale]);
+  } catch (err) {
+    return failure(err.message);
+  }
+
+  const words = alignWordsToText(transcript.phrases, text);
+  if (!words) return failure('no-words');
+
+  const applied = store.apply((current) => {
+    const now = sentenceById(current, sentenceId);
+    if (!now || now.reference !== clip || now.text !== text) return null;
+    return updateSentence(current, sentenceId, { words }, clock());
+  }, 'align');
+
+  return applied ? { ok: true, words: words.length } : failure('superseded');
 }
 
 /**

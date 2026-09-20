@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  speak, startRecording, stopRecording, score, toggleHidden, setLanguage, setAllHidden,
+  speak, startRecording, stopRecording, score, toggleHidden, setLanguage, setAllHidden, alignReference,
 } from '../../js/app/commands/practice.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence, updateSentence } from '../../js/model/session.js';
@@ -20,6 +20,7 @@ const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', 
 function harness({
   sentences = [sentence('s1', 'Hello there.')],
   credentials = true,
+  resourceName = null,
   speechOver = {},
   browser = { available: true },
 } = {}) {
@@ -29,6 +30,10 @@ function harness({
 
   const speechClient = {
     synthesize: async (text, locale, voice) => { calls.push({ op: 'synthesize', text, locale, voice }); return clip([1]); },
+    transcribe: async (blob, locales) => {
+      calls.push({ op: 'transcribe', locales });
+      return { phrases: [{ words: [{ text: 'Hello', offsetMs: 0, durationMs: 300 }, { text: 'there.', offsetMs: 400, durationMs: 400 }] }], durationMs: 800 };
+    },
     assess: async (blob, referenceText, locale) => {
       calls.push({ op: 'assess', referenceText, locale });
       return { overall: { pronunciation: 90 }, words: [] };
@@ -45,6 +50,7 @@ function harness({
       speech: () => speechClient,
       settings: {
         hasCredentials: () => credentials,
+        credentials: () => (credentials ? { key: 'k', region: 'r', resourceName } : null),
         voice: (locale) => `voice-for-${locale}`,
         hideText: () => false,
         saveHideText: () => true,
@@ -363,4 +369,89 @@ test('setAllHidden: with nothing on screen the preference is still set, for the 
 
   assert.equal(setAllHidden({ store: h.store, hidden: true, deps: h.deps }).ok, true);
   assert.deepEqual(saved, [true]);
+});
+
+// ---- Recovering word timings for a synthesized clip ----
+
+test('speak: the reading is transcribed back, so the words can be followed along the text', async () => {
+  const h = harness({ resourceName: 'my-resource' });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.deepEqual(await result.aligning, { ok: true, words: 2 });
+
+  assert.deepEqual(h.store.get().sentences[0].words, [
+    { charStart: 0, charEnd: 5, offsetMs: 0, durationMs: 300 },
+    { charStart: 6, charEnd: 11, offsetMs: 400, durationMs: 400 },
+  ]);
+  assert.deepEqual(h.calls.map((c) => c.op), ['synthesize', 'transcribe']);
+});
+
+test('speak: playback does not wait for the timings -- the reading starts first', async () => {
+  const h = harness({ resourceName: 'my-resource' });
+  let released;
+  h.deps.speech = () => ({
+    synthesize: async () => clip([1]),
+    transcribe: () => new Promise((resolve) => { released = resolve; }),
+  });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+
+  assert.equal(result.played, true, 'played already, with the transcription still in flight');
+  assert.deepEqual(h.played, ['s1']);
+  released({ phrases: [], durationMs: 0 });
+  await result.aligning;
+});
+
+test('speak: a new clip drops the timings of the one it replaced', async () => {
+  // They described audio that no longer exists: keeping them would follow the
+  // reading along the wrong words and cut vocabulary from the wrong moments.
+  const h = harness({
+    sentences: [sentence('s1', 'Hello there.', { words: [{ charStart: 0, charEnd: 5, offsetMs: 9000, durationMs: 100 }] })],
+  });
+
+  await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.equal(h.store.get().sentences[0].words, null, 'cleared, not carried over');
+});
+
+test('speak: without the resource name the reading still works, it just has no timings', async () => {
+  const h = harness();
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(await result.aligning, { ok: false, reason: 'no-resource-name' });
+  assert.deepEqual(h.calls.map((c) => c.op), ['synthesize'], 'and nothing was asked of the service');
+});
+
+test('alignReference: a transcription failure is reported, never thrown at the reading', async () => {
+  const h = harness({ resourceName: 'my-resource' });
+  h.deps.speech = () => ({
+    synthesize: async () => clip([1]),
+    transcribe: async () => { throw new Error('Transcription failed: HTTP 503'); },
+  });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.equal(result.ok, true, 'the reading played regardless');
+  assert.match((await result.aligning).reason, /HTTP 503/);
+});
+
+test('alignReference: timings for a clip the sentence no longer holds are dropped', async () => {
+  const h = harness({ resourceName: 'my-resource' });
+  const stale = clip([7]);
+
+  const result = await alignReference({ store: h.store, sentenceId: 's1', clip: stale, deps: h.deps });
+
+  assert.deepEqual(result, { ok: false, reason: 'superseded' });
+  assert.equal(h.store.get().sentences[0].words, null);
+});
+
+test('alignReference: a reading nothing could be matched in leaves the sentence alone', async () => {
+  const h = harness({ resourceName: 'my-resource' });
+  h.deps.speech = () => ({
+    synthesize: async () => clip([1]),
+    transcribe: async () => ({ phrases: [{ words: [{ text: 'completely', offsetMs: 0, durationMs: 100 }] }] }),
+  });
+
+  const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
+  assert.deepEqual(await result.aligning, { ok: false, reason: 'no-words' });
+  assert.equal(h.store.get().sentences[0].words, null);
 });

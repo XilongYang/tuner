@@ -58,10 +58,12 @@ async function start() {
   // is a second source of sound it knows nothing about -- it plays through the
   // speech engine, not through an audio element. Starting or stopping playback
   // silences it here, so the rule holds across both.
+  //
+  // Everything else is passed through by spreading rather than by listing the
+  // methods: a hand-written list silently dropped onTime when it was added, and
+  // the karaoke highlight simply never ran.
   const player = {
-    current: () => clipPlayer.current(),
-    isPlaying: (token) => clipPlayer.isPlaying(token),
-    subscribe: (listener) => clipPlayer.subscribe(listener),
+    ...clipPlayer,
     play: (blob, token) => { browserSpeech.cancel(); return clipPlayer.play(blob, token); },
     stop: () => { browserSpeech.cancel(); clipPlayer.stop(); },
   };

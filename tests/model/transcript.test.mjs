@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildWordTimeline, padBounds, resegment, PAD_MS , wordAt} from '../../js/model/transcript.js';
+import { buildWordTimeline, padBounds, resegment, PAD_MS , wordAt, alignWordsToText} from '../../js/model/transcript.js';
 
 /** A phrase as the cloud boundary normalises it. */
 const phrase = (lang, words, over = {}) => ({
@@ -189,4 +189,50 @@ test('wordAt: nothing to follow gives null rather than throwing', () => {
   assert.equal(wordAt([], 10), null);
   assert.equal(wordAt([{ charStart: 0, charEnd: 1, offsetMs: null, durationMs: null }], 10), null);
   assert.equal(wordAt([{ charStart: 0, charEnd: 1, offsetMs: 0, durationMs: 10 }], null), null);
+});
+
+// ---- Putting a transcript's timings back onto the text that was read ----
+
+const spokenAs = (...words) => [{ words: words.map(([text, offsetMs, durationMs]) => ({ text, offsetMs, durationMs })) }];
+
+test('alignWordsToText: locates each spoken word in the text, ignoring punctuation', () => {
+  const words = alignWordsToText(spokenAs(['One,', 0, 300], ['sentence.', 400, 500]), 'One sentence.');
+  assert.deepEqual(words, [
+    { charStart: 0, charEnd: 3, offsetMs: 0, durationMs: 300 },
+    { charStart: 4, charEnd: 12, offsetMs: 400, durationMs: 500 },
+  ]);
+});
+
+test('alignWordsToText: works the same for Japanese, which has no spaces to help', () => {
+  const words = alignWordsToText(spokenAs(['今日', 0, 300], ['は', 300, 100], ['いい', 400, 200]), '今日はいい天気ですね。');
+  assert.deepEqual(words.map((w) => [w.charStart, w.charEnd]), [[0, 2], [2, 3], [3, 5]]);
+});
+
+test('alignWordsToText: never backtracks, so a repeated word matches the next one along', () => {
+  const words = alignWordsToText(spokenAs(['very', 0, 100], ['very', 200, 100], ['good', 400, 100]), 'very very good');
+  assert.deepEqual(words.map((w) => w.charStart), [0, 5, 10]);
+});
+
+test('alignWordsToText: a word that cannot be found is skipped, not fatal to the rest', () => {
+  const words = alignWordsToText(spokenAs(['One', 0, 100], ['misheard', 150, 100], ['sentence', 300, 100]), 'One sentence.');
+  assert.deepEqual(words.map((w) => w.charStart), [0, 4]);
+});
+
+test('alignWordsToText: a number the reading reformatted still finds its place', () => {
+  // "18,000" read aloud comes back as one "18000" token, which is not a
+  // substring of the original at all.
+  const words = alignWordsToText(spokenAs(['18000', 0, 400]), 'It costs 18,000 yen.');
+  assert.deepEqual(words, [{ charStart: 9, charEnd: 15, offsetMs: 0, durationMs: 400 }]);
+});
+
+test('alignWordsToText: nothing matched at all is null, not an empty list', () => {
+  assert.equal(alignWordsToText(spokenAs(['zzz', 0, 10]), 'Nothing here.'), null);
+  assert.equal(alignWordsToText([], 'Nothing here.'), null);
+  assert.equal(alignWordsToText(null, 'Nothing here.'), null);
+  assert.equal(alignWordsToText(spokenAs(['x', 0, 1]), ''), null);
+});
+
+test('alignWordsToText: a token that is pure punctuation is not a word to locate', () => {
+  const words = alignWordsToText(spokenAs(['--', 0, 10], ['Hello', 20, 100]), 'Hello there.');
+  assert.deepEqual(words.map((w) => w.charStart), [0]);
 });

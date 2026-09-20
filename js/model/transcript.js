@@ -207,3 +207,73 @@ export function wordAt(words, ms) {
     && ms < word.offsetMs + word.durationMs
   )) || null;
 }
+
+// The alphanumeric core of a transcribed word: leading and trailing punctuation
+// removed. Punctuation is never compared -- a comma the reading did not voice,
+// a period the transcriber added, a tilde it dropped -- only the letters and
+// digits are, and \p{L}/\p{N} make that work the same for kana and kanji as for
+// Latin letters.
+const WORD_EDGES = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+const ALL_DIGITS = /^[0-9]+$/;
+
+/** Find `core` in `text` at or after `from`, case-insensitively. */
+function findCore(text, from, core) {
+  const at = text.toLowerCase().indexOf(core.toLowerCase(), from);
+  if (at !== -1) return { start: at, end: at + core.length };
+
+  // A number is the one thing a reading reliably reformats: "18,000" can come
+  // back as the single token "18000", which is not a substring of the original
+  // at all. Match it against a digit run with its grouping punctuation removed.
+  if (!ALL_DIGITS.test(core)) return null;
+  for (const match of text.slice(from).matchAll(/[0-9][0-9,.]*/g)) {
+    if (match[0].replace(/[,.]/g, '') !== core) continue;
+    const start = from + match.index;
+    return { start, end: start + match[0].length };
+  }
+  return null;
+}
+
+/**
+ * Put a transcript's word timings onto the text that was read.
+ *
+ * Used to recover word boundaries for a synthesized clip: the service will read
+ * a sentence, and transcribing that reading back is the only way to learn where
+ * each word actually falls in it. The transcript's own text is not what is
+ * wanted -- the sentence's text is -- so each transcribed word is located in
+ * the sentence rather than trusted to line up with it.
+ *
+ * Word by word, never backtracking: both sides are the same speech in the same
+ * order, so the search for each word starts where the previous one ended. A
+ * word that cannot be found from there is skipped rather than abandoning the
+ * rest -- partial timings are still useful, and one misheard word is not a
+ * reason to have none.
+ *
+ * @returns {{charStart: number, charEnd: number, offsetMs: number, durationMs: number}[]|null}
+ *   null when nothing could be matched at all.
+ */
+export function alignWordsToText(phrases, text) {
+  if (!text) return null;
+
+  const spoken = [];
+  for (const phrase of phrases || []) {
+    for (const word of phrase.words || []) if (word.text) spoken.push(word);
+  }
+
+  const words = [];
+  let cursor = 0;
+  for (const word of spoken) {
+    const core = word.text.replace(WORD_EDGES, '');
+    if (!core) continue;
+    const found = findCore(text, cursor, core);
+    if (!found) continue;
+    words.push({
+      charStart: found.start,
+      charEnd: found.end,
+      offsetMs: word.offsetMs ?? null,
+      durationMs: word.durationMs ?? null,
+    });
+    cursor = found.end;
+  }
+
+  return words.length ? words : null;
+}

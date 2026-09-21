@@ -204,6 +204,12 @@ async function start() {
     actions: {
       splitText: (text) => session.splitTypedText({ store, text, deps: commandDeps }),
       startNew: () => session.startNew({ store, deps: commandDeps }),
+      // The per-word parts of a score. None of them writes anything: a word
+      // played, re-said or re-scored on its own is practice, and the stored
+      // score describes one reading of the whole sentence.
+      wordClip: (sentenceId, word) => practice.wordClip({ store, sentenceId, word, deps: commandDeps }),
+      scoreWord: (text, lang, blob) => practice.scoreWord({ text, lang, blob, deps: commandDeps }),
+      speakWord: (text, lang) => practice.speakWord({ text, lang, deps: commandDeps }),
       split: (sentenceId, charIndex, ms) => splitCommands.splitAtPointer({ store, sentenceId, charIndex, ms, deps: commandDeps }),
       merge: (sentenceIds) => splitCommands.mergeSelected({ store, sentenceIds, deps: commandDeps }),
       speak: (sentenceId) => practice.speak({ store, sentenceId, deps: commandDeps }),

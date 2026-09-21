@@ -15,6 +15,7 @@
 import { el, button } from '../../dom.js';
 import { wordAt } from '../../../model/transcript.js';
 import { renderSentenceText, setSpeaking } from './sentence-text.js';
+import { createScoreBlock } from './score.js';
 
 /** What to say for an outcome a command reports by name rather than by message. */
 const REASONS = {
@@ -39,12 +40,14 @@ const describe = (reason) => REASONS[reason] ?? reason;
  * @param {object} spec.actions Command dispatchers, already bound to the store.
  * @param {object} spec.player
  * @param {(id: string) => object} spec.recorderFor
+ * @param {() => object} spec.createRecorder For a per-word retest, which records
+ *   without the sentence's own take being replaced.
  * @param {(id: string, selected: boolean) => void} spec.onSelect
  * @param {(id: string) => boolean} spec.isSelected
  * @param {(id: string) => boolean} spec.isSelectable
  */
 export function createRow({
-  sentence: initial, index, actions, player, recorderFor, onSelect, isSelected, isSelectable,
+  sentence: initial, index, actions, player, recorderFor, createRecorder, onSelect, isSelected, isSelectable,
 }) {
   const sentenceId = initial.id;
   let sentence = initial;
@@ -172,9 +175,20 @@ export function createRow({
     langBtn, hideBtn, speakBtn, recordBtn, playbackBtn, scoreBtn, vocabBtn,
   ]);
 
-  const scoreLine = el('p', { class: 'sentence-score', hidden: true });
+  // The score: four numbers, every word marked, and a popover per word. Held
+  // as its own thing because it has a lifetime -- an open popover, a retest
+  // recording -- and the row has to be able to end it.
+  let retesting = false;
+  const score = createScoreBlock({
+    sentence: initial,
+    actions,
+    player,
+    createRecorder,
+    rowIsRecording: () => recorderFor(sentenceId).isRecording,
+    onBusy: (busy) => { retesting = busy; refreshControls(); },
+  });
 
-  const body = el('div', { class: 'row-body' }, [textHost, controls, scoreLine, status]);
+  const body = el('div', { class: 'row-body' }, [textHost, controls, score.element, status]);
   row.append(head, body);
 
   // Follow the reference reading along the text, a word at a time.
@@ -218,13 +232,15 @@ export function createRow({
       ? 'Select this sentence for merging'
       : 'Only sentences next to the ones already selected can be merged with them';
 
-    row.classList.toggle('is-recording', recording);
-    // Record stays live while recording, or there would be no way to stop.
-    recordBtn.disabled = busy && !recording;
+    row.classList.toggle('is-recording', recording || retesting);
+    // Record stays live while recording, or there would be no way to stop. A
+    // retest holds the microphone, so the row cannot start its own take while
+    // one is running.
+    recordBtn.disabled = (busy && !recording) || retesting;
     recordBtn.textContent = recording ? 'Stop' : 'Record';
 
     for (const control of [speakBtn, scoreBtn, hideBtn, langBtn, vocabBtn]) {
-      control.disabled = busy || recording;
+      control.disabled = busy || recording || retesting;
     }
     playbackBtn.disabled = busy || recording || !sentence.recording;
     playbackBtn.hidden = !sentence.recording;
@@ -236,6 +252,8 @@ export function createRow({
     // nothing to pick here until the words have been placed in real audio.
     vocabBtn.hidden = !sentence.words?.length;
 
+    // The scored words are the sentence again, so they are covered with it.
+    row.classList.toggle('is-hidden-text', Boolean(sentence.hidden));
     hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
     hideBtn.title = sentence.hidden ? 'Show this sentence\'s text' : 'Hide this sentence\'s text';
     hideBtn.setAttribute('aria-pressed', String(Boolean(sentence.hidden)));
@@ -254,13 +272,6 @@ export function createRow({
     }));
   }
 
-  function renderScore() {
-    const assessment = sentence.assessment;
-    scoreLine.hidden = !assessment;
-    if (!assessment) return;
-    const overall = assessment.overall || {};
-    scoreLine.textContent = `Pronunciation ${Math.round(overall.pronunciation ?? 0)} · accuracy ${Math.round(overall.accuracy ?? 0)} · fluency ${Math.round(overall.fluency ?? 0)}`;
-  }
 
   /** Repaint for a new version of the same sentence, possibly at a new position. */
   function update(next, nextIndex = position) {
@@ -271,12 +282,11 @@ export function createRow({
     sentence = next;
     position = nextIndex;
     if (textChanged) renderText();
-    renderScore();
+    score.update(next);
     refreshControls();
   }
 
   renderText();
-  renderScore();
   refreshControls();
 
   return {
@@ -287,6 +297,8 @@ export function createRow({
     dispose() {
       stopFollowing();
       stopWatchingPlayback();
+      // A popover left open would be holding the microphone for a retest.
+      score.dispose();
     },
   };
 }

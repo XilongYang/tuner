@@ -56,6 +56,12 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
     addVocab: async (id) => { dispatched.push(['addVocab', id]); return { ok: true }; },
     merge: async (ids) => { dispatched.push(['merge', ids]); return { ok: true, audioFollowed: null }; },
     importAudio: async (file, onProgress) => { dispatched.push(['importAudio', file.name]); onProgress({ stage: 'transcribing' }); return { ok: true, count: 2, withAudio: 2 }; },
+    wordClip: async (id, w) => { dispatched.push(['wordClip', id, w.word]); return 'WORD_CLIP'; },
+    scoreWord: async (text, lang, blob) => {
+      dispatched.push(['scoreWord', text, lang, Boolean(blob)]);
+      return { ok: true, word: { word: text, accuracy: 93, errorType: 'None', phonemes: [{ phoneme: 'f', accuracy: 95 }] } };
+    },
+    speakWord: async (text, lang) => { dispatched.push(['speakWord', text, lang]); return 'WORD_TTS'; },
     ...actionOverrides,
   };
 
@@ -295,17 +301,214 @@ test('the language control shows and switches the sentence language', () => {
   assert.ok(buttonIn(rowsOf(h.container)[0], 'JA'));
 });
 
+const ASSESSMENT = {
+  overall: { pronunciation: 87.4, accuracy: 90, fluency: 80, completeness: 100 },
+  words: [
+    { word: 'Alpha', accuracy: 91, errorType: 'None', offsetMs: 0, durationMs: 400, phonemes: [{ phoneme: 'a', accuracy: 88 }] },
+    { word: 'beta', accuracy: 42, errorType: 'Mispronunciation', offsetMs: 400, durationMs: 300, phonemes: [] },
+  ],
+};
+
+const scoreOf = (container) => container.querySelector('.row-result');
+const wordsOf = (container) => [...container.querySelectorAll('.words-line .word')];
+// The word's own characters: its popover is inside it, so textContent is the
+// two of them together.
+const wordText = (word) => [...word.querySelectorAll('.word-char')].map((c) => c.textContent).join('');
+const tipButton = (word, label) => [...word.querySelectorAll('button')].find((b) => b.textContent === label);
+// Every word carries its own popover, so these are asked of the word rather
+// than of the container.
+const tipHead = (word) => word.querySelector('.tip-head').textContent;
+const tipStatus = (word) => word.querySelector('.tip-retest-status').textContent;
+
+function scored(h, assessment = ASSESSMENT) {
+  h.store.apply((s) => updateSentence(s, 's1', { assessment }, 5));
+}
+
 test('a score is shown once there is one', () => {
   const h = harness();
-  assert.equal(h.container.querySelector('.sentence-score').hidden, true);
+  assert.equal(scoreOf(h.container).hidden, true);
 
-  h.store.apply((s) => updateSentence(s, 's1', {
-    assessment: { overall: { pronunciation: 87.4, accuracy: 90, fluency: 80 } },
-  }, 5));
+  scored(h);
 
-  const line = h.container.querySelector('.sentence-score');
-  assert.equal(line.hidden, false);
-  assert.match(line.textContent, /Pronunciation 87 · accuracy 90 · fluency 80/);
+  assert.equal(scoreOf(h.container).hidden, false);
+  assert.deepEqual([...h.container.querySelectorAll('.score-chip')].map((chip) => [
+    chip.querySelector('.score-label').textContent,
+    chip.querySelector('.score-value').textContent,
+    chip.dataset.level,
+  ]), [
+    ['Overall', '87', 'good'],
+    ['Accuracy', '90', 'good'],
+    ['Fluency', '80', 'good'],
+    ['Completeness', '100', 'good'],
+  ]);
+});
+
+test('every word is shown again, marked with how it was heard', () => {
+  const h = harness();
+  scored(h);
+
+  const words = wordsOf(h.container);
+  assert.deepEqual(words.map(wordText), ['Alpha', 'beta']);
+  assert.deepEqual(words.map((w) => w.dataset.level), ['good', 'bad']);
+  assert.match(words[1].getAttribute('aria-label'), /beta · accuracy 42 · mispronounced/);
+});
+
+test('a word that was never spoken, and one that was never asked for, are not bands', () => {
+  const h = harness();
+  scored(h, { overall: {}, words: [
+    { word: 'quick', accuracy: 0, errorType: 'Omission' },
+    { word: 'er', accuracy: 0, errorType: 'Insertion' },
+  ] });
+
+  const words = wordsOf(h.container);
+  assert.deepEqual(words.map((w) => w.dataset.error), ['omission', 'insertion']);
+  assert.deepEqual(words.map((w) => w.dataset.level), [undefined, undefined]);
+});
+
+test('a scored word is covered along with the sentence it belongs to', () => {
+  // Otherwise the score is the answer key to the sentence above it: the words
+  // are the same words.
+  const h = harness();
+  scored(h);
+  const row = rowsOf(h.container)[0];
+  assert.equal(row.classList.contains('is-hidden-text'), false);
+
+  buttonIn(row, 'Hide').click();
+
+  assert.ok(rowsOf(h.container)[0].classList.contains('is-hidden-text'));
+  assert.equal(wordsOf(h.container)[0].querySelectorAll('.word-char').length, 'Alpha'.length,
+    'one mark per character: the length is a cue, the letters are the answer');
+});
+
+test('opening a word shows its phonemes, says it, and offers what you said', async () => {
+  const h = harness();
+  scored(h);
+
+  wordsOf(h.container)[0].click();
+  await settle();
+
+  assert.ok(wordsOf(h.container)[0].classList.contains('is-open'));
+  assert.match(tipHead(wordsOf(h.container)[0]), /Alpha · accuracy 91/);
+  assert.deepEqual([...wordsOf(h.container)[0].querySelectorAll('.ph')].map((p) => p.textContent), ['a88']);
+  assert.deepEqual(h.dispatched.filter(([name]) => name === 'speakWord'), [['speakWord', 'Alpha', 'en']],
+    'the word is read aloud as it should sound');
+  assert.deepEqual(h.dispatched.filter(([name]) => name === 'wordClip'), [['wordClip', 's1', 'Alpha']],
+    'and what you actually said is cut out of your own take');
+  assert.equal(tipButton(wordsOf(h.container)[0], '▶').hidden, false);
+});
+
+test('only one word is open at a time', async () => {
+  const h = harness();
+  scored(h);
+
+  wordsOf(h.container)[0].click();
+  await settle();
+  wordsOf(h.container)[1].click();
+  await settle();
+
+  assert.deepEqual(wordsOf(h.container).map((w) => w.classList.contains('is-open')), [false, true]);
+
+  wordsOf(h.container)[1].click();
+  assert.deepEqual(wordsOf(h.container).map((w) => w.classList.contains('is-open')), [false, false],
+    'and clicking the open one closes it');
+});
+
+test('a retest scores just that word and shows the result in its place', async () => {
+  const h = harness();
+  scored(h);
+  const word = wordsOf(h.container)[1];
+  word.click();
+  await settle();
+
+  tipButton(word, 'Retest').click();
+  await settle();
+  assert.equal(tipButton(word, 'Stop').textContent, 'Stop');
+  assert.match(tipStatus(word), /Recording/);
+
+  tipButton(word, 'Stop').click();
+  await settle();
+  await settle();
+
+  assert.deepEqual(h.dispatched.filter(([name]) => name === 'scoreWord'), [['scoreWord', 'beta', 'en', true]]);
+  assert.match(tipHead(word), /Retest: beta · accuracy 93/,
+    'the word keeps its own name; the number is from the new take');
+});
+
+test('a retest is not kept: reopening the word is the stored score again', async () => {
+  const h = harness();
+  scored(h);
+  const word = () => wordsOf(h.container)[1];
+  word().click();
+  await settle();
+  tipButton(word(), 'Retest').click();
+  await settle();
+  tipButton(word(), 'Stop').click();
+  await settle();
+  await settle();
+
+  word().click();  // close
+  word().click();  // open again
+  await settle();
+
+  assert.match(tipHead(word()), /^beta · accuracy 42/,
+    'a result from a minute ago sitting under a word, indistinguishable from the stored one, is worse than none');
+  assert.equal(h.store.get().sentences[0].assessment.words[1].accuracy, 42,
+    'and nothing was written to the sentence');
+});
+
+test('a retest holds the microphone, so the row cannot record over it', async () => {
+  const h = harness();
+  scored(h);
+  const word = wordsOf(h.container)[0];
+  word.click();
+  await settle();
+
+  tipButton(word, 'Retest').click();
+  await settle();
+
+  const row = rowsOf(h.container)[0];
+  assert.equal(buttonIn(row, 'Record').disabled, true);
+
+  tipButton(word, 'Stop').click();
+  await settle();
+  await settle();
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false);
+});
+
+test('closing a word stops a retest that was still recording', async () => {
+  const h = harness();
+  scored(h);
+  const word = () => wordsOf(h.container)[0];
+  word().click();
+  await settle();
+  tipButton(word(), 'Retest').click();
+  await settle();
+
+  word().click();
+  await settle();
+
+  assert.ok(h.recorders.some((recorder) => recorder.disposed),
+    'a popover nobody is looking at must not be left holding the microphone');
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false);
+});
+
+test('a new score replaces the old one, popovers and all', async () => {
+  const h = harness();
+  scored(h);
+  wordsOf(h.container)[0].click();
+  await settle();
+
+  scored(h, { overall: { pronunciation: 50 }, words: [{ word: 'Alpha', accuracy: 50, errorType: 'None' }] });
+
+  assert.deepEqual(wordsOf(h.container).map(wordText), ['Alpha']);
+  assert.deepEqual(wordsOf(h.container).map((w) => w.classList.contains('is-open')), [false]);
+});
+
+test('the legend says what the colours mean', () => {
+  const h = harness();
+  scored(h);
+  assert.deepEqual([...h.container.querySelectorAll('.legend-item')].map((item) => item.textContent),
+    ['Good ≥80', 'Fair 60–79', 'Poor <60', 'Omission', 'Insertion']);
 });
 
 test('rows are added and removed as the session changes, in order', () => {

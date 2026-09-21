@@ -187,6 +187,7 @@ export function createPracticePanel({ container, store, actions, player, createR
           actions,
           player,
           recorderFor,
+          createRecorder,
           onSelect,
           isSelected: (id) => selection.has(id),
           isSelectable: (id) => selectable.has(id),

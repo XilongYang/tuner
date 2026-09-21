@@ -26,7 +26,13 @@ before(async () => {
     // Playback has to actually run for the reading to be followed along the
     // text, and nothing here is a user gesture as far as the browser is
     // concerned.
-    args: ['--autoplay-policy=no-user-gesture-required'],
+    args: [
+      '--autoplay-policy=no-user-gesture-required',
+      // A microphone that always answers, with a tone: recording is half of
+      // what this app does, and a suite that cannot record cannot test it.
+      '--use-fake-ui-for-media-stream',
+      '--use-fake-device-for-media-stream',
+    ],
     ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   });
 });
@@ -1057,5 +1063,97 @@ test('the library list is arranged by hand, and stays arranged', async () => {
     'a rename changes the name and nothing else');
 
   assert.deepEqual(errors, []);
+  await context.close();
+});
+
+test('a score shows its numbers and its words, and one word can be said again', async () => {
+  const { page, context, errors } = await openApp();
+
+  await context.route('**/cognitiveservices/v1', (route) => route.fulfill({
+    status: 200, headers: { 'Content-Type': 'audio/wav' }, body: toneWav(400),
+  }));
+  // The scoring endpoint, answering for whatever it is sent: the sentence
+  // first, then -- once a word is retested -- that word on its own.
+  let assessments = 0;
+  await context.route('**/speech/recognition/conversation/cognitiveservices/v1**', (route) => {
+    assessments += 1;
+    const whole = {
+      RecognitionStatus: 'Success',
+      DisplayText: 'Alpha beta.',
+      NBest: [{
+        Display: 'Alpha beta.',
+        PronunciationAssessment: { PronScore: 84, AccuracyScore: 88, FluencyScore: 72, CompletenessScore: 100 },
+        Words: [
+          { Word: 'Alpha', Offset: 1_000_000, Duration: 3_000_000, PronunciationAssessment: { AccuracyScore: 91, ErrorType: 'None' }, Phonemes: [{ Phoneme: 'ae', PronunciationAssessment: { AccuracyScore: 93 } }] },
+          { Word: 'beta', Offset: 5_000_000, Duration: 3_000_000, PronunciationAssessment: { AccuracyScore: 41, ErrorType: 'Mispronunciation' }, Phonemes: [] },
+        ],
+      }],
+    };
+    const oneWord = {
+      RecognitionStatus: 'Success',
+      DisplayText: 'beta',
+      NBest: [{
+        Display: 'beta',
+        PronunciationAssessment: { PronScore: 96, AccuracyScore: 96, FluencyScore: 100, CompletenessScore: 100 },
+        Words: [{ Word: 'beta', PronunciationAssessment: { AccuracyScore: 96, ErrorType: 'None' }, Phonemes: [] }],
+      }],
+    };
+    route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(assessments === 1 ? whole : oneWord) });
+  });
+
+  await page.evaluate(() => window.tuner.settings.saveCredentials({ key: 'k', region: 'r', resourceName: 'res' }));
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.tuner));
+
+  await page.fill('.practice-input', 'Alpha beta.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  // Record something to score. The browser is started with a fake microphone.
+  await page.getByRole('button', { name: 'Record' }).click();
+  await page.waitForSelector('.sentence-row.is-recording');
+  await page.waitForTimeout(400);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.waitForFunction(() => Boolean(window.tuner.store.get().sentences[0].recording));
+
+  await page.getByRole('button', { name: 'Score' }).click();
+  await page.waitForSelector('.row-result:not([hidden])');
+
+  assert.deepEqual(await page.locator('.score-chip').evaluateAll((chips) => chips.map((chip) => [
+    chip.querySelector('.score-label').textContent,
+    chip.querySelector('.score-value').textContent,
+    chip.dataset.level,
+  ])), [['Overall', '84', 'good'], ['Accuracy', '88', 'good'], ['Fluency', '72', 'mid'], ['Completeness', '100', 'good']]);
+
+  const words = page.locator('.words-line .word');
+  assert.deepEqual(await words.evaluateAll((all) => all.map((w) => w.dataset.level)), ['good', 'bad']);
+
+  // The word that went badly: open it, and say it again.
+  await words.nth(1).click();
+  await page.waitForFunction(() => document.querySelectorAll('.word.is-open').length === 1);
+  assert.match(await words.nth(1).locator('.tip-head').textContent(), /beta · accuracy 41 · mispronounced/);
+
+  await words.nth(1).locator('button:text-is("Retest")').click();
+  await page.waitForSelector('.tip-retest-btn.is-recording');
+  await page.waitForTimeout(400);
+  await words.nth(1).locator('button:text-is("Stop")').click();
+
+  await page.waitForFunction(() => /^Retest: /.test(
+    document.querySelector('.word.is-open .tip-head')?.textContent || '',
+  ), null, { timeout: 15000 });
+  assert.match(await words.nth(1).locator('.tip-head').textContent(), /Retest: beta · accuracy 96/);
+
+  // And none of it was kept: the stored score is still the sentence's own.
+  const stored = await page.evaluate(() => window.tuner.store.get().sentences[0].assessment.words.map((w) => w.accuracy));
+  assert.deepEqual(stored, [91, 41]);
+
+  // Reopening the word is the stored score again, not the retest.
+  await words.nth(1).click();
+  await words.nth(1).click();
+  await page.waitForFunction(() => /^beta/.test(
+    document.querySelector('.word.is-open .tip-head')?.textContent || '',
+  ));
+
+  assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
   await context.close();
 });

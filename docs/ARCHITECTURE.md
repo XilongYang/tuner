@@ -143,6 +143,19 @@ but a join is always at a word boundary, and word boundaries are exactly what
 the text's own positions when it does not. The seam was the same position
 twice.
 
+### score.js — reading an assessment
+
+The bands (good from 80, fair from 60), what each error type is called, what a
+word is marked as, and what its popover says. Pure, and apart from the panel
+that draws it, because "80 is good" is a judgement about the domain rather than
+about the DOM: the row, the legend and the popover are then guaranteed to agree,
+and the legend's numbers are the bands themselves rather than a second copy of
+them.
+
+An omission and an insertion are not bands. One was never spoken and the other
+was never asked for, so neither has an accuracy worth colouring, which is why
+`wordMark` returns them in a field of their own.
+
 ### order.js — where a session sits in the library
 
 The list is arranged by hand and nothing re-sorts it. It used to be read off
@@ -345,6 +358,22 @@ many went in, and the picker freezes the selection once Add has been pressed
 and retries with the rest: a retry that started over would record everything
 that had already succeeded a second time.
 
+A score is four numbers, the sentence again with every word marked, and a
+popover per word (`ui/panels/practice/score.js`). The words are the part worth
+acting on -- "76 overall" does not say what to say again -- so a word is
+clickable: it gives its phonemes, reads itself aloud as it should sound, plays
+the span of your own take that the service heard as it, and offers a Retest.
+
+A retest is deliberately not kept. The sentence's score describes one reading of
+the whole sentence, and swapping a better attempt at one word into it would make
+it describe nothing -- so `scoreWord` writes nothing, and the result lives in the
+popover's closure. Reopening the word starts over, per open rather than per page
+load: a result from ten minutes ago sitting under a word, indistinguishable from
+the score that is stored, is worse than no result at all. A retest holds the
+microphone, so the row refuses to start its own take while one is running, and
+closing the popover stops it -- a popover nobody is looking at must not be left
+recording.
+
 The library list is rearranged with `ui/drag-list.js`, on pointer events rather
 than HTML5 drag-and-drop -- the same code then works for a mouse, a trackpad and
 a finger, and `dragstart` never fires for touch at all. The drag starts from a
@@ -445,6 +474,11 @@ Model:
   its own. *(`model/order`, `app/order-command`; browser test "the library list
   is arranged by hand, and stays arranged", which renames a row and checks it
   did not move.)*
+- A per-word retest is never stored, never hashed and never synced: it is
+  practice, and the sentence's score stays a description of one reading of the
+  whole sentence. *(`app/practice-command`: `scoreWord` leaves the session
+  object identical; panel test: reopening the word shows the stored score;
+  browser test: the stored assessment is unchanged after a retest.)*
 - The vocabulary list is read in the order the words were collected, never in
   the order they were last written: an edit -- covering a word, meeting it in a
   second sentence -- must not move the row the user is looking at. *(`app/vocab-command`:

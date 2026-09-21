@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   speak, startRecording, stopRecording, score, toggleHidden, setLanguage, setAllHidden, alignReference,
+  wordClip, scoreWord, speakWord,
 } from '../../js/app/commands/practice.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence, updateSentence } from '../../js/model/session.js';
@@ -23,6 +24,7 @@ function harness({
   resourceName = null,
   speechOver = {},
   browser = { available: true },
+  audioFails = false,
 } = {}) {
   const played = [];
   const calls = [];
@@ -58,6 +60,14 @@ function harness({
       player: {
         play: async (blob, token) => { played.push(token); return true; },
         stop: () => played.push('stop'),
+      },
+      audio: {
+        decode: async (blob) => {
+          calls.push({ op: 'decode', bytes: blob?.size ?? 0 });
+          if (audioFails) throw new Error('This browser cannot decode audio');
+          return { channelData: new Float32Array(16_000), sampleRate: 16_000, durationMs: 1000 };
+        },
+        cutClip: (decoded, range) => { calls.push({ op: 'cutClip', ...range }); return clip([5]); },
       },
       browserSpeech: {
         available: () => browser.available,
@@ -454,4 +464,108 @@ test('alignReference: a reading nothing could be matched in leaves the sentence 
   const result = await speak({ store: h.store, sentenceId: 's1', deps: h.deps });
   assert.deepEqual(await result.aligning, { ok: false, reason: 'no-words' });
   assert.equal(h.store.get().sentences[0].words, null);
+});
+
+// ---- one word of a score, on its own ----
+
+const scoredWord = (over = {}) => ({ word: 'Hello', accuracy: 91, errorType: 'None', offsetMs: 100, durationMs: 300, ...over });
+
+test('wordClip: cuts the span of the take the service heard as this word', async () => {
+  const h = harness({ sentences: [sentence('s1', 'Hello there.', { recording: clip([1, 2, 3]) })] });
+
+  const out = await wordClip({ store: h.store, sentenceId: 's1', word: scoredWord(), deps: h.deps });
+
+  assert.ok(out, 'a clip of your own attempt at that word');
+  assert.deepEqual(h.calls.filter((call) => call.op === 'cutClip'), [{ op: 'cutClip', offsetMs: 100, durationMs: 300 }]);
+});
+
+test('wordClip: nothing to cut is null, not an error', async () => {
+  // A popover that offers no playback is fine; one that reports a failure for
+  // a word that simply was not spoken is not.
+  const withTake = harness({ sentences: [sentence('s1', 'Hello there.', { recording: clip([1]) })] });
+  assert.equal(await wordClip({ store: withTake.store, sentenceId: 's1', word: scoredWord({ offsetMs: null }), deps: withTake.deps }), null);
+  assert.equal(await wordClip({ store: withTake.store, sentenceId: 'gone', word: scoredWord(), deps: withTake.deps }), null);
+
+  const noTake = harness();
+  assert.equal(await wordClip({ store: noTake.store, sentenceId: 's1', word: scoredWord(), deps: noTake.deps }), null);
+});
+
+test('wordClip: an undecodable take costs the popover its playback, nothing else', async () => {
+  const h = harness({ sentences: [sentence('s1', 'Hello there.', { recording: clip([1]) })], audioFails: true });
+
+  assert.equal(await wordClip({ store: h.store, sentenceId: 's1', word: scoredWord(), deps: h.deps }), null);
+});
+
+test('scoreWord: scores the take against that one word', async () => {
+  const h = harness({
+    speechOver: {
+      assess: async (blob, referenceText, locale) => {
+        h.calls.push({ op: 'assess', referenceText, locale });
+        return { displayText: 'Hello', overall: { pronunciation: 93 }, words: [{ word: 'Hello', accuracy: 93, errorType: 'None' }] };
+      },
+    },
+  });
+
+  const outcome = await scoreWord({ text: 'Hello', lang: 'en', blob: clip([9]), deps: h.deps });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.word.accuracy, 93);
+  assert.deepEqual(h.calls.filter((call) => call.op === 'assess'), [{ op: 'assess', referenceText: 'Hello', locale: 'en-US' }]);
+});
+
+test('scoreWord: writes nothing -- a retest is practice, not a new score', async () => {
+  // The sentence's score describes one reading of the whole sentence. Swapping
+  // a better attempt at one word into it would make it describe nothing.
+  const h = harness({ sentences: [sentence('s1', 'Hello there.', { assessment: { overall: { pronunciation: 50 }, words: [] } })] });
+  const before = h.store.get();
+
+  await scoreWord({ text: 'Hello', lang: 'en', blob: clip([9]), deps: h.deps });
+
+  assert.equal(h.store.get(), before, 'the session on screen is untouched, object and all');
+});
+
+test('scoreWord: nothing recognised is a result to show, not an error to hide', async () => {
+  const h = harness({ speechOver: { assess: async () => ({ displayText: '', overall: {}, words: [] }) } });
+
+  const outcome = await scoreWord({ text: 'Hello', lang: 'en', blob: clip([9]), deps: h.deps });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.word.errorType, 'Omission');
+  assert.equal(outcome.word.word, 'Hello');
+});
+
+test('scoreWord: refuses what it cannot do, with the reason', async () => {
+  const h = harness({ credentials: false });
+  assert.deepEqual(await scoreWord({ text: 'Hello', lang: 'en', blob: clip([9]), deps: h.deps }),
+    { ok: false, reason: 'no-credentials' });
+
+  const ok = harness();
+  assert.deepEqual(await scoreWord({ text: '', lang: 'en', blob: clip([9]), deps: ok.deps }), { ok: false, reason: 'no-text' });
+  assert.deepEqual(await scoreWord({ text: 'Hello', lang: 'en', blob: null, deps: ok.deps }), { ok: false, reason: 'no-recording' });
+});
+
+test('scoreWord: a failed request is reported rather than thrown', async () => {
+  const h = harness({ speechOver: { assess: async () => { throw new Error('HTTP 429'); } } });
+
+  assert.deepEqual(await scoreWord({ text: 'Hello', lang: 'en', blob: clip([9]), deps: h.deps }),
+    { ok: false, reason: 'HTTP 429' });
+});
+
+test('speakWord: one word is always synthesised, never taken from the sentence', async () => {
+  // It is a word out of context; the sentence's own reference is a reading of
+  // the whole sentence.
+  const h = harness({ sentences: [sentence('s1', 'Hello there.', { reference: clip([1]), referenceSource: 'import' })] });
+
+  const out = await speakWord({ text: 'Hello', lang: 'en', deps: h.deps });
+
+  assert.ok(out);
+  assert.deepEqual(h.calls.filter((call) => call.op === 'synthesize'),
+    [{ op: 'synthesize', text: 'Hello', locale: 'en-US', voice: 'voice-for-en-US' }]);
+});
+
+test('speakWord: no credentials, or a failed request, opens the popover in silence', async () => {
+  assert.equal(await speakWord({ text: 'Hello', lang: 'en', deps: harness({ credentials: false }).deps }), null);
+
+  const failing = harness({ speechOver: { synthesize: async () => { throw new Error('HTTP 500'); } } });
+  assert.equal(await speakWord({ text: 'Hello', lang: 'en', deps: failing.deps }), null);
 });

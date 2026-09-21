@@ -61,9 +61,13 @@
   --speaking: hsl(0, 62%, 45%);
   --busy: hsl(38, 58%, 42%);
 
-  /* Score bands, for assessment results. */
+  /* Score bands, for assessment results. Three bands, three colours: the
+     middle one is the amber already used for work in progress, because "not
+     wrong, not right yet" is the same idea. */
   --good: hsl(145, 32%, 38%);
   --good-soft: hsl(145, 30%, 93%);
+  --mid: hsl(38, 58%, 42%);
+  --mid-soft: hsl(38, 62%, 94%);
 
   /* Focus is marked in ink rather than in the accent: a red ring on every
      focused control would spend the one loud colour on the commonest event. */

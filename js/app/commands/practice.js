@@ -14,6 +14,7 @@
 import { updateSentence, sentenceById, setOnEverySentence } from '../../model/session.js';
 import { localeOf } from '../../model/lang.js';
 import { alignWordsToText } from '../../model/transcript.js';
+import { wordRange } from '../../model/score.js';
 
 const failure = (reason) => ({ ok: false, reason });
 
@@ -218,6 +219,83 @@ export async function score({ store, sentenceId, deps }) {
 
   if (!applied) return failure(stale ? 'superseded' : 'gone');
   return { ok: true, assessment };
+}
+
+/**
+ * The span of the take that the service heard as one scored word.
+ *
+ * Cut from the recording that was scored, so what plays is the person's own
+ * attempt at that word rather than a reading of it. Null when the word has no
+ * timings, when there is no take, or when the take cannot be decoded -- all
+ * normal, and none of them worth an error: the popover simply offers no
+ * playback.
+ *
+ * Nothing is written. A clip cut here is for listening to now; the recording
+ * it came from is the stored fact.
+ */
+export async function wordClip({ store, sentenceId, word, deps }) {
+  const { audio } = deps;
+  const range = wordRange(word);
+  if (!range) return null;
+
+  const sentence = sentenceById(store.get(), sentenceId);
+  if (!sentence?.recording) return null;
+
+  try {
+    return audio.cutClip(await audio.decode(sentence.recording), range);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Score one word on its own, against a take of just that word.
+ *
+ * Deliberately store-free: the result is never written to the sentence, never
+ * hashed, never synced. Saying a word again to hear how it did is practice,
+ * not a new score for the sentence -- the sentence's score describes a reading
+ * of the whole sentence, and quietly replacing part of it with a better
+ * attempt at one word would make it describe nothing.
+ *
+ * @returns {Promise<{ok: true, word: object, displayText: string}|{ok: false, reason: string}>}
+ */
+export async function scoreWord({ text, lang, blob, deps }) {
+  const { speech, settings } = deps;
+  if (!text) return failure('no-text');
+  if (!blob) return failure('no-recording');
+  if (!settings.hasCredentials()) return failure('no-credentials');
+
+  let assessment;
+  try {
+    assessment = await speech().assess(blob, text, localeOf(lang));
+  } catch (err) {
+    return failure(err.message);
+  }
+
+  // The service returns what it heard, which for a one-word take is one word --
+  // or nothing at all, if it heard something else entirely. Nothing recognised
+  // is a real outcome to show, not an error to hide.
+  const word = assessment.words?.[0] ?? { word: text, accuracy: 0, errorType: 'Omission', phonemes: [] };
+  return { ok: true, word, displayText: assessment.displayText };
+}
+
+/**
+ * Speak one word on its own, for hearing how it should sound.
+ *
+ * Always synthesised: this is a word out of context, and the sentence's own
+ * reference -- if it has one -- is a reading of the whole sentence. Returns
+ * null rather than throwing when there is nothing to speak with, because a
+ * popover that opens silently is better than one that opens with an error.
+ */
+export async function speakWord({ text, lang, deps }) {
+  const { speech, settings } = deps;
+  if (!text || !settings.hasCredentials()) return null;
+  try {
+    const locale = localeOf(lang);
+    return await speech().synthesize(text, locale, settings.voice(locale));
+  } catch {
+    return null;
+  }
 }
 
 /** Hide or reveal a sentence's text, for practising from the audio alone. */

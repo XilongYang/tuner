@@ -280,16 +280,283 @@
   border-color: var(--ink-faint);
 }
 
-/* Scores are data, so they are set in mono and their digits line up. */
-.sentence-score {
-  margin: 0;
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  color: var(--ink-soft);
-  font-variant-numeric: tabular-nums;
+/* ---- The score: four numbers, the words, the legend ---- */
+
+.row-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-top: 4px;
 }
 
-.sentence-score[hidden] { display: none; }
+/* display:flex would win over the hidden attribute's own display:none. */
+.row-result[hidden] { display: none; }
+
+.score-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.score-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 72px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+
+/* Scores are data, so they are set in mono and their digits line up. */
+.score-value {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.score-chip[data-level="good"] .score-value { color: var(--good); }
+.score-chip[data-level="mid"] .score-value { color: var(--mid); }
+.score-chip[data-level="bad"] .score-value { color: var(--accent); }
+
+.score-label {
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+/* The sentence again, a word at a time, each marked with how it was heard.
+   This is the part worth acting on: "76 overall" does not say what to say
+   again. */
+.words-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: var(--text-lg);
+  line-height: 1.95;
+}
+
+.word {
+  position: relative;
+  padding: 1px 4px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.word:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.word[data-level="good"] { color: var(--good); }
+.word[data-level="mid"] { color: var(--mid); background: var(--mid-soft); }
+.word[data-level="bad"] { color: var(--accent); background: var(--accent-soft); }
+
+/* Neither is a band: one was never spoken, the other was never asked for. */
+.word[data-error="omission"] {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.word[data-error="insertion"] {
+  color: var(--accent);
+  border-bottom: 2px dashed var(--accent);
+}
+
+/* Practising from memory: a scored word is covered the same way the sentence
+   above it is -- one mark per character, in the word's own colour, so the
+   marks still say which words went badly without saying what they were. */
+.sentence-row.is-hidden-text .word {
+  color: transparent;
+  background: none;
+  text-decoration: none;
+  border-bottom: none;
+}
+
+.sentence-row.is-hidden-text .word .word-char {
+  position: relative;
+  display: inline-block;
+  min-width: 0.6em;
+  color: transparent;
+  text-align: center;
+}
+
+.sentence-row.is-hidden-text .word .word-char::after {
+  content: '•';
+  position: absolute;
+  inset: 0;
+  color: var(--ink-faint);
+}
+
+.sentence-row.is-hidden-text .word[data-level="good"] .word-char::after { color: var(--good); }
+.sentence-row.is-hidden-text .word[data-level="mid"] .word-char::after { color: var(--mid); }
+.sentence-row.is-hidden-text .word[data-level="bad"] .word-char::after,
+.sentence-row.is-hidden-text .word[data-error="insertion"] .word-char::after { color: var(--accent); }
+
+/* ---- One word's popover ---- */
+
+.word-tip {
+  position: absolute;
+  bottom: calc(100% + 9px);
+  left: 50%;
+  z-index: 30;
+  width: max-content;
+  max-width: 320px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  cursor: auto;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(3px);
+  transition: opacity 0.09s ease, transform 0.09s ease;
+}
+
+.word.is-open .word-tip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* The little tail, pointing at the word it belongs to. */
+.word-tip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--surface);
+}
+
+.tip-head {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.tip-head[data-level] { padding-left: 8px; border-left: 3px solid var(--ink-faint); }
+.tip-head[data-level="good"] { border-left-color: var(--good); }
+.tip-head[data-level="mid"] { border-left-color: var(--mid); }
+.tip-head[data-level="bad"] { border-left-color: var(--accent); }
+
+.tip-phonemes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+}
+
+.tip-phonemes[hidden] { display: none; }
+
+.ph {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 28px;
+  padding: 4px 6px 3px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-family: var(--mono);
+}
+
+.ph b { font-size: 13px; line-height: 1; color: var(--ink); }
+.ph i { font-style: normal; font-size: 11px; line-height: 1; }
+.ph[data-level="good"] i { color: var(--good); }
+.ph[data-level="mid"] i { color: var(--mid); }
+.ph[data-level="bad"] i { color: var(--accent); }
+
+/* Saying one word again. Below a line, because it is the one thing in here
+   that does something rather than reports something. */
+.tip-retest {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.tip-retest-btn,
+.tip-play {
+  font-family: var(--font);
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.tip-retest-btn:hover:not(:disabled),
+.tip-play:hover:not(:disabled) { border-color: var(--ink-faint); color: var(--ink); }
+.tip-retest-btn:disabled { opacity: 0.5; cursor: default; }
+.tip-play[hidden] { display: none; }
+
+.tip-retest-btn.is-recording {
+  background: var(--recording);
+  border-color: var(--recording);
+  color: var(--accent-ink);
+}
+
+.tip-retest-status {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+}
+
+.tip-retest-status[hidden] { display: none; }
+.tip-retest-status[data-kind="recording"] { color: var(--recording); font-weight: 600; }
+.tip-retest-status[data-kind="busy"] { color: var(--busy); }
+.tip-retest-status[data-kind="error"] { color: var(--danger); }
+
+/* ---- What the colours mean ---- */
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-sm);
+  color: var(--ink-soft);
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-item i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+}
+
+.legend-item i[data-level="good"] { background: var(--good); }
+.legend-item i[data-level="mid"] { background: var(--mid); }
+.legend-item i[data-level="bad"] { background: var(--accent); }
+
+.legend-item i[data-error="omission"] {
+  height: 8px;
+  border-radius: 0;
+  border-bottom: 2px solid var(--ink-faint);
+}
+
+.legend-item i[data-error="insertion"] {
+  height: 8px;
+  border-radius: 0;
+  border-bottom: 2px dashed var(--accent);
+}
 
 @media (max-width: 560px) {
   .sentence-row { padding: 16px; }

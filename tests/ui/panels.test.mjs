@@ -208,6 +208,27 @@ test('library: deleting a session asks first, and says what will happen elsewher
   assert.equal(h.container.querySelectorAll('.library-row').length, 0);
 });
 
+test('library: the line about the last visit does not come back with the panel', async () => {
+  // Reported as "一直显示": "Session deleted." was still at the top of the
+  // library the next time it was opened, reading as though it had just
+  // happened, above a list it no longer said anything about.
+  const h = libraryHarness();
+  h.panel.setOpen(true);
+  await tick();
+
+  clickLabelled(h.container, 'Delete');
+  await tick();
+  confirmDialog('Delete');
+  await tick();
+  await tick();
+  assert.match(h.container.querySelector('.panel-status').textContent, /Session deleted/);
+
+  h.panel.setOpen(false);
+  h.panel.setOpen(true);
+  await tick();
+  assert.equal(h.container.querySelector('.panel-status').textContent, '');
+});
+
 test('library: declining the confirmation deletes nothing', async () => {
   const h = libraryHarness();
   h.panel.setOpen(true);

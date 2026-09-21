@@ -7,6 +7,7 @@
 
 import { el, button } from '../../dom.js';
 import { confirmModal } from '../../modal.js';
+import { panelStatus } from '../../panel-status.js';
 import { describeSync, syncProgress } from '../../sync-text.js';
 import { LANGS, LANG_NAMES, LOCALES } from '../../../model/lang.js';
 import { voiceOptions } from '../../../model/voices.js';
@@ -18,12 +19,8 @@ import { voiceOptions } from '../../../model/voices.js';
  *   on whether there is anything to sync with.
  */
 export function createSettingsPanel({ container, actions, settings, onContainerChange = () => {} }) {
-  const status = el('p', { class: 'panel-status', hidden: true });
-  const say = (message, kind = 'info') => {
-    status.hidden = !message;
-    status.textContent = message || '';
-    status.dataset.kind = kind;
-  };
+  const status = panelStatus();
+  const say = status.say;
 
   // ---- Speech credentials ----
   const keyInput = el('input', { class: 'settings-input', type: 'password', placeholder: 'Subscription key', 'aria-label': 'Azure subscription key' });
@@ -201,7 +198,7 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
 
   // No heading of its own -- see the library panel for why.
   container.append(
-    status,
+    status.node,
     section('Speech service', [
       credentialState,
       credentialForm,
@@ -253,6 +250,7 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
     setOpen(open) {
       container.hidden = !open;
       container.classList.toggle('is-open', open);
+      status.clear();
       if (open) refresh();
     },
     say,

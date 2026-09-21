@@ -312,10 +312,11 @@ Picking words for the vocabulary library is one gesture with two outcomes:
 chips that touch in the word sequence become one entry, chips that do not
 become separate ones, so "I want this phrase" and "I want these two words"
 are the same action told apart by where the words were. What counts as a word
-is `model/geometry.js`'s `wordUnits` -- the service's own spans when the
-sentence has them, the text's own boundaries otherwise -- which is the same
-answer used for deciding where audio can be cut, rather than a second opinion
-about where words begin.
+is not a question the picker asks: the units are the sentence's own word
+spans, as the service that read it reported them, which is what the clip is
+cut against. A sentence with none is not offered the picker at all, and words
+the reading failed to place are named in the picker rather than silently
+missing.
 
 An occurrence is an append-only fact, so `addOccurrences` has nothing to
 recognise a repeat by. It therefore stops at the first failure and reports how
@@ -331,6 +332,15 @@ place every round passes through. The wording lives in `ui/sync-text.js`,
 shared with the settings panel, because the panel and the indicator describe
 the same round and two copies of that vocabulary would drift. A round's
 outcome is no longer also announced over the page: one fact, one home.
+
+A panel's status line (`ui/panel-status.js`) has a lifetime, and it comes from
+what the line says. An acknowledgement of a gesture just made ("Session
+deleted.") is true only in relation to that gesture, so it expires on its own;
+a busy line stays until its own outcome replaces it, because a progress line
+that times out is a lie; an error stays, because the reader may not have been
+looking when it arrived. Closing the panel clears it whatever it says. Without
+that, "Session deleted." sat above the list for the rest of the page's life and
+came back with the panel on the next visit, where it reads as current.
 
 ## Invariants, and what holds each one
 

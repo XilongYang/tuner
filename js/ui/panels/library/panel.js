@@ -11,6 +11,7 @@
 import { el, button, reconcile } from '../../dom.js';
 import { confirmModal, promptModal } from '../../modal.js';
 import { maskedText } from '../../masked-text.js';
+import { panelStatus } from '../../panel-status.js';
 import { sessionLabel } from '../../../model/session.js';
 
 const TABS = [
@@ -43,13 +44,8 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
   const tabRow = el('div', { class: 'panel-tabs', role: 'tablist' });
   const list = el('div', { class: 'panel-list' });
   const empty = el('p', { class: 'panel-empty', hidden: true });
-  const status = el('p', { class: 'panel-status', hidden: true });
-
-  const say = (message, kind = 'info') => {
-    status.hidden = !message;
-    status.textContent = message || '';
-    status.dataset.kind = kind;
-  };
+  const status = panelStatus();
+  const say = status.say;
 
   const tabButtons = new Map();
   for (const spec of TABS) {
@@ -67,7 +63,7 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
   // that is open, and saying "Library" twice on the same screen only costs the
   // panel a row. The container carries the name for anyone who cannot see that
   // (aria-label, in index.html).
-  container.append(tabRow, status, empty, list);
+  container.append(tabRow, status.node, empty, list);
 
   async function refresh() {
     for (const [name, btn] of tabButtons) {
@@ -264,6 +260,9 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
     setOpen(open) {
       container.hidden = !open;
       container.classList.toggle('is-open', open);
+      // Whichever way it went: a line about the last visit's deletion is read
+      // as being about this visit.
+      status.clear();
       if (open) {
         // A revealed word is a glance at the answer, not a decision about it:
         // opening the list is a fresh look, so it starts covered again.

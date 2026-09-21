@@ -49,6 +49,24 @@ after(async () => {
   await new Promise((resolve) => server?.close(resolve));
 });
 
+/**
+ * Open the sidebar on one of its tabs.
+ *
+ * The header has one button for the sidebar; which list it shows is chosen
+ * inside it. Opening "the library" is therefore two presses, and this is the
+ * one place that knows that.
+ */
+async function openPanel(page, tab) {
+  const sidebar = page.locator('#sidebar');
+  if (!(await sidebar.isVisible())) await page.getByRole('button', { name: 'Panel' }).click();
+  await page.locator('#sidebar-tabs .panel-tab', { hasText: tab }).click();
+}
+
+/** Put the sidebar away, however it was opened. */
+async function closePanel(page) {
+  if (await page.locator('#sidebar').isVisible()) await page.getByRole('button', { name: 'Panel' }).click();
+}
+
 /** A fresh page with a clean database, and no real network calls. */
 async function openApp() {
   const context = await browser.newContext();
@@ -243,7 +261,7 @@ test('a session nothing has been split into is not put in the library', async ()
   await page.fill('.practice-input', 'Typed, but not split yet.');
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.panel-empty:not([hidden])');
   assert.equal(await page.locator('.library-row').count(), 0);
   assert.equal(await page.evaluate(async () => (await window.tuner.db.listAll('sessions')).length), 0);
@@ -253,8 +271,8 @@ test('a session nothing has been split into is not put in the library', async ()
   await page.evaluate(() => window.tuner.autosave.flush());
 
   // Closed and opened again: the library lists what is stored when it opens.
-  await page.getByRole('button', { name: 'Library' }).click();
-  await page.getByRole('button', { name: 'Library' }).click();
+  await closePanel(page);
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   assert.equal(await page.locator('.library-row').count(), 1, 'splitting is what makes it a session');
 
@@ -269,7 +287,7 @@ test('the library lists a saved session and opens it', async () => {
   await page.waitForSelector('.sentence-row');
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   assert.equal(await page.locator('.library-row').count(), 1);
 
@@ -306,16 +324,16 @@ test('reopening the library lists the session once, not once per visit', async (
   await page.evaluate(() => window.tuner.autosave.flush());
 
   for (let visit = 0; visit < 2; visit++) {
-    await page.getByRole('button', { name: 'Library' }).click();
+    await openPanel(page, 'Sessions');
     await page.waitForSelector('.library-row');
     await page.locator('.library-open').first().click();
     await page.waitForTimeout(50);
     // The library stays open now, so it is closed here to make the next visit
     // a fresh one -- which is what repaints the list.
-    await page.getByRole('button', { name: 'Library' }).click();
+    await closePanel(page);
   }
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   assert.equal(await page.locator('.library-row').count(), 1);
   // Whether the list duplicates rows or refuses to repaint at all, this catches
@@ -333,7 +351,7 @@ test('deleting a session asks first, and removes it', async () => {
   await page.waitForSelector('.sentence-row');
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   await page.locator('.library-row').getByRole('button', { name: 'Delete' }).click();
 
@@ -349,7 +367,7 @@ test('deleting a session asks first, and removes it', async () => {
 test('Escape closes an open sidebar', async () => {
   const { page, context } = await openApp();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   assert.equal(await page.locator('#settings').isVisible(), true);
 
   await page.keyboard.press('Escape');
@@ -382,10 +400,10 @@ test('the header controls sit on the column, above the title, and the panel besi
   const title = await page.locator('.app-title').boundingBox();
   assert.ok(bar.y + bar.height <= title.y, 'the controls are a row above the title, not beside it');
 
-  await page.getByRole('button', { name: 'Library' }).click();
-  await page.waitForSelector('#library:not([hidden])');
+  await openPanel(page, 'Sessions');
+  await page.waitForSelector('#sidebar:not([hidden])');
 
-  const open = { toggle: await edges('.global-toggle'), nav: await edges('.app-nav'), main: await edges('.app-main'), panel: await edges('#library') };
+  const open = { toggle: await edges('.global-toggle'), nav: await edges('.app-nav'), main: await edges('.app-main'), panel: await edges('#sidebar') };
 
   // The panel starts where the column does, so its first row is level with the
   // practice controls beside it.
@@ -404,20 +422,32 @@ test('the header controls sit on the column, above the title, and the panel besi
   await context.close();
 });
 
-test('the open panel is the one marked open', async () => {
+test('one button for the sidebar, and it says whether the sidebar is open', async () => {
   const { page, context } = await openApp();
-  const state = (name) => page.getByRole('button', { name }).getAttribute('aria-expanded');
+  const toggle = page.getByRole('button', { name: 'Panel' });
+  const expanded = () => toggle.getAttribute('aria-expanded');
+  const showing = () => page.locator('#sidebar-tabs .panel-tab.is-active').textContent();
 
-  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'false']);
+  assert.equal(await expanded(), 'false');
+  assert.equal(await page.locator('#sidebar').isVisible(), false);
 
-  await page.getByRole('button', { name: 'Library' }).click();
-  assert.deepEqual([await state('Library'), await state('Settings')], ['true', 'false']);
+  await toggle.click();
+  assert.equal(await expanded(), 'true');
+  assert.equal(await showing(), 'Sessions', 'and it opens on a list rather than on nothing');
 
-  await page.getByRole('button', { name: 'Settings' }).click();
-  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'true'], 'only one at a time');
+  await page.locator('#sidebar-tabs .panel-tab', { hasText: 'Settings' }).click();
+  assert.equal(await showing(), 'Settings', 'only one at a time');
+  assert.equal(await page.locator('#library').isVisible(), false);
+  assert.equal(await page.locator('#settings').isVisible(), true);
 
   await page.keyboard.press('Escape');
-  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'false']);
+  assert.equal(await expanded(), 'false');
+  assert.equal(await page.locator('#sidebar').isVisible(), false);
+
+  // Back to where it was left, not back to the first tab: someone who lives in
+  // the vocabulary list should not land in the sessions list every time.
+  await toggle.click();
+  assert.equal(await showing(), 'Settings');
 
   await context.close();
 });
@@ -425,7 +455,7 @@ test('the open panel is the one marked open', async () => {
 test('settings report what is missing, and remember what is entered', async () => {
   const { page, context } = await openApp();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   assert.match(await page.locator('.settings-state').first().textContent(), /Not configured/);
 
   await page.fill('[aria-label="Azure subscription key"]', 'test-key');
@@ -438,7 +468,7 @@ test('settings report what is missing, and remember what is entered', async () =
 
   await page.reload();
   await page.waitForFunction(() => Boolean(window.tuner));
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   assert.match(await page.locator('.settings-state').first().textContent(), /Configured for japaneast/);
   assert.equal(await page.locator('.settings-form').first().isVisible(), false);
 
@@ -456,7 +486,7 @@ test('settings report what is missing, and remember what is entered', async () =
 test('voices are picked from a list, and the choice survives a reload', async () => {
   const { page, context } = await openApp();
 
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   const japanese = page.locator('[aria-label="Japanese voice"]');
   const english = page.locator('[aria-label="English voice"]');
 
@@ -468,7 +498,7 @@ test('voices are picked from a list, and the choice survives a reload', async ()
 
   await page.reload();
   await page.waitForFunction(() => Boolean(window.tuner));
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   assert.equal(await page.locator('[aria-label="Japanese voice"]').inputValue(), 'ja-JP-ShioriNeural');
 
   await context.close();
@@ -839,7 +869,7 @@ test('the header says nothing about syncing until there is something to sync wit
   // the container changed. Nothing answers at that address, which is the
   // point: the round has to end up on the dot as a failure rather than
   // nowhere.
-  await page.getByRole('button', { name: 'Settings' }).click();
+  await openPanel(page, 'Settings');
   await page.locator('#settings input[aria-label="Container SAS URL"]').fill(
     'https://tuner-not-a-real-account.blob.core.windows.net/c?sig=nope',
   );
@@ -944,8 +974,7 @@ test('words are picked out of a spoken sentence and kept, adjacency deciding wha
   assert.deepEqual(again.sort(), [['brownfox', 1], ['the', 1]], 'no second entry, and no second use');
 
   // And the list answers to the switch for practising from memory.
-  await page.getByRole('button', { name: 'Library' }).click();
-  await page.locator('.panel-tab:text-is("Vocabulary")').click();
+  await openPanel(page, 'Vocabulary');
   await page.waitForSelector('.vocab-row');
   assert.equal(await page.locator('.vocab-text.is-masked').count(), 0);
 
@@ -975,7 +1004,7 @@ test('the library list is arranged by hand, and stays arranged', async () => {
     await page.evaluate(() => window.tuner.autosave.flush());
   }
 
-  await page.getByRole('button', { name: 'Library' }).click();
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   const labels = () => page.locator('.library-open').allTextContents();
   assert.deepEqual(await labels(), ['Third session.', 'Second session.', 'First session.'],
@@ -1000,8 +1029,8 @@ test('the library list is arranged by hand, and stays arranged', async () => {
 
   // And it is the stored arrangement, not just what is on screen: closing the
   // panel and opening it again re-reads the list from the database.
-  await page.getByRole('button', { name: 'Library' }).click();
-  await page.getByRole('button', { name: 'Library' }).click();
+  await closePanel(page);
+  await openPanel(page, 'Sessions');
   await page.waitForSelector('.library-row');
   assert.deepEqual(await labels(), ['First session.', 'Third session.', 'Second session.']);
 

@@ -1,4 +1,6 @@
-/* The library and settings sidebars. */
+/* The sidebar: one panel, one row of tabs, one view showing at a time. */
+
+.panel-view[hidden] { display: none; }
 
 .panel-tabs {
   display: flex;
@@ -14,6 +16,15 @@
   background: var(--ink);
   border-color: var(--ink);
   color: var(--bg);
+}
+
+/* The generic hover is a paler background, which on the selected tab leaves
+   pale text on a pale background -- the label disappears under the pointer
+   that is about to click it. It has nowhere to go anyway: it is already
+   showing. */
+.panel-tab.is-active:hover:not(:disabled) {
+  background: var(--ink);
+  border-color: var(--ink);
 }
 
 .panel-empty {

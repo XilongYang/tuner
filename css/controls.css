@@ -25,6 +25,42 @@
   cursor: default;
 }
 
+/* A button whose label is a drawing. Sized from the glyph rather than from
+   text, and square, so it does not read as a word with the letters missing.
+   No border: the drawing is already a closed shape, and a box around a box
+   reads as two controls. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  line-height: 0;
+  border: none;
+  background: transparent;
+}
+
+.icon-btn:hover:not(:disabled) { background: var(--surface-sunken); }
+
+.icon-btn svg {
+  width: 20px;
+  height: 20px;
+  /* Drawn in strokes so it takes the button's colour, including when the
+     button is the open one and the colours invert. */
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Open: the panel it controls is showing, and the button says so itself --
+   aria-expanded is the same fact, said to a reader who cannot see it. */
+.icon-btn[aria-expanded="true"],
+.icon-btn[aria-expanded="true"]:hover:not(:disabled) {
+  background: var(--ink);
+  color: var(--bg);
+}
+
 /* The one filled button on the page, for the single thing worth doing next.
    Ink rather than the accent: red is kept for recording and failure. */
 .btn.primary {

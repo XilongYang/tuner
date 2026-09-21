@@ -65,10 +65,10 @@ violated both:
   and subscribes to the store. This removes the need for the old `uiHooks`
   indirection (which existed so that `cloud/` could repaint panels): nothing
   in `cloud/` knows the UI exists, because the UI reacts to store changes.
-- **No lateral panel imports.** Panels do not import each other. Mutual
-  exclusion between sidebars is a property of the panel registry in
-  `ui/panels/registry.js`, not something each panel implements by importing
-  its sibling's close function.
+- **No lateral panel imports.** Panels do not import each other. Which view is
+  showing is a property of `ui/panels/registry.js`, driven by
+  `ui/panels/sidebar.js`, not something each panel implements by importing its
+  sibling's close function.
 
 ## model/ — the load-bearing layer
 
@@ -363,6 +363,17 @@ place every round passes through. The wording lives in `ui/sync-text.js`,
 shared with the settings panel, because the panel and the indicator describe
 the same round and two copies of that vocabulary would drift. A round's
 outcome is no longer also announced over the page: one fact, one home.
+
+There is one sidebar, with one row of tabs: sessions, vocabulary, settings.
+They were two sidebars with a header button each, and the header was growing a
+button per list -- but only one could ever be open at a time, and what they hold
+is the same kind of thing, so the choice belongs inside the panel rather than in
+the masthead. The header keeps one button for "is the panel open", drawn rather
+than named, and `ui/panels/sidebar.js` owns the tabs and which view is showing.
+A view still knows nothing about its siblings; two tabs may name the same panel
+(the library's two lists do), which is why the sidebar closes before it opens --
+a loop that did it the other way round would shut the panel both tabs are,
+depending on nothing but the order they were listed in.
 
 A panel's status line (`ui/panel-status.js`) has a lifetime, and it comes from
 what the line says. An acknowledgement of a gesture just made ("Session

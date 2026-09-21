@@ -91,24 +91,6 @@ body {
   gap: 14px;
 }
 
-/* The panel toggles read as links rather than buttons: they move to a part of
-   the app instead of doing something to the text being practised, and the page
-   is easier to scan with exactly one filled button on it. */
-.app-nav .btn {
-  border: none;
-  background: transparent;
-  color: var(--ink-soft);
-  padding: 2px 4px;
-  font-size: 14px;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.app-nav .btn:hover:not(:disabled) {
-  background: transparent;
-  color: var(--accent);
-}
-
 /* ---- Sync indicator: a dot, one word, the detail on hover ---- */
 
 .sync-indicator {
@@ -185,16 +167,6 @@ body {
 }
 
 .sync-indicator:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 3px; }
-
-/* The panel that is open says so: its link is in full ink rather than the
-   muted grey of the one that is not. `aria-expanded` already carries that
-   state for screen readers, so it carries it here too rather than a second
-   class being kept in step with it. */
-.app-nav .btn[aria-expanded="true"] {
-  color: var(--ink);
-  font-weight: 700;
-  text-decoration-thickness: 2px;
-}
 
 .app-main {
   flex: none;

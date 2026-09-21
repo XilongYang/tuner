@@ -250,9 +250,7 @@ test('library: a move the store refuses is not left on screen', async () => {
 
 test('library: the vocabulary list is not rearrangeable', async () => {
   const h = libraryHarness();
-  h.panel.setOpen(true);
-  await tick();
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   assert.equal(h.container.querySelector('.library-grip'), null);
@@ -295,10 +293,7 @@ test('library: declining the confirmation deletes nothing', async () => {
 
 test('library: the vocabulary tab lists words and plays one', async () => {
   const h = libraryHarness();
-  h.panel.setOpen(true);
-  await tick();
-
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   assert.equal(h.container.querySelector('.vocab-text').textContent, 'difficult');
@@ -308,9 +303,7 @@ test('library: the vocabulary tab lists words and plays one', async () => {
 
 test('library: a word with no audio cannot be played', async () => {
   const h = libraryHarness({ vocab: [vocabEntry('quiet', { sources: [{ occurrenceId: 'o', sentenceTextSnapshot: 'x', addedAt: 1, audio: null }] })] });
-  h.panel.setOpen(true);
-  await tick();
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   assert.equal(h.container.querySelector('.vocab-row .btn').disabled, true);
@@ -318,9 +311,7 @@ test('library: a word with no audio cannot be played', async () => {
 
 test('library: uses expand to show the sentence each word came from', async () => {
   const h = libraryHarness();
-  h.panel.setOpen(true);
-  await tick();
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   clickLabelled(h.container, '1 use');
@@ -333,9 +324,7 @@ test('library: the snapshot is shown even when the original session is gone', as
   const h = libraryHarness({
     vocab: [vocabEntry('orphan', { sources: [{ occurrenceId: 'o', sessionId: null, sentenceId: null, sentenceTextSnapshot: 'The sentence as it read then.', addedAt: 1, audio: null }] })],
   });
-  h.panel.setOpen(true);
-  await tick();
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
   clickLabelled(h.container, '1 use');
   await tick();
@@ -346,9 +335,7 @@ test('library: the snapshot is shown even when the original session is gone', as
 
 test('library: playing the source sentence asks for it lazily', async () => {
   const h = libraryHarness();
-  h.panel.setOpen(true);
-  await tick();
-  clickLabelled(h.container, 'Vocabulary');
+  h.panel.setOpen(true, 'vocab');
   await tick();
   clickLabelled(h.container, '1 use');
   await tick();
@@ -656,8 +643,7 @@ const maskOf = (root, selector) => root.querySelector(selector);
 test('vocab: with practising from memory on, the word is masked rather than removed', async () => {
   // A word list in plain sight is the answer key to the sentences beside it.
   const h = libraryHarness({ hidden: true });
-  h.panel.setOpen(true);
-  h.container.querySelectorAll('.panel-tab')[1].click();
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   const word = maskOf(h.container, '.vocab-text');
@@ -670,8 +656,7 @@ test('vocab: with practising from memory on, the word is masked rather than remo
 
 test('vocab: clicking a masked word reveals it, and its uses with it', async () => {
   const h = libraryHarness({ hidden: true });
-  h.panel.setOpen(true);
-  h.container.querySelectorAll('.panel-tab')[1].click();
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   // Its uses, which quote the sentence the word came from, are masked too --
@@ -690,8 +675,7 @@ test('vocab: clicking a masked word reveals it, and its uses with it', async () 
 
 test('vocab: with the switch off, nothing is masked', async () => {
   const h = libraryHarness({ hidden: false });
-  h.panel.setOpen(true);
-  h.container.querySelectorAll('.panel-tab')[1].click();
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   const word = maskOf(h.container, '.vocab-text');
@@ -702,8 +686,7 @@ test('vocab: with the switch off, nothing is masked', async () => {
 test('vocab: a revealed word is hidden again next time the list is built', async () => {
   // A glance at the answer, not a decision about it.
   const h = libraryHarness({ hidden: true });
-  h.panel.setOpen(true);
-  h.container.querySelectorAll('.panel-tab')[1].click();
+  h.panel.setOpen(true, 'vocab');
   await tick();
 
   maskOf(h.container, '.vocab-text').click();

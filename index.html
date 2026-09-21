@@ -28,8 +28,15 @@
                it gets somewhere permanent to say so. Hidden until a container
                is configured; filled in by ui/sync-indicator.js. -->
           <div class="sync-indicator" id="sync-indicator" hidden></div>
-          <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
-          <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
+          <!-- One button for the one sidebar. What is in it -- sessions,
+               vocabulary, settings -- is chosen inside it, so the header does
+               not have to grow a button per list. -->
+          <button type="button" class="btn icon-btn" id="toggle-sidebar" aria-expanded="false" aria-controls="sidebar" title="Panel" aria-label="Panel">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="3.25" y="4.25" width="17.5" height="15.5" rx="3.25"></rect>
+              <line x1="9.5" y1="4.25" x2="9.5" y2="19.75"></line>
+            </svg>
+          </button>
         </nav>
       </div>
       <h1 class="app-title">Tuner</h1>
@@ -41,8 +48,13 @@
         <section class="practice" id="practice" aria-label="Practice"></section>
       </main>
 
-      <aside class="sidebar" id="library" hidden aria-label="Library"></aside>
-      <aside class="sidebar" id="settings" hidden aria-label="Settings"></aside>
+      <!-- One sidebar, with the tab row above its views. Each view builds
+           itself into its own container and says nothing about the others. -->
+      <aside class="sidebar" id="sidebar" hidden aria-label="Panel">
+        <div class="panel-tabs" id="sidebar-tabs" role="tablist"></div>
+        <div class="panel-view" id="library" hidden></div>
+        <div class="panel-view" id="settings" hidden></div>
+      </aside>
     </div>
   </div>
 

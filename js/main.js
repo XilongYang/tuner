@@ -33,7 +33,7 @@ import * as order from './app/commands/order.js';
 import { importAudio } from './app/commands/import-audio.js';
 import { syncNow, eraseCloud } from './app/commands/sync.js';
 
-import { createPanelRegistry } from './ui/panels/registry.js';
+import { createSidebar } from './ui/panels/sidebar.js';
 import { createSyncIndicator } from './ui/sync-indicator.js';
 import { describeSync, syncProgress, syncState } from './ui/sync-text.js';
 import { createPracticePanel } from './ui/panels/practice/panel.js';
@@ -196,13 +196,6 @@ async function start() {
 
   // ---- Panels ----
 
-  const registry = createPanelRegistry({
-    onChange: (open) => {
-      document.getElementById('toggle-library').setAttribute('aria-expanded', String(open === 'library'));
-      document.getElementById('toggle-settings').setAttribute('aria-expanded', String(open === 'settings'));
-    },
-  });
-
   const practicePanel = createPracticePanel({
     container: document.getElementById('practice'),
     store,
@@ -307,18 +300,40 @@ async function start() {
     },
   });
 
-  registry.register('library', library);
-  registry.register('settings', settingsPanel);
+  // One sidebar, three views. The header keeps one button for it; which list
+  // is showing is chosen in the panel itself.
+  const sidebarToggle = document.getElementById('toggle-sidebar');
+  const sidebar = createSidebar({
+    container: document.getElementById('sidebar'),
+    tabs: document.getElementById('sidebar-tabs'),
+    views: [
+      { name: 'sessions', label: 'Sessions', panel: library, tab: 'sessions' },
+      { name: 'vocab', label: 'Vocabulary', panel: library, tab: 'vocab' },
+      { name: 'settings', label: 'Settings', panel: settingsPanel },
+    ],
+    onChange: (open) => sidebarToggle.setAttribute('aria-expanded', String(open !== null)),
+  });
+  // Which view the button opens on: the one it was left on, so a person who
+  // lives in the vocabulary list does not land in the sessions list every time.
+  let lastView = 'sessions';
 
   // The library marks whichever session is on screen, so it stays truthful when
   // one is opened from it, replaced by New session, or brought in by a sync.
   store.subscribe((current) => library.setCurrentSession(current?.id ?? null));
   library.setCurrentSession(store.get()?.id ?? null);
 
-  document.getElementById('toggle-library').addEventListener('click', () => registry.toggle('library'));
-  document.getElementById('toggle-settings').addEventListener('click', () => registry.toggle('settings'));
+  sidebarToggle.addEventListener('click', () => {
+    if (sidebar.current() !== null) {
+      lastView = sidebar.current();
+      sidebar.close();
+    } else {
+      sidebar.open(lastView);
+    }
+  });
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && !document.querySelector('.modal-backdrop')) registry.closeAll();
+    if (event.key !== 'Escape' || document.querySelector('.modal-backdrop')) return;
+    if (sidebar.current() !== null) lastView = sidebar.current();
+    sidebar.close();
   });
 
   // Anything not yet written is written before the page goes away. Both events
@@ -382,7 +397,7 @@ async function start() {
 
   // Exposed for the end-to-end tests, which drive the app the way a person
   // does and need to seed and inspect stored data to do it.
-  window.tuner = { store, db, settings, registry, commandDeps, runSync, autosave, practicePanel };
+  window.tuner = { store, db, settings, sidebar, commandDeps, runSync, autosave, practicePanel };
 }
 
 start().catch((err) => {

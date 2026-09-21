@@ -1,8 +1,11 @@
-// The library sidebar: saved sessions, and the vocabulary collected from them.
+// The library: saved sessions, and the vocabulary collected from them.
 //
-// Two lists behind one pair of tabs rather than two sidebars, because they
-// answer the same question -- what have I done so far -- and because a session
-// and the vocabulary taken from it are read together.
+// Two lists in one panel, because they answer the same question -- what have I
+// done so far -- and because a session and the vocabulary taken from it are
+// read together. Which of the two is showing is asked for from outside: the
+// tabs belong to the sidebar that holds this (see ../sidebar.js), so that one
+// row of tabs can cover settings as well without this panel knowing there is
+// such a thing.
 //
 // The panel holds no data of its own. It asks for a list when it is opened and
 // after anything that would change one, and reconciles by id so scroll position
@@ -14,11 +17,6 @@ import { maskedText } from '../../masked-text.js';
 import { dragReorder } from '../../drag-list.js';
 import { panelStatus } from '../../panel-status.js';
 import { sessionLabel } from '../../../model/session.js';
-
-const TABS = [
-  { name: 'sessions', label: 'Sessions' },
-  { name: 'vocab', label: 'Vocabulary' },
-];
 
 /**
  * @param {object} spec
@@ -42,7 +40,6 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
   // session changes far more often than the list of them does.
   let currentId = null;
 
-  const tabRow = el('div', { class: 'panel-tabs', role: 'tablist' });
   const list = el('div', { class: 'panel-list' });
   const empty = el('p', { class: 'panel-empty', hidden: true });
   const status = panelStatus();
@@ -69,29 +66,12 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
     },
   });
 
-  const tabButtons = new Map();
-  for (const spec of TABS) {
-    const btn = button({
-      class: 'btn panel-tab',
-      text: spec.label,
-      role: 'tab',
-      onClick: () => { tab = spec.name; refresh(); },
-    });
-    tabButtons.set(spec.name, btn);
-    tabRow.append(btn);
-  }
-
-  // No heading of its own: the link that opened this panel is marked as the one
-  // that is open, and saying "Library" twice on the same screen only costs the
-  // panel a row. The container carries the name for anyone who cannot see that
-  // (aria-label, in index.html).
-  container.append(tabRow, status.node, empty, list);
+  // No heading of its own: the tab that opened this is marked as the one
+  // showing, and saying "Sessions" twice on the same screen only costs the
+  // panel a row.
+  container.append(status.node, empty, list);
 
   async function refresh() {
-    for (const [name, btn] of tabButtons) {
-      btn.classList.toggle('is-active', name === tab);
-      btn.setAttribute('aria-selected', String(name === tab));
-    }
     // Whatever is about to be drawn, it is not the list the drag started on.
     reorder.cancel();
     if (tab === 'sessions') await renderSessions();
@@ -289,7 +269,13 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
   }
 
   return {
-    setOpen(open) {
+    /**
+     * @param {boolean} open
+     * @param {'sessions'|'vocab'} [which] Which list to show. Left out, the
+     *   panel opens on whichever it showed last.
+     */
+    setOpen(open, which) {
+      if (which) tab = which;
       container.hidden = !open;
       container.classList.toggle('is-open', open);
       // Whichever way it went: a line about the last visit's deletion is read

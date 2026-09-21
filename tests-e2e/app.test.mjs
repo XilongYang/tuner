@@ -433,14 +433,22 @@ test('settings report what is missing, and remember what is entered', async () =
   await page.locator('.settings-section').first().getByRole('button', { name: 'Save' }).click();
 
   assert.match(await page.locator('.settings-state').first().textContent(), /Configured for japaneast/);
-  assert.equal(await page.locator('.settings-form').isVisible(), false, 'the form gives way to Clear');
-  assert.equal(await page.getByRole('button', { name: 'Clear', exact: true }).isVisible(), true);
+  assert.equal(await page.locator('.settings-form').first().isVisible(), false, 'the form gives way to Clear');
+  assert.equal(await page.getByRole('button', { name: 'Clear', exact: true }).first().isVisible(), true);
 
   await page.reload();
   await page.waitForFunction(() => Boolean(window.tuner));
   await page.getByRole('button', { name: 'Settings' }).click();
   assert.match(await page.locator('.settings-state').first().textContent(), /Configured for japaneast/);
-  assert.equal(await page.locator('.settings-form').isVisible(), false);
+  assert.equal(await page.locator('.settings-form').first().isVisible(), false);
+
+  // The sync container behaves the same way: stored, and the field gives way.
+  await page.fill('[aria-label="Container SAS URL"]', 'https://acct.blob.core.windows.net/tuner?sig=x');
+  await page.locator('.settings-section').last().getByRole('button', { name: 'Save' }).click();
+
+  assert.match(await page.locator('.settings-state').last().textContent(), /A sync container is configured/);
+  assert.equal(await page.locator('.settings-form').last().isVisible(), false);
+  assert.equal(await page.getByRole('button', { name: 'Sync now' }).isEnabled(), true);
 
   await context.close();
 });

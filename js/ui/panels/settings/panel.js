@@ -91,9 +91,30 @@ export function createSettingsPanel({ container, actions, settings }) {
     class: 'btn primary', text: 'Save',
     onClick: () => {
       const url = sasInput.value.trim();
-      settings.saveSasUrl(url);
+      if (!url) {
+        say('Paste the container SAS URL first.', 'error');
+        return;
+      }
+      const saved = settings.saveSasUrl(url);
+      // Cleared whether or not the write succeeded: a SAS URL carries its own
+      // signature, and a field holding one is a credential left on screen.
       sasInput.value = '';
-      say(url ? 'Sync container saved.' : 'Sync container cleared.');
+      say(saved ? 'Sync container saved.' : 'Could not save: this browser is refusing to store settings.', saved ? 'info' : 'error');
+      refresh();
+    },
+  });
+
+  const clearSas = button({
+    class: 'btn danger', text: 'Clear',
+    onClick: async () => {
+      if (!await confirmModal({
+        title: 'Clear the sync container?',
+        message: 'Everything stays on this device, and nothing more is uploaded or downloaded until a container is set again.',
+        confirmLabel: 'Clear',
+        danger: true,
+      })) return;
+      settings.saveSasUrl('');
+      say('Sync container cleared.');
       refresh();
     },
   });
@@ -131,6 +152,11 @@ export function createSettingsPanel({ container, actions, settings }) {
   // is nothing to do with a stored key except replace it, and a form left
   // standing with the key blanked out reads as though it had been lost. Clear
   // brings them back.
+  const sasForm = el('div', { class: 'settings-form' }, [
+    field('Container SAS URL', sasInput),
+    el('div', { class: 'settings-actions' }, [saveSas]),
+  ]);
+
   const credentialForm = el('div', { class: 'settings-form' }, [
     field('Key', keyInput),
     field('Region', regionInput),
@@ -149,8 +175,11 @@ export function createSettingsPanel({ container, actions, settings }) {
     section('Voices', voiceRows),
     section('Cloud sync', [
       sasState,
-      field('Container SAS URL', sasInput),
-      el('div', { class: 'settings-actions' }, [saveSas, syncBtn, clearLockBtn]),
+      // Same as the key above: once it is stored there is nothing to do with it
+      // but replace it, and a SAS URL sitting in a field is a credential on
+      // screen. Clear brings the field back.
+      sasForm,
+      el('div', { class: 'settings-actions' }, [clearSas, syncBtn, clearLockBtn]),
     ]),
   );
 
@@ -171,6 +200,8 @@ export function createSettingsPanel({ container, actions, settings }) {
 
     const sasUrl = settings.sasUrl();
     sasState.textContent = sasUrl ? 'A sync container is configured.' : 'No sync container. Everything stays on this device.';
+    sasForm.hidden = Boolean(sasUrl);
+    clearSas.hidden = !sasUrl;
     syncBtn.disabled = !sasUrl;
     clearLockBtn.disabled = !sasUrl;
   }

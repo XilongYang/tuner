@@ -389,6 +389,51 @@ test('settings: sync is unavailable until a container is configured', () => {
   assert.equal([...h.container.querySelectorAll('button')].find((b) => b.textContent === 'Sync now').disabled, false);
 });
 
+test('settings: a stored container puts its field away and leaves Clear', () => {
+  const h = settingsHarness();
+  const sasField = () => [...h.container.querySelectorAll('.settings-form')].at(-1);
+  assert.equal(sasField().hidden, false, 'nothing stored yet, so the field is there');
+
+  inputLabelled(h.container, 'Container SAS URL').value = 'https://acct.blob.core.windows.net/tuner?sig=x';
+  [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.primary').click();
+
+  assert.equal(sasField().hidden, true);
+  assert.equal(inputLabelled(h.container, 'Container SAS URL').value, '', 'and the URL is not left on screen');
+  const clear = [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.danger');
+  assert.equal(clear.hidden, false);
+});
+
+test('settings: clearing the container asks first, and brings the field back', async () => {
+  const h = settingsHarness();
+  h.settings.saveSasUrl('https://acct.blob.core.windows.net/tuner?sig=x');
+  h.panel.refresh();
+
+  [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.danger').click();
+  await tick();
+  assert.match(document.querySelector('.modal-body').textContent, /nothing more is uploaded or downloaded/);
+  confirmDialog('Clear');
+  await tick();
+
+  assert.equal(h.settings.sasUrl(), null);
+  assert.equal([...h.container.querySelectorAll('.settings-form')].at(-1).hidden, false);
+});
+
+test('settings: Save with an empty field says so rather than quietly clearing the container', () => {
+  const h = settingsHarness();
+  h.settings.saveSasUrl('https://acct.blob.core.windows.net/tuner?sig=x');
+  h.panel.refresh();
+  h.panel.setOpen(true);
+
+  // Reachable only while the field is showing, but an empty Save used to mean
+  // "forget the container" -- a destructive act with no confirmation and no
+  // sign that it happened.
+  h.settings.saveSasUrl('');
+  h.panel.refresh();
+  [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.primary').click();
+
+  assert.match(h.container.querySelector('.panel-status').textContent, /Paste the container SAS URL first/);
+});
+
 test('settings: a completed sync reports what moved', async () => {
   const h = settingsHarness();
   h.settings.saveSasUrl('https://x');

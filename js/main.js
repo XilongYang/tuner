@@ -36,6 +36,7 @@ import { createPanelRegistry } from './ui/panels/registry.js';
 import { createSyncIndicator } from './ui/sync-indicator.js';
 import { describeSync, syncProgress, syncState } from './ui/sync-text.js';
 import { createPracticePanel } from './ui/panels/practice/panel.js';
+import { vocabPicker } from './ui/panels/practice/vocab-picker.js';
 import { createLibraryPanel } from './ui/panels/library/panel.js';
 import { createSettingsPanel } from './ui/panels/settings/panel.js';
 import { confirmModal } from './ui/modal.js';
@@ -217,11 +218,17 @@ async function start() {
       addVocab: async (sentenceId) => {
         const current = store.get();
         const sentence = (current?.sentences || []).find((s) => s.id === sentenceId);
-        // Every word of the sentence for now; a picker for choosing part of it
-        // is the next thing this hook will call.
-        const outcome = await vocab.addOccurrence({ store, sentenceId, words: sentence?.words ?? [], deps: commandDeps });
-        if (outcome.ok) library.refreshIfOpen();
-        return outcome;
+        if (!sentence) return { ok: false, reason: 'gone' };
+
+        // The picker decides what is recorded and keeps its own count across
+        // retries; this only supplies the writing.
+        const picked = await vocabPicker({
+          sentence,
+          addGroups: (groups) => vocab.addOccurrences({ store, sentenceId, groups, deps: commandDeps }),
+        });
+        if (!picked) return { ok: true, cancelled: true };
+        library.refreshIfOpen();
+        return { ok: true, added: picked.added };
       },
       importAudio: (file, onProgress) => importAudio({ store, file, deps: commandDeps, onProgress }),
     },

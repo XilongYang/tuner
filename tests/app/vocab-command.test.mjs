@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  addOccurrence, list, removeEntry, rangeOfWords, selectionHasRealAudio,
+  addOccurrence, addOccurrences, list, removeEntry, rangeOfWords, selectionHasRealAudio,
   pickOccurrenceAudio, sourceSentenceAudio,
 } from '../../js/app/commands/vocab.js';
 import { createSessionStore } from '../../js/app/store.js';
@@ -246,4 +246,64 @@ test('sourceSentenceAudio: a session or sentence that is gone yields null, which
   await seed('sessions', session([sentence('other', 'x')]));
   assert.equal(await sourceSentenceAudio({ occurrence: { sessionId: 'sess1', sentenceId: 'split-away' }, deps: { db } }), null);
   assert.equal(await sourceSentenceAudio({ occurrence: {}, deps: { db } }), null);
+});
+
+test('addOccurrences: one entry per group, in the order they were picked', async () => {
+  const h = harness({ sentences: [sentence('s1', 'one two three', { words: [
+    word(0, 3, 0, 100), word(4, 7, 100, 100), word(8, 13, 200, 100),
+  ] })] });
+
+  const outcome = await addOccurrences({
+    store: h.store,
+    sentenceId: 's1',
+    groups: [[word(0, 3, 0, 100), word(4, 7, 100, 100)], [word(8, 13, 200, 100)]],
+    deps: h.deps,
+  });
+
+  assert.equal(outcome.ok, true);
+  assert.equal(outcome.added, 2);
+  assert.deepEqual((await list({ deps: h.deps })).map((e) => e.text).sort(), ['one two', 'three']);
+});
+
+test('addOccurrences: stops at the first failure and says how many went in', async () => {
+  // What makes a retry safe: an occurrence is append-only, so the caller has
+  // to know where to carry on from rather than starting over.
+  const h = harness({ sentences: [sentence('s1', 'one two', { words: [word(0, 3, 0, 100), word(4, 7, 100, 100)] })] });
+  const realGetOne = h.deps.db.getOne;
+  let calls = 0;
+  h.deps.db = {
+    ...h.deps.db,
+    getOne: async (...args) => {
+      calls += 1;
+      if (calls === 2) throw new Error('the database went away');
+      return realGetOne(...args);
+    },
+  };
+
+  await assert.rejects(() => addOccurrences({
+    store: h.store,
+    sentenceId: 's1',
+    groups: [[word(0, 3, 0, 100)], [word(4, 7, 100, 100)]],
+    deps: h.deps,
+  }), /the database went away/);
+
+  assert.deepEqual((await list({ deps: { db } })).map((e) => e.text), ['one'], 'the first one stands');
+});
+
+test('addOccurrences: a group with nothing recordable in it is reported, not skipped silently', async () => {
+  const h = harness({ sentences: [sentence('s1', '... ...', { words: [word(0, 3, 0, 100), word(4, 7, 100, 100)] })] });
+
+  const outcome = await addOccurrences({
+    store: h.store, sentenceId: 's1', groups: [[word(0, 3, 0, 100)]], deps: h.deps,
+  });
+
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.reason, 'not-a-word');
+  assert.equal(outcome.added, 0);
+});
+
+test('addOccurrences: nothing picked is a refusal, not an empty success', async () => {
+  const h = harness();
+  const outcome = await addOccurrences({ store: h.store, sentenceId: 's1', groups: [], deps: h.deps });
+  assert.deepEqual(outcome, { ok: false, added: 0, reason: 'no-selection', ids: [] });
 });

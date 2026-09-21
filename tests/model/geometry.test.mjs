@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   isSessionLocked, textSplitPoints, splitPointers, splitText, isSplittable,
   partitionWords, partitionManualPoints, splitRange, mergeRanges, mergeWords, mergeSeams,
+  wordUnits, groupAdjacent,
 } from '../../js/model/geometry.js';
 
 const word = (charStart, charEnd, offsetMs, durationMs) => ({ charStart, charEnd, offsetMs, durationMs });
@@ -210,4 +211,50 @@ test('splitPointers: real word boundaries are not buried under the text position
     manualPoints: null,
   };
   assert.deepEqual(splitPointers(timed), [{ charIndex: 6, ms: 500, kind: 'word' }]);
+});
+
+// ---- word units and grouping: what the vocab picker offers ----
+
+test('wordUnits: real word spans are used as they are, timings included', () => {
+  const words = [
+    { charStart: 0, charEnd: 5, offsetMs: 0, durationMs: 300 },
+    { charStart: 6, charEnd: 11, offsetMs: 300, durationMs: 400 },
+  ];
+  assert.equal(wordUnits({ text: 'hello world', lang: 'en', words }), words);
+});
+
+test('wordUnits: without them, an English sentence breaks at its spaces', () => {
+  assert.deepEqual(
+    wordUnits({ text: 'Hello there, world', lang: 'en' }).map((u) => [u.charStart, u.charEnd]),
+    [[0, 5], [6, 12], [13, 18]],
+  );
+});
+
+test('wordUnits: whitespace belongs to no unit, so no entry starts with a space', () => {
+  const units = wordUnits({ text: '  spaced   out  ', lang: 'en' });
+  const text = '  spaced   out  ';
+  assert.deepEqual(units.map((u) => text.slice(u.charStart, u.charEnd)), ['spaced', 'out']);
+});
+
+test('wordUnits: Japanese offers each character, since that is where it can be cut', () => {
+  const units = wordUnits({ text: '今日は寒い', lang: 'ja' });
+  assert.deepEqual(units.map((u) => '今日は寒い'.slice(u.charStart, u.charEnd)), ['今', '日', 'は', '寒', 'い']);
+  assert.deepEqual(units.map((u) => u.offsetMs), [null, null, null, null, null],
+    'derived from the text, so there is no timing to claim');
+});
+
+test('wordUnits: an empty sentence offers nothing rather than one empty unit', () => {
+  assert.deepEqual(wordUnits({ text: '', lang: 'en' }), []);
+  assert.deepEqual(wordUnits({ text: '   ', lang: 'en' }), []);
+});
+
+test('groupAdjacent: consecutive picks are one phrase, gaps make separate ones', () => {
+  assert.deepEqual(groupAdjacent([0, 1, 2]), [[0, 1, 2]]);
+  assert.deepEqual(groupAdjacent([0, 2]), [[0], [2]]);
+  assert.deepEqual(groupAdjacent([5, 1, 0, 6]), [[0, 1], [5, 6]], 'and order of picking does not matter');
+});
+
+test('groupAdjacent: nothing picked is no groups, not one empty group', () => {
+  assert.deepEqual(groupAdjacent([]), []);
+  assert.deepEqual(groupAdjacent(new Set()), []);
 });

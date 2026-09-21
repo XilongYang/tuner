@@ -14,6 +14,7 @@
 
 import { el, button } from '../../dom.js';
 import { wordAt } from '../../../model/transcript.js';
+import { wordUnits } from '../../../model/geometry.js';
 import { renderSentenceText, setSpeaking } from './sentence-text.js';
 
 /** What to say for an outcome a command reports by name rather than by message. */
@@ -154,9 +155,18 @@ export function createRow({
     onClick: () => actions.setLanguage(sentenceId, sentence.lang === 'ja' ? 'en' : 'ja'),
   });
 
+  // Not through run(): this one opens a picker and waits for a person, and a
+  // row that said "Adding…" for as long as they took to choose would be
+  // describing them rather than itself. The picker reports its own progress;
+  // the row says what came of it.
   const vocabBtn = button({
-    class: 'btn', text: 'Add vocab', title: 'Record a word from this sentence',
-    onClick: () => run('Adding…', () => actions.addVocab(sentenceId)),
+    class: 'btn', text: 'Add vocab', title: 'Pick words from this sentence to keep',
+    onClick: async () => {
+      const outcome = await actions.addVocab(sentenceId);
+      if (outcome?.ok === false) say(describe(outcome.reason), 'error');
+      else if (outcome?.added) say(`Added ${outcome.added} to the vocabulary library.`, 'info');
+      else say('');
+    },
   });
 
   const controls = el('div', { class: 'sentence-controls' }, [
@@ -220,8 +230,12 @@ export function createRow({
     playbackBtn.disabled = busy || recording || !sentence.recording;
     playbackBtn.hidden = !sentence.recording;
     scoreBtn.hidden = !sentence.recording;
-    // Recording a word needs to know where words are.
-    vocabBtn.hidden = !sentence.words?.length;
+    // Picking a word needs somewhere to pick from, which is any sentence with
+    // text in it: with the service's own word spans when it has them, and with
+    // the text's own word boundaries when it does not. The previous
+    // implementation showed this only for the first case, which meant a
+    // sentence you had typed but never spoken could not be picked from at all.
+    vocabBtn.hidden = wordUnits(sentence).length === 0;
 
     hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
     hideBtn.title = sentence.hidden ? 'Show this sentence\'s text' : 'Hide this sentence\'s text';

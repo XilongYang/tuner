@@ -159,3 +159,46 @@
   gap: 10px;
   margin-top: 14px;
 }
+
+/* ---- Add vocab: the sentence, one chip per word ---- */
+
+.vocab-picker { display: flex; flex-direction: column; gap: 12px; }
+
+/* The sentence's own reading order, wrapped. No gaps between chips beyond
+   what the spacing gives them: the point is to see the sentence, with its
+   words individually pickable. */
+.vocab-words {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.vocab-word {
+  appearance: none;
+  font: inherit;
+  font-size: var(--text-base);
+  line-height: 1.4;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.vocab-word:hover { border-color: var(--border-strong); }
+.vocab-word:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Picked: marked in ink, like a ticked sentence in the merge bar -- red is
+   for recording and for things being wrong. */
+.vocab-word.is-selected {
+  border-color: var(--ink);
+  background: var(--surface-sunken);
+  font-weight: 600;
+}
+
+.vocab-status[hidden] { display: none; }
+.vocab-status[data-kind="busy"] { color: var(--busy); }
+.vocab-status[data-kind="error"] { color: var(--danger); }

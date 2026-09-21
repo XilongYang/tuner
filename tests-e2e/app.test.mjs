@@ -862,3 +862,35 @@ test('the header says nothing about syncing until there is something to sync wit
 
   await context.close();
 });
+
+test('words are picked out of a sentence and kept, adjacency deciding what is one entry', async () => {
+  const { page, context, errors } = await openApp();
+
+  await page.fill('.practice-input', 'The quick brown fox.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  await page.getByRole('button', { name: 'Add vocab' }).click();
+  await page.waitForSelector('.vocab-words');
+  assert.deepEqual(await page.locator('.vocab-word').allTextContents(),
+    ['The', 'quick', 'brown', 'fox.'], 'one chip per word');
+
+  // Two that touch, and one away from them: two entries, not three and not one.
+  await page.locator('.vocab-word:text-is("The")').click();
+  await page.locator('.vocab-word:text-is("brown")').click();
+  await page.locator('.vocab-word:text-is("fox.")').click();
+  assert.match(await page.locator('.vocab-picker .modal-message').first().textContent(),
+    /2 entries: “The”, “brown fox\.”/);
+
+  await page.locator('.modal-actions button:text-is("Add")').click();
+  await page.waitForSelector('.modal-backdrop', { state: 'detached' });
+  assert.match(await page.locator('.sentence-status').textContent(), /Added 2 to the vocabulary library/);
+
+  const kept = await page.evaluate(async () => (await window.tuner.db.listAll('vocab'))
+    .map((entry) => [entry.id, entry.text]));
+  assert.deepEqual(kept.sort(), [['brownfox', 'brown fox.'], ['the', 'The']],
+    'each entry keyed by its normalised text, keeping what was actually picked');
+
+  assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
+  await context.close();
+});

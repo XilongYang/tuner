@@ -115,6 +115,34 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
 }
 
 /**
+ * Record several picked phrases from one sentence.
+ *
+ * `groups` is what the picker chose: each group a contiguous run of that
+ * sentence's word units, each becoming its own entry.
+ *
+ * Stops at the first failure and says how many went in. That number matters:
+ * an occurrence is an append-only fact, so `addOccurrence` has nothing to
+ * recognise a repeat by, and a retry that started over would record every
+ * group that had already succeeded a second time. The caller retries with
+ * `groups.slice(added)` -- see the picker, which keeps the count across
+ * attempts and freezes the selection so the groups cannot change underneath
+ * it.
+ *
+ * @returns {Promise<{ok: boolean, added: number, reason: string|null, ids: string[]}>}
+ */
+export async function addOccurrences({ store, sentenceId, groups, deps }) {
+  if (!groups?.length) return { ok: false, added: 0, reason: 'no-selection', ids: [] };
+
+  const ids = [];
+  for (const words of groups) {
+    const outcome = await addOccurrence({ store, sentenceId, words, deps });
+    if (!outcome.ok) return { ok: false, added: ids.length, reason: outcome.reason, ids };
+    ids.push(outcome.id);
+  }
+  return { ok: true, added: ids.length, reason: null, ids };
+}
+
+/**
  * The range for a selection made inside a sentence whose reference is a slice
  * of a larger file.
  *

@@ -218,12 +218,23 @@ test('Score and Playback appear only once there is a take', () => {
   assert.equal(buttonIn(rowsOf(h.container)[0], 'Score').hidden, false);
 });
 
-test('Add vocab appears only when the sentence has word positions to pick from', () => {
+test('Add vocab appears whenever there is something to pick from', () => {
+  // The previous implementation showed this only once the sentence had the
+  // service's own word spans, which meant a sentence you had typed but never
+  // spoken could not be picked from at all. Where a word begins in plain text
+  // is a question the model already answers -- for cutting audio -- so the
+  // button follows that instead.
   const h = harness(session([sentence('s1', 'One.')]));
-  assert.equal(buttonIn(rowsOf(h.container)[0], 'Add vocab').hidden, true);
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Add vocab').hidden, false);
 
   h.store.apply((s) => updateSentence(s, 's1', { words: [word(0, 3, 0, 100)] }, 5));
-  assert.equal(buttonIn(rowsOf(h.container)[0], 'Add vocab').hidden, false);
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Add vocab').hidden, false,
+    'and still, with real spans to pick instead');
+});
+
+test('Add vocab is hidden for a sentence with nothing pickable in it', () => {
+  const h = harness(session([sentence('s1', '   ')]));
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Add vocab').hidden, true);
 });
 
 test('Record toggles to Stop, and stays live while recording so it can be stopped', async () => {

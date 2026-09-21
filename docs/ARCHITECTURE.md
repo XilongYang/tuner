@@ -305,6 +305,21 @@ destructive "delete everything" dialog.)
 Destructive actions share one confirmation path, and the strength of the
 confirmation is proportional to what is destroyed.
 
+Picking words for the vocabulary library is one gesture with two outcomes:
+chips that touch in the word sequence become one entry, chips that do not
+become separate ones, so "I want this phrase" and "I want these two words"
+are the same action told apart by where the words were. What counts as a word
+is `model/geometry.js`'s `wordUnits` -- the service's own spans when the
+sentence has them, the text's own boundaries otherwise -- which is the same
+answer used for deciding where audio can be cut, rather than a second opinion
+about where words begin.
+
+An occurrence is an append-only fact, so `addOccurrences` has nothing to
+recognise a repeat by. It therefore stops at the first failure and reports how
+many went in, and the picker freezes the selection once Add has been pressed
+and retries with the rest: a retry that started over would record everything
+that had already succeeded a second time.
+
 Sync is the one thing the app does without being asked, so it has a permanent
 place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
 masthead, with the round's full account on hover or focus. It renders a state

@@ -81,7 +81,20 @@ export function splitPointers(sentence) {
   for (const p of sentence.manualPoints || []) {
     if (inRange(p.charIndex)) points.push({ charIndex: p.charIndex, ms: p.offsetMs ?? null, kind: 'manual' });
   }
-  if (!points.length) points.push(...textSplitPoints(sentence.text));
+
+  // Word boundaries are the positions worth offering when there are any: they
+  // are the only ones that can divide the audio, and adding the text's own
+  // positions beside them would bury them. With no word timings there is no
+  // such thing to bury, so the text's positions are offered -- even alongside a
+  // seam left by a merge, which would otherwise be the single place a merged
+  // sentence could be cut.
+  if (!points.some((point) => point.kind === 'word')) {
+    const taken = new Set(points.map((point) => point.charIndex));
+    for (const point of textSplitPoints(sentence.text)) {
+      if (!taken.has(point.charIndex)) points.push(point);
+    }
+  }
+
   points.sort((a, b) => a.charIndex - b.charIndex);
   return points;
 }

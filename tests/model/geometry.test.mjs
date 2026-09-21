@@ -184,3 +184,30 @@ test('mergeSeams: a seam with no range is still a usable text cut, explicitly no
   assert.deepEqual(mergeSeams(['ab', 'cd'], [null, null]), [{ charIndex: 2, offsetMs: null }]);
   assert.deepEqual(mergeSeams(['ab', 'cd']), [{ charIndex: 2, offsetMs: null }]);
 });
+
+test('splitPointers: a seam from a merge does not become the only place left to cut', () => {
+  // The merged sentence has no word timings -- there is no audio for a position
+  // to divide -- so the text's own positions are offered beside the seam. Before
+  // this, merging two sentences left exactly one marker on the result.
+  const merged = { text: 'Alpha beta. Gamma delta.', words: null, manualPoints: [{ charIndex: 12, offsetMs: null }] };
+
+  assert.deepEqual(splitPointers(merged), [
+    { charIndex: 6, ms: null, kind: 'text' },
+    { charIndex: 12, ms: null, kind: 'manual' },
+    { charIndex: 18, ms: null, kind: 'text' },
+  ]);
+});
+
+test('splitPointers: a position is offered once, and a seam outranks the text position at the same place', () => {
+  const merged = { text: 'Alpha beta', words: null, manualPoints: [{ charIndex: 6, offsetMs: null }] };
+  assert.deepEqual(splitPointers(merged), [{ charIndex: 6, ms: null, kind: 'manual' }]);
+});
+
+test('splitPointers: real word boundaries are not buried under the text positions', () => {
+  const timed = {
+    text: 'Alpha beta gamma',
+    words: [{ charStart: 6, charEnd: 10, offsetMs: 500, durationMs: 100 }],
+    manualPoints: null,
+  };
+  assert.deepEqual(splitPointers(timed), [{ charIndex: 6, ms: 500, kind: 'word' }]);
+});

@@ -128,8 +128,12 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
     lang: sentence.lang,
     now,
     hidden: sentence.hidden,
-    words: ownWords.length ? ownWords : null,
-    manualPoints: ownManual.length ? ownManual : null,
+    // Same rule as merge: timings belong to the clip they were measured
+    // against. A half that kept its share of the audio keeps them; a half that
+    // did not is left with text positions only, rather than markers that claim
+    // a timestamp into audio it no longer holds.
+    words: side.reference && ownWords.length ? ownWords : null,
+    manualPoints: ownManual.length ? ownManual.map((point) => (side.reference ? point : { ...point, offsetMs: null })) : null,
     // Reference audio survives only where the caller could cut it. Keeping the
     // source markers without the audio would claim a clip that is not there.
     referenceSource: side.reference ? sentence.referenceSource : null,
@@ -203,8 +207,17 @@ export function mergeSentences(session, { sentenceIds, newId, now, reference = n
     lang: run[0].lang,
     now,
     hidden: run.every((s) => s.hidden),
-    words: mergeWords(run.map((s) => s.words), texts),
-    manualPoints: mergeSeams(texts, ranges),
+    // Word timings describe one clip. They survive only onto a sentence that
+    // holds the clip they describe -- the re-cut source range, whose timeline
+    // they are already on. Without it they are worse than nothing: each piece's
+    // timings were measured against its own reading, both starting at zero, so
+    // the merged sentence would offer exact-looking cut markers at times that
+    // belong to audio it does not have. Speaking it again produces one clip and
+    // one set of timings for the whole of it.
+    words: reference ? mergeWords(run.map((s) => s.words), texts) : null,
+    // The seams themselves stay either way -- where the join happened is a fact
+    // about the text -- but their timestamps go with the audio.
+    manualPoints: mergeSeams(texts, reference ? ranges : []),
     referenceSource: reference ? run[0].referenceSource : null,
     reference,
     referenceHash: reference ? referenceHash : null,

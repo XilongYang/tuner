@@ -71,17 +71,41 @@ test('splitSentence: rejoining the halves gives back the original text exactly',
   assert.equal(result.session.sentences.map((s) => s.text).join(''), 'Alpha beta');
 });
 
-test('splitSentence: word timings and manual points follow their side, re-based', () => {
+test('splitSentence: word timings and manual points follow the half that kept the audio, re-based', () => {
   const before = session([sentence('a', 'one two', {
     words: [word(0, 3, 100, 50), word(4, 7, 200, 50)],
     manualPoints: [{ charIndex: 6, offsetMs: 300 }],
   })]);
-  const { session: after } = splitSentence(before, { sentenceId: 'a', charIndex: 4, leftId: 'L', rightId: 'R', now: 1 });
+  const { session: after } = splitSentence(before, {
+    sentenceId: 'a',
+    charIndex: 4,
+    leftId: 'L',
+    rightId: 'R',
+    now: 1,
+    left: { reference: 'LEFT-CLIP' },
+    right: { reference: 'RIGHT-CLIP' },
+  });
 
   assert.deepEqual(after.sentences[0].words, [word(0, 3, 100, 50)]);
   assert.deepEqual(after.sentences[1].words, [word(0, 3, 200, 50)]);
   assert.deepEqual(after.sentences[1].manualPoints, [{ charIndex: 2, offsetMs: 300 }]);
   assert.equal(after.sentences[0].manualPoints, null, 'an empty list is stored as null, not []');
+});
+
+test('splitSentence: a half with no audio keeps no timings either', () => {
+  // Its cut markers would otherwise claim exact timestamps into a clip the half
+  // does not have -- and after a plain text split, neither half has one.
+  const before = session([sentence('a', 'one two', {
+    words: [word(0, 3, 100, 50), word(4, 7, 200, 50)],
+    manualPoints: [{ charIndex: 6, offsetMs: 300 }],
+  })]);
+
+  const { session: after } = splitSentence(before, { sentenceId: 'a', charIndex: 4, leftId: 'L', rightId: 'R', now: 1 });
+
+  assert.equal(after.sentences[0].words, null);
+  assert.equal(after.sentences[1].words, null);
+  assert.deepEqual(after.sentences[1].manualPoints, [{ charIndex: 2, offsetMs: null }],
+    'where it was cut before is still true; when, is not');
 });
 
 test('splitSentence: each half keeps the audio the caller cut for it', () => {
@@ -154,14 +178,14 @@ test('mergeSentences: Japanese is joined with nothing, because that is how it is
 
 test('mergeSentences: an inserted separator shifts the words and the seam past it', () => {
   const before = session([
-    sentence('a', 'One.', { words: [word(0, 4, 100, 50)] }),
-    sentence('b', 'Two.', { words: [word(0, 4, 300, 50)] }),
+    sentence('a', 'One.', { words: [word(0, 4, 100, 50)], sourceOffsetMs: 100, sourceDurationMs: 100 }),
+    sentence('b', 'Two.', { words: [word(0, 4, 300, 50)], sourceOffsetMs: 300, sourceDurationMs: 100 }),
   ]);
-  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
 
   assert.equal(after.sentences[0].text, 'One. Two.');
   assert.deepEqual(after.sentences[0].words, [word(0, 4, 100, 50), word(5, 9, 300, 50)]);
-  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 5, offsetMs: null }],
+  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 5, offsetMs: 300 }],
     'the seam sits at the start of the second piece, so splitting there leaves the space on the left');
 });
 
@@ -187,17 +211,41 @@ test('mergeSentences: seams become manual cut points, so the join can be undone'
     sentence('a', 'one ', { sourceOffsetMs: 0, sourceDurationMs: 400 }),
     sentence('b', 'two', { sourceOffsetMs: 500, sourceDurationMs: 300 }),
   ]);
-  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
   assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 4, offsetMs: 500 }]);
 });
 
-test('mergeSentences: word timings are re-based onto the joined text', () => {
+test('mergeSentences: with no clip to keep, the seam keeps its place but not its timestamp', () => {
+  const before = session([
+    sentence('a', 'one ', { sourceOffsetMs: 0, sourceDurationMs: 400 }),
+    sentence('b', 'two', { sourceOffsetMs: 500, sourceDurationMs: 300 }),
+  ]);
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 4, offsetMs: null }]);
+});
+
+test('mergeSentences: word timings are re-based onto the joined text, when the clip is kept', () => {
   const before = session([
     sentence('a', 'one ', { words: [word(0, 3, 100, 50)] }),
     sentence('b', 'two', { words: [word(0, 3, 300, 50)] }),
   ]);
-  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
   assert.deepEqual(after.sentences[0].words, [word(0, 3, 100, 50), word(4, 7, 300, 50)]);
+});
+
+test('mergeSentences: with no clip kept, the timings go too -- they describe audio this sentence lacks', () => {
+  // Each piece's timings were measured against its own reading, both starting
+  // at zero. Carried onto a sentence with no clip they produce exact-looking
+  // cut markers at times that belong to audio it does not have.
+  const before = session([
+    sentence('a', 'Alpha beta.', { words: [word(0, 5, 0, 400), word(6, 10, 500, 400)] }),
+    sentence('b', 'Gamma delta.', { words: [word(0, 5, 0, 400), word(6, 11, 500, 400)] }),
+  ]);
+
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
+
+  assert.equal(after.sentences[0].words, null);
+  assert.equal(after.sentences[0].reference, null);
 });
 
 test('mergeSentences: ids given out of order still merge the run correctly', () => {

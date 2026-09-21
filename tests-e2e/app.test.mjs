@@ -273,15 +273,20 @@ test('the library lists a saved session and opens it', async () => {
   await page.waitForSelector('.library-row');
   assert.equal(await page.locator('.library-row').count(), 1);
 
+  const marked = () => page.locator('.library-row.is-current').count();
+  assert.equal(await marked(), 1, 'the session on screen is the one marked');
+
   // The panel stays open across this, so it is not re-toggled: clicking the
   // toggle again would close it.
   await page.getByRole('button', { name: 'New session' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 0);
+  assert.equal(await marked(), 0, 'a blank session is not one of the saved ones');
 
   await page.locator('.library-open').click();
   await page.waitForSelector('.sentence-row');
-  assert.equal(await page.locator('#library').isVisible(), false, 'opening a session closes the library');
 
+  assert.equal(await page.locator('#library').isVisible(), true, 'the library stays open, for picking the next one');
+  assert.equal(await marked(), 1, 'and says which one was picked');
   assert.equal(await page.locator('.sentence-row').count(), 1);
   assert.deepEqual(errors, []);
 
@@ -305,6 +310,9 @@ test('reopening the library lists the session once, not once per visit', async (
     await page.waitForSelector('.library-row');
     await page.locator('.library-open').first().click();
     await page.waitForTimeout(50);
+    // The library stays open now, so it is closed here to make the next visit
+    // a fresh one -- which is what repaints the list.
+    await page.getByRole('button', { name: 'Library' }).click();
   }
 
   await page.getByRole('button', { name: 'Library' }).click();

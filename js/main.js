@@ -212,10 +212,12 @@ async function start() {
     actions: {
       listSessions: async () => (await db.listAll('sessions')).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
       listVocab: () => vocab.list({ deps: commandDeps }),
+      // The library stays open: picking a session is often one of several --
+      // comparing, or working through a few -- and closing it would make the
+      // next one a fresh hunt. The list says which one is on screen instead.
       openSession: async (id) => {
         await autosave.flush();
         await session.open({ store, sessionId: id, deps: commandDeps });
-        registry.close('library');
       },
       renameSession: async (id, name) => {
         const stored = await db.getOne('sessions', id);
@@ -253,6 +255,11 @@ async function start() {
 
   registry.register('library', library);
   registry.register('settings', settingsPanel);
+
+  // The library marks whichever session is on screen, so it stays truthful when
+  // one is opened from it, replaced by New session, or brought in by a sync.
+  store.subscribe((current) => library.setCurrentSession(current?.id ?? null));
+  library.setCurrentSession(store.get()?.id ?? null);
 
   document.getElementById('toggle-library').addEventListener('click', () => registry.toggle('library'));
   document.getElementById('toggle-settings').addEventListener('click', () => registry.toggle('settings'));

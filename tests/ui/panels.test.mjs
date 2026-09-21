@@ -149,6 +149,38 @@ test('library: reopening it lists each session once, not once per visit', async 
   assert.equal(h.container.querySelectorAll('.library-row').length, 2);
 });
 
+test('library: the session on screen is marked, and the mark follows it', async () => {
+  const h = libraryHarness({ sessions: [session('a'), session('b')] });
+  h.panel.setOpen(true);
+  await tick();
+
+  const marked = () => [...h.container.querySelectorAll('.library-row')].map((row) => row.classList.contains('is-current'));
+  assert.deepEqual(marked(), [false, false], 'nothing open yet');
+
+  h.panel.setCurrentSession('b');
+  assert.deepEqual(marked(), [false, true]);
+  assert.equal(h.container.querySelectorAll('.library-open')[1].getAttribute('aria-current'), 'true');
+
+  h.panel.setCurrentSession('a');
+  assert.deepEqual(marked(), [true, false], 'the previous one is unmarked');
+
+  h.panel.setCurrentSession(null);
+  assert.deepEqual(marked(), [false, false], 'New session leaves nothing marked');
+});
+
+test('library: the mark survives the list being redrawn', async () => {
+  const h = libraryHarness({ sessions: [session('a'), session('b')] });
+  h.panel.setCurrentSession('b');
+  h.panel.setOpen(true);
+  await tick();
+
+  assert.deepEqual(
+    [...h.container.querySelectorAll('.library-row')].map((row) => row.classList.contains('is-current')),
+    [false, true],
+    'set before the list existed, and applied when it was built',
+  );
+});
+
 test('library: a session opens when its label is clicked', async () => {
   const h = libraryHarness();
   h.panel.setOpen(true);

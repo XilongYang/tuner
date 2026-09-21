@@ -50,6 +50,15 @@
 
 .library-row:hover { background: var(--surface-sunken); }
 
+/* The session that is on screen. Marked in ink for the same reason a ticked
+   sentence is: red belongs to recording and failure. */
+.library-row.is-current {
+  border-color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+
+.library-row.is-current .library-open { color: var(--ink); font-weight: 700; }
+
 .library-open {
   flex: 1 1 60%;
   text-align: left;

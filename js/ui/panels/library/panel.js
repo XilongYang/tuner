@@ -26,6 +26,10 @@ const TABS = [
 export function createLibraryPanel({ container, actions, player }) {
   let tab = 'sessions';
   let openSources = new Set();
+  // Which session is on screen, so the list can say which one that is. Held
+  // here and marked on the rows rather than re-listed from the database: the
+  // session changes far more often than the list of them does.
+  let currentId = null;
 
   const title = el('h2', { class: 'panel-title', text: 'Library' });
   const tabRow = el('div', { class: 'panel-tabs', role: 'tablist' });
@@ -75,10 +79,23 @@ export function createLibraryPanel({ container, actions, player }) {
       // replace itself.
       update: (_element, session) => sessionRow(session),
     });
+
+    markCurrent();
+  }
+
+  /** Mark the row of the session that is on screen, if it is in the list. */
+  function markCurrent() {
+    for (const row of list.querySelectorAll('.library-row[data-session-id]')) {
+      const isCurrent = row.dataset.sessionId === currentId;
+      row.classList.toggle('is-current', isCurrent);
+      // Said in words too: a colour is not available to a screen reader, and
+      // "which one am I looking at" is the question this answers.
+      row.querySelector('.library-open')?.setAttribute('aria-current', isCurrent ? 'true' : 'false');
+    }
   }
 
   function sessionRow(session) {
-    const row = el('div', { class: 'library-row' });
+    const row = el('div', { class: 'library-row', dataset: { sessionId: session.id } });
     const open = button({
       class: 'btn library-open',
       text: sessionLabel(session),
@@ -223,6 +240,16 @@ export function createLibraryPanel({ container, actions, player }) {
     /** Called after a sync, or anything else that may have changed a list. */
     refreshIfOpen() {
       if (!container.hidden) refresh();
+    },
+
+    /**
+     * Tell the list which session is on screen. Cheap enough to call on every
+     * change: it touches the rows it has, and reads nothing.
+     */
+    setCurrentSession(id) {
+      if (id === currentId) return;
+      currentId = id;
+      markCurrent();
     },
     say,
   };

@@ -244,6 +244,9 @@ async function start() {
   const library = createLibraryPanel({
     container: document.getElementById('library'),
     player,
+    // The vocabulary list answers to the same switch the practice column does:
+    // a word list in plain sight is the answer key to the sentences beside it.
+    hideText: () => settings.hideText(),
     actions: {
       listSessions: async () => (await db.listAll('sessions')).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
       listVocab: () => vocab.list({ deps: commandDeps }),
@@ -354,6 +357,10 @@ async function start() {
   hideAll.checked = settings.hideText();
   hideAll.addEventListener('change', () => {
     practice.setAllHidden({ store, hidden: hideAll.checked, deps: commandDeps });
+    // The vocabulary list reads the same setting, and is not driven by the
+    // session store, so it has to be told -- and a word revealed while hiding
+    // was off has to go back under cover.
+    library.refreshIfOpen({ rehide: true });
   });
   // A session arriving from storage or a sync decides how the switch reads: it
   // shows the state of what is on screen, and only a session hidden right

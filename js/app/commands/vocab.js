@@ -8,7 +8,7 @@
 // session it was recorded in may since have been edited or deleted, and the
 // occurrence is still meaningful without it.
 
-import { vocabKey } from '../../model/text.js';
+import { vocabKey, occurrenceKey } from '../../model/text.js';
 import { sentenceById } from '../../model/session.js';
 import { localeOf } from '../../model/lang.js';
 
@@ -68,7 +68,7 @@ export function rangeOfWords(words) {
  * created on first sight of the text and appended to on every later one.
  */
 export async function addOccurrence({ store, sentenceId, words, deps }) {
-  const { db, hash, ids, clock, saveRecord } = deps;
+  const { db, hash, clock, saveRecord } = deps;
 
   const session = store.get();
   const sentence = session && sentenceById(session, sentenceId);
@@ -84,7 +84,10 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
 
   const now = clock();
   const occurrence = {
-    occurrenceId: ids(),
+    // Keyed by where it came from, not by when it was noticed: see
+    // occurrenceKey. The same word picked from the same sentence twice is one
+    // use of it, and is refreshed rather than repeated.
+    occurrenceId: occurrenceKey(session.id, sentenceId),
     sessionId: session.id,
     sentenceId,
     // Kept so the occurrence still reads correctly after the sentence it came
@@ -97,7 +100,14 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
 
   const existing = await db.getOne('vocab', id);
   const entry = existing
-    ? { ...existing, updatedAt: now, sources: [...(existing.sources || []), occurrence] }
+    ? {
+      ...existing,
+      updatedAt: now,
+      sources: [
+        ...(existing.sources || []).filter((source) => source.occurrenceId !== occurrence.occurrenceId),
+        occurrence,
+      ],
+    }
     : {
       id,
       text,

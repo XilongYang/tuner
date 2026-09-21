@@ -10,6 +10,7 @@
 
 import { el, button, reconcile } from '../../dom.js';
 import { confirmModal, promptModal } from '../../modal.js';
+import { maskedText } from '../../masked-text.js';
 import { sessionLabel } from '../../../model/session.js';
 
 const TABS = [
@@ -22,10 +23,18 @@ const TABS = [
  * @param {Element} spec.container
  * @param {object} spec.actions
  * @param {object} spec.player
+ * @param {() => boolean} [spec.hideText] Whether practising from memory is on.
+ *   The vocabulary list answers to it too: a word list that spells out every
+ *   word is the answer key, and hiding the sentences while leaving the words
+ *   they were taken from on display hides nothing.
  */
-export function createLibraryPanel({ container, actions, player }) {
+export function createLibraryPanel({ container, actions, player, hideText = () => false }) {
   let tab = 'sessions';
   let openSources = new Set();
+  // Words revealed by clicking them while hiding is on. Deliberately not
+  // remembered: it is a glance at the answer, and the next time the list is
+  // opened the word is hidden again.
+  let revealed = new Set();
   // Which session is on screen, so the list can say which one that is. Held
   // here and marked on the rows rather than re-listed from the database: the
   // session changes far more often than the list of them does.
@@ -192,7 +201,15 @@ export function createLibraryPanel({ container, actions, player }) {
       },
     });
 
-    head.append(el('span', { class: 'vocab-text', text: entry.text }), play, toggle, remove);
+    const hidden = hideText() && !revealed.has(entry.id);
+    head.append(
+      maskedText(entry.text, {
+        class: 'vocab-text',
+        hidden,
+        onReveal: hidden ? () => { revealed.add(entry.id); refresh(); } : null,
+      }),
+      play, toggle, remove,
+    );
     row.append(head);
 
     if (openSources.has(entry.id)) {
@@ -205,12 +222,21 @@ export function createLibraryPanel({ container, actions, player }) {
 
   function vocabUse(entry, source) {
     const use = el('div', { class: 'vocab-use' });
-    use.append(el('span', {
-      class: 'vocab-snippet',
-      // The snapshot, not a lookup: the session this came from may be long
-      // gone, and the sentence is what makes the use meaningful.
-      text: source.sentenceTextSnapshot || '(the original sentence is no longer available)',
-    }));
+    // The snapshot, not a lookup: the session this came from may be long gone,
+    // and the sentence is what makes the use meaningful.
+    const snippet = source.sentenceTextSnapshot;
+    if (!snippet) {
+      use.append(el('span', { class: 'vocab-snippet', text: '(the original sentence is no longer available)' }));
+    } else {
+      // A use is revealed with its word: they are the same answer, and a
+      // sentence containing the word in plain sight would give it away.
+      const hidden = hideText() && !revealed.has(entry.id);
+      use.append(maskedText(snippet, {
+        class: 'vocab-snippet',
+        hidden,
+        onReveal: hidden ? () => { revealed.add(entry.id); refresh(); } : null,
+      }));
+    }
 
     if (source.sessionId && source.sentenceId) {
       use.append(button({
@@ -238,10 +264,22 @@ export function createLibraryPanel({ container, actions, player }) {
     setOpen(open) {
       container.hidden = !open;
       container.classList.toggle('is-open', open);
-      if (open) refresh();
+      if (open) {
+        // A revealed word is a glance at the answer, not a decision about it:
+        // opening the list is a fresh look, so it starts covered again.
+        revealed = new Set();
+        refresh();
+      }
     },
-    /** Called after a sync, or anything else that may have changed a list. */
-    refreshIfOpen() {
+    /**
+     * Called after a sync, or anything else that may have changed a list.
+     *
+     * `rehide` is for the one thing that changes what the list shows rather
+     * than what is in it: the switch for practising from memory. Turning it
+     * back on has to cover the words that were revealed while it was off.
+     */
+    refreshIfOpen({ rehide = false } = {}) {
+      if (rehide) revealed = new Set();
       if (!container.hidden) refresh();
     },
 

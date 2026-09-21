@@ -63,37 +63,6 @@ export function textSplitPoints(text) {
 }
 
 /**
- * The pickable word units of a sentence, in order.
- *
- * Real word spans when the sentence has them -- those carry their own timings,
- * which is what lets a picked phrase be cut out of the source audio rather
- * than synthesised. Without them the units come from textSplitPoints(), so a
- * sentence that has never been spoken can still be picked from, and so the
- * question "where does a word begin" is answered in exactly one place for
- * both cutting and picking.
- *
- * Whitespace between units is not part of any of them: it is not pickable, and
- * a unit that carried it would put a leading space in a vocabulary entry.
- *
- * @returns {Array<{charStart: number, charEnd: number, offsetMs: number|null, durationMs: number|null}>}
- */
-export function wordUnits(sentence) {
-  if (sentence?.words?.length) return sentence.words;
-
-  const cs = chars(sentence?.text);
-  const bounds = [0, ...textSplitPoints(sentence?.text || '').map((p) => p.charIndex), cs.length];
-  const units = [];
-  for (let i = 1; i < bounds.length; i += 1) {
-    let start = bounds[i - 1];
-    let end = bounds[i];
-    while (start < end && /\s/u.test(cs[start])) start += 1;
-    while (end > start && /\s/u.test(cs[end - 1])) end -= 1;
-    if (start < end) units.push({ charStart: start, charEnd: end, offsetMs: null, durationMs: null });
-  }
-  return units;
-}
-
-/**
  * Selected unit indices, grouped into runs of consecutive ones.
  *
  * Two units next to each other in the sequence are one phrase, whatever stands

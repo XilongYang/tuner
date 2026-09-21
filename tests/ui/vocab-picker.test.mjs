@@ -10,7 +10,6 @@ global.window = dom.window;
 global.document = dom.window.document;
 
 const { vocabPicker, describeSelection } = await import('../../js/ui/panels/practice/vocab-picker.js');
-const { wordUnits } = await import('../../js/model/geometry.js');
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const chips = () => [...document.querySelectorAll('.vocab-word')];
@@ -20,7 +19,15 @@ const actionNamed = (label) => [...document.querySelectorAll('.modal-actions but
 const hint = () => document.querySelector('.vocab-picker .modal-message').textContent;
 const status = () => document.querySelector('.vocab-status');
 
-const sentence = (over = {}) => ({ id: 's1', text: 'one two three', lang: 'en', words: null, ...over });
+// Word spans as the service reports them: a sentence without any is not
+// offered a picker at all (see row.js).
+const WORDS = [
+  { charStart: 0, charEnd: 3, offsetMs: 0, durationMs: 200 },
+  { charStart: 4, charEnd: 7, offsetMs: 200, durationMs: 200 },
+  { charStart: 8, charEnd: 13, offsetMs: 400, durationMs: 300 },
+];
+
+const sentence = (over = {}) => ({ id: 's1', text: 'one two three', lang: 'en', words: WORDS, ...over });
 
 beforeEach(() => document.body.replaceChildren());
 
@@ -56,7 +63,7 @@ test('a chip says whether it is picked, in the markup rather than only in colour
 
 test('words that touch are one entry; words that do not are separate ones', () => {
   const text = 'one two three';
-  const units = wordUnits({ text, lang: 'en' });
+  const units = WORDS;
 
   assert.match(describeSelection(text, units, [0, 1]), /One entry: “one two”/);
   assert.match(describeSelection(text, units, [0, 2]), /2 entries: “one”, “three”/);
@@ -165,13 +172,12 @@ test('cancelling records nothing and says so by resolving to nothing', async () 
   assert.deepEqual(handed, []);
 });
 
-test('a sentence with real word timings offers those, not the text split', () => {
+test('the chips are the service\'s own spans, whatever the spaces say', () => {
   const words = [
     { charStart: 0, charEnd: 7, offsetMs: 0, durationMs: 400 },
     { charStart: 8, charEnd: 13, offsetMs: 400, durationMs: 300 },
   ];
   vocabPicker({ sentence: sentence({ text: 'one two three', words }), addGroups: async () => ({ ok: true, added: 1 }) });
 
-  assert.deepEqual(chips().map((chip) => chip.textContent), ['one two', 'three'],
-    "the service's own spans, whatever the spaces say");
+  assert.deepEqual(chips().map((chip) => chip.textContent), ['one two', 'three']);
 });

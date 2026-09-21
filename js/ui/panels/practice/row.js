@@ -14,7 +14,6 @@
 
 import { el, button } from '../../dom.js';
 import { wordAt } from '../../../model/transcript.js';
-import { wordUnits } from '../../../model/geometry.js';
 import { renderSentenceText, setSpeaking } from './sentence-text.js';
 
 /** What to say for an outcome a command reports by name rather than by message. */
@@ -230,12 +229,12 @@ export function createRow({
     playbackBtn.disabled = busy || recording || !sentence.recording;
     playbackBtn.hidden = !sentence.recording;
     scoreBtn.hidden = !sentence.recording;
-    // Picking a word needs somewhere to pick from, which is any sentence with
-    // text in it: with the service's own word spans when it has them, and with
-    // the text's own word boundaries when it does not. The previous
-    // implementation showed this only for the first case, which meant a
-    // sentence you had typed but never spoken could not be picked from at all.
-    vocabBtn.hidden = wordUnits(sentence).length === 0;
+    // A word joins the vocabulary library with a recording of itself, cut from
+    // the reading of the sentence it came from. A sentence that has never been
+    // spoken has no reading to cut from, and a vocabulary entry whose audio is
+    // an imitation produced later is not the same thing at all -- so there is
+    // nothing to pick here until the words have been placed in real audio.
+    vocabBtn.hidden = !sentence.words?.length;
 
     hideBtn.textContent = sentence.hidden ? 'Show' : 'Hide';
     hideBtn.title = sentence.hidden ? 'Show this sentence\'s text' : 'Hide this sentence\'s text';

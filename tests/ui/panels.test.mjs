@@ -99,13 +99,14 @@ const vocabEntry = (id, over = {}) => ({
   ...over,
 });
 
-function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')] } = {}) {
+function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')], hidden = false } = {}) {
   const dispatched = [];
   const container = document.createElement('div');
   document.body.append(container);
 
   const panel = createLibraryPanel({
     container,
+    hideText: () => hidden,
     player: { play: (audio, token) => dispatched.push(['play', token]) },
     actions: {
       listSessions: async () => sessions,
@@ -575,4 +576,71 @@ test('settings: clearing the key brings the form back', async () => {
 
   assert.equal(h.container.querySelector('.settings-form').hidden, false);
   assert.equal(buttonNamed(h.container, 'Clear').hidden, true);
+});
+
+// ---- the vocabulary list answers to the global switch ----
+
+const maskOf = (root, selector) => root.querySelector(selector);
+
+test('vocab: with practising from memory on, the word is masked rather than removed', async () => {
+  // A word list in plain sight is the answer key to the sentences beside it.
+  const h = libraryHarness({ hidden: true });
+  h.panel.setOpen(true);
+  h.container.querySelectorAll('.panel-tab')[1].click();
+  await tick();
+
+  const word = maskOf(h.container, '.vocab-text');
+  assert.ok(word.classList.contains('is-masked'));
+  assert.equal(word.querySelectorAll('.masked-char').length, 'difficult'.length,
+    'one dot per character: the shape of the word is a cue, its letters are the answer');
+  assert.match(word.getAttribute('aria-label'), /9 hidden characters/,
+    'and a screen reader is not handed the answer either');
+});
+
+test('vocab: clicking a masked word reveals it, and its uses with it', async () => {
+  const h = libraryHarness({ hidden: true });
+  h.panel.setOpen(true);
+  h.container.querySelectorAll('.panel-tab')[1].click();
+  await tick();
+
+  // Its uses, which quote the sentence the word came from, are masked too --
+  // the sentence contains the word.
+  clickLabelled(h.container, '1 use');
+  await tick();
+  assert.ok(maskOf(h.container, '.vocab-snippet').classList.contains('is-masked'));
+
+  maskOf(h.container, '.vocab-text').click();
+  await tick();
+
+  assert.equal(maskOf(h.container, '.vocab-text').classList.contains('is-masked'), false);
+  assert.equal(maskOf(h.container, '.vocab-snippet').classList.contains('is-masked'), false,
+    'the word and the sentence quoting it are the same answer');
+});
+
+test('vocab: with the switch off, nothing is masked', async () => {
+  const h = libraryHarness({ hidden: false });
+  h.panel.setOpen(true);
+  h.container.querySelectorAll('.panel-tab')[1].click();
+  await tick();
+
+  const word = maskOf(h.container, '.vocab-text');
+  assert.equal(word.classList.contains('is-masked'), false);
+  assert.equal(word.textContent, 'difficult');
+});
+
+test('vocab: a revealed word is hidden again next time the list is built', async () => {
+  // A glance at the answer, not a decision about it.
+  const h = libraryHarness({ hidden: true });
+  h.panel.setOpen(true);
+  h.container.querySelectorAll('.panel-tab')[1].click();
+  await tick();
+
+  maskOf(h.container, '.vocab-text').click();
+  await tick();
+  assert.equal(maskOf(h.container, '.vocab-text').classList.contains('is-masked'), false);
+
+  h.panel.setOpen(false);
+  h.panel.setOpen(true);
+  await tick();
+  assert.ok(maskOf(h.container, '.vocab-text').classList.contains('is-masked'));
 });

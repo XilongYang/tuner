@@ -12,6 +12,7 @@ import { transact, ALL_STORES, request } from '../../js/db/open.js';
 import { blankSentence } from '../../js/model/session.js';
 import { hashBlob, hashString, hashJson, materializeBlob } from '../../js/platform/hash.js';
 import { seed } from '../helpers/seed.mjs';
+import { occurrenceKey } from '../../js/model/text.js';
 
 const clip = (bytes) => new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
 const word = (charStart, charEnd, offsetMs, durationMs) => ({ charStart, charEnd, offsetMs, durationMs });
@@ -306,4 +307,60 @@ test('addOccurrences: nothing picked is a refusal, not an empty success', async 
   const h = harness();
   const outcome = await addOccurrences({ store: h.store, sentenceId: 's1', groups: [], deps: h.deps });
   assert.deepEqual(outcome, { ok: false, added: 0, reason: 'no-selection', ids: [] });
+});
+
+test('the same word from the same sentence is one use of it, not two', async () => {
+  // An occurrence is the fact that this word appears in this sentence. That
+  // fact does not happen twice, so picking it again refreshes the use rather
+  // than stacking up identical ones.
+  const h = harness({ sentences: [sentence('s1', 'one two', { words: [word(0, 3, 0, 100), word(4, 7, 100, 100)] })] });
+
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+  const second = await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+
+  assert.equal(second.ok, true);
+  assert.equal(second.created, false);
+  assert.equal(second.occurrences, 1, 'one use, refreshed');
+
+  const [entry] = await list({ deps: h.deps });
+  assert.equal(entry.sources.length, 1);
+});
+
+test('the same word from a different sentence is a second use', async () => {
+  const h = harness({ sentences: [
+    sentence('s1', 'one two', { words: [word(0, 3, 0, 100)] }),
+    sentence('s2', 'one again', { words: [word(0, 3, 0, 100)] }),
+  ] });
+
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+  const second = await addOccurrence({ store: h.store, sentenceId: 's2', words: [word(0, 3, 0, 100)], deps: h.deps });
+
+  assert.equal(second.occurrences, 2, 'a different sentence is a different sighting');
+  const [entry] = await list({ deps: h.deps });
+  assert.deepEqual(entry.sources.map((s) => s.sentenceId).sort(), ['s1', 's2']);
+});
+
+test('an occurrence is keyed by where it came from, so two devices agree on it', async () => {
+  // The vocab list merges as a union of occurrences, by id. A minted id would
+  // make the same sighting on two devices two entries after a sync; a derived
+  // one makes the union collapse them with no comparison at all.
+  const h = harness({ sentences: [sentence('s1', 'one two', { words: [word(0, 3, 0, 100)] })] });
+
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+
+  const [entry] = await list({ deps: h.deps });
+  assert.equal(entry.sources[0].occurrenceId, occurrenceKey('sess1', 's1'));
+});
+
+test('picking the same word again keeps its audio at the same path', async () => {
+  // The clip lives at vocab-audio/<entry>/<occurrence>.audio. A derived
+  // occurrence id means a re-pick overwrites that clip rather than leaving the
+  // old one behind with nothing referencing it.
+  const h = harness({ sentences: [sentence('s1', 'one two', { words: [word(0, 3, 0, 100)] })] });
+
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+  const before = await db.listContentPaths();
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
+
+  assert.deepEqual(await db.listContentPaths(), before, 'the same one path, before and after');
 });

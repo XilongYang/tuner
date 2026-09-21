@@ -6,12 +6,13 @@
 // phrase" and "picked two words" are the same gesture, told apart by where the
 // words were.
 //
-// The grouping itself is model/geometry.js's, and so is the segmentation: what
-// counts as a word here is what counts as a word when cutting audio.
+// The grouping itself is model/geometry.js's. What counts as a word is not a
+// question this asks: the sentence's word spans came from the service that read
+// it, and they are what the picked clip is cut against.
 
 import { openModal } from '../../modal.js';
 import { el, button } from '../../dom.js';
-import { chars, wordUnits, groupAdjacent } from '../../../model/geometry.js';
+import { chars, groupAdjacent } from '../../../model/geometry.js';
 
 const phrase = (text, units) => text.slice(units[0].charStart, units[units.length - 1].charEnd);
 
@@ -34,7 +35,10 @@ export function describeSelection(text, units, selected) {
  * @returns {Promise<{added: number}|null>} null when dismissed without adding.
  */
 export function vocabPicker({ sentence, addGroups }) {
-  const units = wordUnits(sentence);
+  // The sentence's own word spans, and only those: each one is a position in
+  // real audio, which is what a vocabulary entry's clip is cut from. A row
+  // only offers this once they exist (see row.js).
+  const units = sentence.words || [];
   const text = sentence.text || '';
   const selected = new Set();
 

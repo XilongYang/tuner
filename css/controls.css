@@ -144,3 +144,32 @@ textarea:focus {
   gap: 10px;
   margin-top: 14px;
 }
+
+/* ---- Hidden text: there, and not readable ---- */
+
+.masked-text.is-masked {
+  cursor: pointer;
+  /* The dots stand in for characters, so the run is the word's own length and
+     a reader can tell a hidden word from a missing one. */
+  color: transparent;
+}
+
+/* Narrow on purpose: the dots stand for characters, and a mask much wider
+   than the text it covers makes a row reflow when the word is revealed. */
+.masked-char {
+  position: relative;
+  display: inline-block;
+  min-width: 0.52em;
+  text-align: center;
+  color: transparent;
+}
+
+.masked-char::after {
+  content: '•';
+  position: absolute;
+  inset: 0;
+  color: var(--ink-faint);
+}
+
+.masked-text.is-masked:hover .masked-char::after { color: var(--ink-soft); }
+.masked-text.is-masked:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

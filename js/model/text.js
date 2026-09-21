@@ -135,3 +135,22 @@ export function seamSeparator(left, right) {
 export function vocabKey(text) {
   return (text || '').replace(/[\s\p{P}\p{S}]/gu, '').toLowerCase();
 }
+
+/**
+ * The key one occurrence of a word is stored under: the sentence it was taken
+ * from.
+ *
+ * Derived rather than minted, because an occurrence is not an event -- it is
+ * the fact that this word appears in this sentence, and that fact does not
+ * happen twice. Picking the same word from the same sentence again therefore
+ * lands on the same occurrence and replaces it, instead of stacking up
+ * identical uses; and two devices that both noticed it produce the same key,
+ * so the union that merges their lists collapses them without needing to
+ * compare anything but ids.
+ *
+ * The session is part of it because the same sentence text can be practised in
+ * several sessions, and each of those is a separate sighting worth keeping.
+ */
+export function occurrenceKey(sessionId, sentenceId) {
+  return `${sessionId}_${sentenceId}`;
+}

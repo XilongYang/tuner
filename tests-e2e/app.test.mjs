@@ -863,33 +863,99 @@ test('the header says nothing about syncing until there is something to sync wit
   await context.close();
 });
 
-test('words are picked out of a sentence and kept, adjacency deciding what is one entry', async () => {
+test('a sentence nobody has spoken offers no words to keep', async () => {
+  // A vocabulary entry carries a recording of the word, cut from the reading
+  // of its sentence. Until there is a reading, there is nothing to cut.
+  const { page, context } = await openApp();
+
+  await page.fill('.practice-input', 'Never spoken aloud.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
+  assert.equal(await page.getByRole('button', { name: 'Add vocab' }).isVisible(), false);
+  await context.close();
+});
+
+test('words are picked out of a spoken sentence and kept, adjacency deciding what is one entry', async () => {
   const { page, context, errors } = await openApp();
+
+  // Read it, then say where each word fell: the word spans are what a picked
+  // clip is cut against, and synthesis alone reports none.
+  await context.route('**/cognitiveservices/v1', (route) => route.fulfill({
+    status: 200, headers: { 'Content-Type': 'audio/wav' }, body: toneWav(1800),
+  }));
+  await context.route('**/speechtotext/transcriptions:transcribe**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({
+      durationMilliseconds: 1800,
+      phrases: [{
+        locale: 'en-US',
+        words: [
+          { text: 'The', offsetMilliseconds: 0, durationMilliseconds: 300 },
+          { text: 'quick', offsetMilliseconds: 350, durationMilliseconds: 400 },
+          { text: 'brown', offsetMilliseconds: 800, durationMilliseconds: 400 },
+          { text: 'fox.', offsetMilliseconds: 1250, durationMilliseconds: 500 },
+        ],
+      }],
+    }),
+  }));
+  await page.evaluate(() => window.tuner.settings.saveCredentials({ key: 'k', region: 'r', resourceName: 'res' }));
+  await page.reload();
+  await page.waitForFunction(() => Boolean(window.tuner));
 
   await page.fill('.practice-input', 'The quick brown fox.');
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await page.waitForSelector('.sentence-row');
+  await page.getByRole('button', { name: 'Speak' }).click();
+  await page.waitForFunction(() => (window.tuner.store.get().sentences[0].words || []).length === 4);
 
   await page.getByRole('button', { name: 'Add vocab' }).click();
   await page.waitForSelector('.vocab-words');
   assert.deepEqual(await page.locator('.vocab-word').allTextContents(),
-    ['The', 'quick', 'brown', 'fox.'], 'one chip per word');
+    ['The', 'quick', 'brown', 'fox'],
+    'one chip per word the service placed -- and the span is the word, without the stop after it');
 
   // Two that touch, and one away from them: two entries, not three and not one.
   await page.locator('.vocab-word:text-is("The")').click();
   await page.locator('.vocab-word:text-is("brown")').click();
-  await page.locator('.vocab-word:text-is("fox.")').click();
+  await page.locator('.vocab-word:text-is("fox")').click();
   assert.match(await page.locator('.vocab-picker .modal-message').first().textContent(),
-    /2 entries: “The”, “brown fox\.”/);
+    /2 entries: “The”, “brown fox”/);
 
   await page.locator('.modal-actions button:text-is("Add")').click();
   await page.waitForSelector('.modal-backdrop', { state: 'detached' });
   assert.match(await page.locator('.sentence-status').textContent(), /Added 2 to the vocabulary library/);
 
   const kept = await page.evaluate(async () => (await window.tuner.db.listAll('vocab'))
-    .map((entry) => [entry.id, entry.text]));
-  assert.deepEqual(kept.sort(), [['brownfox', 'brown fox.'], ['the', 'The']],
-    'each entry keyed by its normalised text, keeping what was actually picked');
+    .map((entry) => [entry.id, entry.text, entry.sources.length]));
+  assert.deepEqual(kept.sort(), [['brownfox', 'brown fox', 1], ['the', 'The', 1]],
+    'each entry keyed by its normalised text, with one use of it');
+
+  // Picking the same word from the same sentence again is the same use of it.
+  await page.getByRole('button', { name: 'Add vocab' }).click();
+  await page.waitForSelector('.vocab-words');
+  await page.locator('.vocab-word:text-is("The")').click();
+  await page.locator('.modal-actions button:text-is("Add")').click();
+  await page.waitForSelector('.modal-backdrop', { state: 'detached' });
+
+  const again = await page.evaluate(async () => (await window.tuner.db.listAll('vocab'))
+    .map((entry) => [entry.id, entry.sources.length]));
+  assert.deepEqual(again.sort(), [['brownfox', 1], ['the', 1]], 'no second entry, and no second use');
+
+  // And the list answers to the switch for practising from memory.
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.locator('.panel-tab:text-is("Vocabulary")').click();
+  await page.waitForSelector('.vocab-row');
+  assert.equal(await page.locator('.vocab-text.is-masked').count(), 0);
+
+  await page.locator('#hide-all').check();
+  await page.waitForSelector('.vocab-text.is-masked');
+  assert.equal(await page.locator('.vocab-text.is-masked').count(), 2, 'both words covered');
+
+  await page.locator('.vocab-text.is-masked').first().click();
+  await page.waitForFunction(() => document.querySelectorAll('.vocab-text.is-masked').length === 1,
+    null, { timeout: 5000 });
 
   assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
   await context.close();

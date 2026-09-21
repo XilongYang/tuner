@@ -305,6 +305,15 @@ destructive "delete everything" dialog.)
 Destructive actions share one confirmation path, and the strength of the
 confirmation is proportional to what is destroyed.
 
+Sync is the one thing the app does without being asked, so it has a permanent
+place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
+masthead, with the round's full account on hover or focus. It renders a state
+and decides nothing — which state a round is in comes from `main.js`, the one
+place every round passes through. The wording lives in `ui/sync-text.js`,
+shared with the settings panel, because the panel and the indicator describe
+the same round and two copies of that vocabulary would drift. A round's
+outcome is no longer also announced over the page: one fact, one home.
+
 ## Invariants, and what holds each one
 
 Every rule this design rests on, and the test that fails when it stops being

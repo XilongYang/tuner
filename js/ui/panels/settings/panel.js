@@ -7,10 +7,17 @@
 
 import { el, button } from '../../dom.js';
 import { confirmModal } from '../../modal.js';
+import { describeSync, syncProgress } from '../../sync-text.js';
 import { LANGS, LANG_NAMES, LOCALES } from '../../../model/lang.js';
 import { voiceOptions } from '../../../model/voices.js';
 
-export function createSettingsPanel({ container, actions, settings }) {
+/**
+ * @param {object} args
+ * @param {() => void} [args.onContainerChange] Told when the sync container is
+ *   set or forgotten here, because what the header shows about syncing depends
+ *   on whether there is anything to sync with.
+ */
+export function createSettingsPanel({ container, actions, settings, onContainerChange = () => {} }) {
   const status = el('p', { class: 'panel-status', hidden: true });
   const say = (message, kind = 'info') => {
     status.hidden = !message;
@@ -101,6 +108,7 @@ export function createSettingsPanel({ container, actions, settings }) {
       sasInput.value = '';
       say(saved ? 'Sync container saved.' : 'Could not save: this browser is refusing to store settings.', saved ? 'info' : 'error');
       refresh();
+      onContainerChange();
     },
   });
 
@@ -119,6 +127,7 @@ export function createSettingsPanel({ container, actions, settings }) {
       settings.saveSasUrl('');
       say('Sync container cleared.');
       refresh();
+      onContainerChange();
     },
   });
 
@@ -265,25 +274,3 @@ function describeErase(outcome) {
   return `Only ${outcome.deleted} file${outcome.deleted === 1 ? '' : 's'} could be deleted: ${outcome.reason}`;
 }
 
-const syncProgress = (progress) => (progress?.total
-  ? `Syncing ${progress.done ?? 0} / ${progress.total}…`
-  : 'Syncing…');
-
-function describeSync(outcome) {
-  if (!outcome.ok) {
-    if (outcome.reason === 'not-configured') return 'Add a container SAS URL first.';
-    if (outcome.reason?.startsWith('locked-by:')) return `Another device (${outcome.reason.slice('locked-by:'.length)}) is syncing. Try again shortly.`;
-    if (outcome.reason === 'locked') return 'Another device is syncing. Try again shortly.';
-    return `Sync failed: ${outcome.reason}`;
-  }
-  const parts = [`${outcome.uploaded} uploaded`, `${outcome.downloaded} downloaded`];
-  if (outcome.deleted) parts.push(`${outcome.deleted} deleted`);
-  if (outcome.skipped) parts.push(`${outcome.skipped} left for the next round`);
-  if (outcome.swept) parts.push(`${outcome.swept} orphaned file${outcome.swept === 1 ? '' : 's'} removed`);
-  // A warning says something was lost or left behind, so the first one is shown
-  // in full rather than counted: a bare "(1 warning)" with no way to read it is
-  // worth nothing to the person who has to decide what to do about it.
-  const [first, ...rest] = outcome.warnings || [];
-  if (!first) return `Sync complete — ${parts.join(', ')}.`;
-  return `Sync complete — ${parts.join(', ')}. ${first}${rest.length ? ` (and ${rest.length} more)` : ''}`;
-}

@@ -33,6 +33,8 @@ import { importAudio } from './app/commands/import-audio.js';
 import { syncNow, eraseCloud } from './app/commands/sync.js';
 
 import { createPanelRegistry } from './ui/panels/registry.js';
+import { createSyncIndicator } from './ui/sync-indicator.js';
+import { describeSync, syncProgress, syncState } from './ui/sync-text.js';
 import { createPracticePanel } from './ui/panels/practice/panel.js';
 import { createLibraryPanel } from './ui/panels/library/panel.js';
 import { createSettingsPanel } from './ui/panels/settings/panel.js';
@@ -113,14 +115,24 @@ async function start() {
     },
   };
 
+  // Every round goes through here -- startup, an edit settling, the button --
+  // so this is the one place that knows when one is running, and therefore the
+  // only place the header's indicator is driven from.
+  const syncIndicator = createSyncIndicator(document.getElementById('sync-indicator'));
+
   const runSync = async (onProgress) => {
+    syncIndicator.set({ state: 'syncing', detail: syncProgress(null) });
     const result = await syncNow({
       deps: {
         container: containerOrNull(), db, settings, hash,
         manifestCache: manifestCacheApi,
-        onProgress,
+        onProgress: (progress) => {
+          syncIndicator.set({ state: 'syncing', detail: syncProgress(progress) });
+          onProgress?.(progress);
+        },
       },
     });
+    syncIndicator.set({ state: syncState(result), detail: describeSync(result), at: clock() });
     if (result.ok) {
       // A round may have replaced the session on screen; put the stored copy
       // back so the user sees what was merged.
@@ -134,20 +146,34 @@ async function start() {
     return result;
   };
 
+  /**
+   * A container has just been set or forgotten in Settings.
+   *
+   * Setting one starts a round straight away rather than waiting for the next
+   * edit: what is already up there is what the user wants to see, and a dot
+   * reading "Syncing" with nothing running would be a lie.
+   */
+  const containerChanged = () => {
+    if (!containerOrNull()) {
+      syncIndicator.set({ state: 'off' });
+      return;
+    }
+    runSync();
+  };
+
   // Auto-sync: edits settle, then one round. Coalesced the same way saving is,
   // for the same reason -- a burst of changes is one thing to publish, not
-  // twenty. Failures are silent here because the user did not ask for this
-  // round; the Sync button reports properly.
+  // twenty. Nothing is announced: the round is not something the user asked
+  // for, and the header's indicator is where its outcome belongs.
   let syncHandle = null;
   const scheduleSync = () => {
     if (!containerOrNull()) return;
     clearTimeout(syncHandle);
     syncHandle = setTimeout(async () => {
       await autosave.flush();
-      const result = await runSync();
-      if (!result.ok && !String(result.reason).startsWith('locked')) {
-        console.warn('Background sync did not complete:', result.reason);
-      }
+      // Nothing is reported here on purpose: the indicator already shows what
+      // this round did, and the user did not ask for it.
+      await runSync();
     }, AUTO_SYNC_DELAY_MS);
   };
   store.subscribe((_session, { reason }) => {
@@ -237,6 +263,9 @@ async function start() {
   const settingsPanel = createSettingsPanel({
     container: document.getElementById('settings'),
     settings,
+    // There is nothing to say about syncing until there is somewhere to sync
+    // to, and nothing to say once that is forgotten.
+    onContainerChange: containerChanged,
     actions: {
       sync: (onProgress) => runSync(onProgress),
       eraseCloud: async (onProgress) => {
@@ -302,13 +331,11 @@ async function start() {
   await session.reopenLast({ store, deps: commandDeps });
 
   // One round at startup, so a session recorded on another device is here
-  // before the user starts looking for it.
-  if (containerOrNull()) {
-    const result = await runSync();
-    if (!result.ok && !String(result.reason).startsWith('locked')) {
-      say(`Sync at startup did not complete: ${result.reason}`, 'error');
-    }
-  }
+  // before the user starts looking for it. Its outcome is not announced: the
+  // header's indicator is where sync state lives now, and a floating message
+  // saying the same thing is one the user has to dismiss to read the page.
+  syncIndicator.set(containerOrNull() ? { state: 'syncing', detail: 'Starting sync…' } : { state: 'off' });
+  if (containerOrNull()) await runSync();
 
   // ---- Practising from memory, for every sentence at once ----
   //

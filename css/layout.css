@@ -109,6 +109,83 @@ body {
   color: var(--accent);
 }
 
+/* ---- Sync indicator: a dot, one word, the detail on hover ---- */
+
+.sync-indicator {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font-size: 14px;
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+.sync-indicator[hidden] { display: none; }
+
+.sync-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.sync-indicator[data-state="synced"] .sync-dot { background: var(--good); }
+.sync-indicator[data-state="failed"] .sync-dot { background: var(--danger); }
+.sync-indicator[data-state="failed"] .sync-label { color: var(--danger); }
+
+/* Working: amber, and breathing, because a still dot and a stuck sync look
+   the same. */
+.sync-indicator[data-state="syncing"] .sync-dot {
+  background: var(--busy);
+  animation: sync-dot-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes sync-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* The whole account of the round, for when the one word is not enough. Opens
+   on focus as well as hover: without that it is unreadable on a touch screen
+   and unreachable from the keyboard. */
+.sync-tooltip {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  max-width: 280px;
+  padding: 10px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  /* A finished round's detail is two deliberate lines (see syncTooltip). */
+  white-space: pre-line;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(3px);
+  transition: opacity 0.09s ease, transform 0.09s ease;
+}
+
+.sync-indicator:hover .sync-tooltip,
+.sync-indicator:focus-within .sync-tooltip {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.sync-indicator:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 3px; }
+
 /* The panel that is open says so: its link is in full ink rather than the
    muted grey of the one that is not. `aria-expanded` already carries that
    state for screen readers, so it carries it here too rather than a second

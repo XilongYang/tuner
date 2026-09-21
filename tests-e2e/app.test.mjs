@@ -828,3 +828,37 @@ test('a database written by version 1 is migrated before anything reads it', asy
 
   await context.close();
 });
+
+test('the header says nothing about syncing until there is something to sync with', async () => {
+  const { page, context, errors } = await openApp();
+
+  assert.equal(await page.locator('#sync-indicator').isVisible(), false,
+    'no container configured, so the header stays quiet');
+
+  // A container arrives, through the panel -- which is what tells the header
+  // the container changed. Nothing answers at that address, which is the
+  // point: the round has to end up on the dot as a failure rather than
+  // nowhere.
+  await page.getByRole('button', { name: 'Settings' }).click();
+  await page.locator('#settings input[aria-label="Container SAS URL"]').fill(
+    'https://tuner-not-a-real-account.blob.core.windows.net/c?sig=nope',
+  );
+  // The second Save in the panel: the first belongs to the speech credentials.
+  await page.locator('#settings button:text-is("Save")').nth(1).click();
+
+  await page.waitForFunction(() => document.getElementById('sync-indicator')?.dataset.state === 'failed', null, { timeout: 60000 });
+  assert.equal(await page.locator('#sync-indicator .sync-label').textContent(), 'Sync Failed');
+  assert.match(await page.locator('#sync-indicator .sync-tooltip').textContent(), /Sync failed:/);
+
+  // Forgetting it takes the indicator away again.
+  await page.locator('#settings button:text-is("Forget container")').click();
+  await page.locator('.modal-actions button:text-is("Forget it")').click();
+  await page.waitForFunction(() => document.getElementById('sync-indicator')?.hidden === true);
+
+  // A failed round is reported by the dot, not by a message over the page.
+  assert.equal(await page.locator('#app-status').isVisible(), false);
+  assert.deepEqual(errors.filter((e) => !e.includes('play') && !e.includes('Failed to fetch')
+    && !e.includes('net::') && !e.includes('ERR_')), []);
+
+  await context.close();
+});

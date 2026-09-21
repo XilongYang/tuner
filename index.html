@@ -24,6 +24,10 @@
           <span>Hide text</span>
         </label>
         <nav class="app-nav">
+          <!-- Sync is the one thing here that happens without being asked, so
+               it gets somewhere permanent to say so. Hidden until a container
+               is configured; filled in by ui/sync-indicator.js. -->
+          <div class="sync-indicator" id="sync-indicator" hidden></div>
           <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
           <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
         </nav>

@@ -138,8 +138,8 @@ export function createSettingsPanel({ container, actions, settings }) {
     el('div', { class: 'settings-actions' }, [saveCredentials]),
   ]);
 
+  // No heading of its own -- see the library panel for why.
   container.append(
-    el('h2', { class: 'panel-title', text: 'Settings' }),
     status,
     section('Speech service', [
       credentialState,

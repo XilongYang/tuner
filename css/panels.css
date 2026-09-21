@@ -1,11 +1,5 @@
 /* The library and settings sidebars. */
 
-.panel-title {
-  margin: 0 0 14px;
-  font-size: 20px;
-  font-weight: 700;
-}
-
 .panel-tabs {
   display: flex;
   gap: var(--space-2);

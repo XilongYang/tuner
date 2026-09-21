@@ -139,7 +139,9 @@ body {
   max-height: 100vh;
   overflow-y: auto;
   margin-left: var(--space-6);
-  padding: 24px 24px 48px;
+  /* No padding above: the panel's first row lines up with the practice
+     column's first row, which is what puts its tabs level with New session. */
+  padding: 0 24px 48px;
   border-left: 1px solid var(--border);
 }
 

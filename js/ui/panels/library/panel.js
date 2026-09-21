@@ -31,7 +31,6 @@ export function createLibraryPanel({ container, actions, player }) {
   // session changes far more often than the list of them does.
   let currentId = null;
 
-  const title = el('h2', { class: 'panel-title', text: 'Library' });
   const tabRow = el('div', { class: 'panel-tabs', role: 'tablist' });
   const list = el('div', { class: 'panel-list' });
   const empty = el('p', { class: 'panel-empty', hidden: true });
@@ -55,7 +54,11 @@ export function createLibraryPanel({ container, actions, player }) {
     tabRow.append(btn);
   }
 
-  container.append(title, tabRow, status, empty, list);
+  // No heading of its own: the link that opened this panel is marked as the one
+  // that is open, and saying "Library" twice on the same screen only costs the
+  // panel a row. The container carries the name for anyone who cannot see that
+  // (aria-label, in index.html).
+  container.append(tabRow, status, empty, list);
 
   async function refresh() {
     for (const [name, btn] of tabButtons) {

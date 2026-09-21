@@ -25,11 +25,12 @@
   cursor: not-allowed;
 }
 
+/* No offset of its own: after a split this row is the first thing in the
+   column, and it lines up with the first row of an open panel beside it. */
 .practice-controls {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 4px;
 }
 
 .practice-count {

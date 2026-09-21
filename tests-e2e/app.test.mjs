@@ -362,6 +362,12 @@ test('the header controls sit on the column, above the title, and the panel besi
   const { page, context } = await openApp();
   await page.setViewportSize({ width: 1440, height: 800 });
 
+  // Split first: after that the controls row is the first thing in the column,
+  // which is what an open panel lines its own first row up with.
+  await page.fill('.practice-input', 'Alpha beta.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+
   const edges = async (selector) => {
     const box = await page.locator(selector).boundingBox();
     return box && { left: Math.round(box.x), right: Math.round(box.x + box.width) };
@@ -380,6 +386,12 @@ test('the header controls sit on the column, above the title, and the panel besi
   await page.waitForSelector('#library:not([hidden])');
 
   const open = { toggle: await edges('.global-toggle'), nav: await edges('.app-nav'), main: await edges('.app-main'), panel: await edges('#library') };
+
+  // The panel starts where the column does, so its first row is level with the
+  // practice controls beside it.
+  const top = async (selector) => Math.round((await page.locator(selector).first().boundingBox()).y);
+  assert.equal(await top('.panel-tabs'), await top('.practice-controls'));
+  assert.equal(await page.locator('.panel-title').count(), 0, 'and it does not repeat its own name');
   assert.ok(open.panel.left >= open.main.right, 'the panel is beside the column, not on top of it');
   assert.equal(open.main.right - open.main.left, closed.main.right - closed.main.left, 'the column is the same width');
   assert.ok(open.main.left < closed.main.left, 'and the pair re-centres, so it moved left');

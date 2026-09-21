@@ -16,6 +16,25 @@ import { chars, groupAdjacent } from '../../../model/geometry.js';
 
 const phrase = (text, units) => text.slice(units[0].charStart, units[units.length - 1].charEnd);
 
+/**
+ * The words of the sentence that no unit covers.
+ *
+ * A reading's own tokens are what the units are, and a token the reading
+ * reported but could not be placed in the text is dropped (see
+ * model/transcript.js). When that happens the picker offers fewer words than
+ * the sentence has, and saying nothing about it makes the missing ones look
+ * like a bug in the sentence rather than a gap in the reading.
+ */
+export function unplaced(text, units) {
+  const covered = new Array(text.length).fill(false);
+  for (const unit of units) {
+    for (let i = unit.charStart; i < unit.charEnd; i += 1) covered[i] = true;
+  }
+  return [...text].map((ch, i) => (covered[i] ? ' ' : ch)).join('')
+    .split(/\s+/u)
+    .filter(Boolean);
+}
+
 /** What the selection will produce, said before it is produced. */
 export function describeSelection(text, units, selected) {
   const groups = groupAdjacent(selected);
@@ -43,6 +62,14 @@ export function vocabPicker({ sentence, addGroups }) {
   const selected = new Set();
 
   const hint = el('p', { class: 'modal-message', text: describeSelection(text, units, selected) });
+
+  const missing = unplaced(text, units);
+  const gap = missing.length
+    ? el('p', {
+      class: 'modal-message vocab-unplaced',
+      text: `The reading did not place ${missing.length === 1 ? 'one word' : `${missing.length} words`} of this sentence (${missing.join(', ')}), so ${missing.length === 1 ? 'it is' : 'they are'} not offered here. Speaking the sentence again may place ${missing.length === 1 ? 'it' : 'them'}.`,
+    })
+    : null;
   const status = el('p', { class: 'modal-message vocab-status', hidden: true });
   const words = el('div', { class: 'vocab-words' });
 
@@ -71,7 +98,7 @@ export function vocabPicker({ sentence, addGroups }) {
   });
   words.append(...chips);
 
-  const body = el('div', { class: 'vocab-picker' }, [hint, words, status]);
+  const body = el('div', { class: 'vocab-picker' }, [hint, words, gap, status].filter(Boolean));
 
   let modal;
   const confirm = button({

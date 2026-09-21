@@ -9,7 +9,7 @@ const dom = new JSDOM('<!doctype html><body></body>', { url: 'http://localhost/'
 global.window = dom.window;
 global.document = dom.window.document;
 
-const { vocabPicker, describeSelection } = await import('../../js/ui/panels/practice/vocab-picker.js');
+const { vocabPicker, describeSelection, unplaced } = await import('../../js/ui/panels/practice/vocab-picker.js');
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
 const chips = () => [...document.querySelectorAll('.vocab-word')];
@@ -180,4 +180,30 @@ test('the chips are the service\'s own spans, whatever the spaces say', () => {
   vocabPicker({ sentence: sentence({ text: 'one two three', words }), addGroups: async () => ({ ok: true, added: 1 }) });
 
   assert.deepEqual(chips().map((chip) => chip.textContent), ['one two', 'three']);
+});
+
+// ---- words the reading did not place ----
+
+test('unplaced: the words no unit covers', () => {
+  assert.deepEqual(unplaced('Hello A B C D E', [{ charStart: 0, charEnd: 5 }]), ['A', 'B', 'C', 'D', 'E']);
+  assert.deepEqual(unplaced('one two', [{ charStart: 0, charEnd: 3 }, { charStart: 4, charEnd: 7 }]), []);
+});
+
+test('the picker says which words the reading did not place', async () => {
+  // Reported as "where did my A B C D E go": the reading placed only the
+  // first word, so only the first word could be picked, and nothing said so.
+  vocabPicker({
+    sentence: { id: 's1', text: 'Hello A B C D E', lang: 'en', words: [{ charStart: 0, charEnd: 5, offsetMs: 0, durationMs: 300 }] },
+    addGroups: async () => ({ ok: true, added: 1 }),
+  });
+
+  assert.deepEqual(chips().map((chip) => chip.textContent), ['Hello']);
+  const note = document.querySelector('.vocab-unplaced').textContent;
+  assert.match(note, /did not place 5 words of this sentence \(A, B, C, D, E\)/);
+  assert.match(note, /Speaking the sentence again may place them/);
+});
+
+test('nothing is said when the reading placed everything', () => {
+  vocabPicker({ sentence: sentence(), addGroups: async () => ({ ok: true, added: 1 }) });
+  assert.equal(document.querySelector('.vocab-unplaced'), null);
 });

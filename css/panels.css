@@ -202,3 +202,7 @@
 .vocab-status[hidden] { display: none; }
 .vocab-status[data-kind="busy"] { color: var(--busy); }
 .vocab-status[data-kind="error"] { color: var(--danger); }
+
+/* Words the reading could not place: a gap in what can be picked, and the
+   reason for it. */
+.vocab-unplaced { color: var(--busy); font-size: 14px; }

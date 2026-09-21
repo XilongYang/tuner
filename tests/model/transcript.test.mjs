@@ -236,3 +236,41 @@ test('alignWordsToText: a token that is pure punctuation is not a word to locate
   const words = alignWordsToText(spokenAs(['--', 0, 10], ['Hello', 20, 100]), 'Hello there.');
   assert.deepEqual(words.map((w) => w.charStart), [0]);
 });
+
+test('alignWordsToText: a token that ran several words together still finds them', () => {
+  // Reported: "Hello A B C D E", spoken, offered only "Hello" to pick from.
+  // The reading came back with the letters as one token, which is not a
+  // substring of the text at all -- so everything after "Hello" was dropped
+  // and the sentence looked like a one-word sentence.
+  const words = alignWordsToText(spokenAs(['Hello', 0, 300], ['ABCDE', 400, 900]), 'Hello A B C D E');
+
+  assert.equal(words.length, 2);
+  assert.deepEqual(words.map((w) => 'Hello A B C D E'.slice(w.charStart, w.charEnd)), ['Hello', 'A B C D E']);
+  assert.deepEqual(words.map((w) => [w.offsetMs, w.durationMs]), [[0, 300], [400, 900]]);
+});
+
+test('alignWordsToText: the letters spoken one at a time land on themselves', () => {
+  const text = 'Hello A B C D E';
+  const words = alignWordsToText(
+    spokenAs(['Hello', 0, 300], ['A.', 400, 100], ['B.', 500, 100], ['C.', 600, 100], ['D.', 700, 100], ['E.', 800, 100]),
+    text,
+  );
+
+  assert.deepEqual(words.map((w) => text.slice(w.charStart, w.charEnd)), ['Hello', 'A', 'B', 'C', 'D', 'E']);
+});
+
+test('alignWordsToText: an apostrophe the reading dropped does not lose the word', () => {
+  const text = "I don't know";
+  const words = alignWordsToText(spokenAs(['I', 0, 100], ['dont', 100, 200], ['know', 300, 200]), text);
+
+  assert.deepEqual(words.map((w) => text.slice(w.charStart, w.charEnd)), ['I', "don't", 'know']);
+});
+
+test('alignWordsToText: a span never starts or ends on punctuation', () => {
+  // The span is the letters that matched, so a picked word does not arrive in
+  // the vocabulary library wearing the comma that followed it.
+  const text = 'Well, yes.';
+  const words = alignWordsToText(spokenAs(['Well,', 0, 200], ['yes.', 300, 200]), text);
+
+  assert.deepEqual(words.map((w) => text.slice(w.charStart, w.charEnd)), ['Well', 'yes']);
+});

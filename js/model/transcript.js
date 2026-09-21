@@ -213,44 +213,34 @@ export function wordAt(words, ms) {
 // a period the transcriber added, a tilde it dropped -- only the letters and
 // digits are, and \p{L}/\p{N} make that work the same for kana and kanji as for
 // Latin letters.
-const WORD_EDGES = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
-const ALL_DIGITS = /^[0-9]+$/;
-
-/** Find `core` in `text` at or after `from`, case-insensitively. */
-function findCore(text, from, core) {
-  const at = text.toLowerCase().indexOf(core.toLowerCase(), from);
-  if (at !== -1) return { start: at, end: at + core.length };
-
-  // A number is the one thing a reading reliably reformats: "18,000" can come
-  // back as the single token "18000", which is not a substring of the original
-  // at all. Match it against a digit run with its grouping punctuation removed.
-  if (!ALL_DIGITS.test(core)) return null;
-  for (const match of text.slice(from).matchAll(/[0-9][0-9,.]*/g)) {
-    if (match[0].replace(/[,.]/g, '') !== core) continue;
-    const start = from + match.index;
-    return { start, end: start + match[0].length };
-  }
-  return null;
-}
+const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
 
 /**
- * Put a transcript's word timings onto the text that was read.
+ * The text reduced to its letters and digits, lowercased, with a way back.
  *
- * Used to recover word boundaries for a synthesized clip: the service will read
- * a sentence, and transcribing that reading back is the only way to learn where
- * each word actually falls in it. The transcript's own text is not what is
- * wanted -- the sentence's text is -- so each transcribed word is located in
- * the sentence rather than trusted to line up with it.
+ * Matching happens on this rather than on the text itself, because a reading
+ * and the text it was read from agree about letters and about nothing else.
+ * "18,000" comes back as the single token "18000"; "A B C D E" comes back as
+ * "ABCDE"; "don't" may come back as "dont". None of those is a substring of
+ * the original, and all of them are the same letters in the same order.
  *
- * Word by word, never backtracking: both sides are the same speech in the same
- * order, so the search for each word starts where the previous one ended. A
- * word that cannot be found from there is skipped rather than abandoning the
- * rest -- partial timings are still useful, and one misheard word is not a
- * reason to have none.
- *
- * @returns {{charStart: number, charEnd: number, offsetMs: number, durationMs: number}[]|null}
- *   null when nothing could be matched at all.
+ * `index[i]` is where the i-th kept character sits in the original, which is
+ * what turns a match back into a span of the text.
  */
+function project(text) {
+  let flat = '';
+  const index = [];
+  for (let i = 0; i < text.length; i += 1) {
+    if (!LETTER_OR_DIGIT.test(text[i])) continue;
+    flat += text[i].toLowerCase();
+    index.push(i);
+  }
+  return { flat, index };
+}
+
+/** A spoken token reduced the same way, so the two can be compared at all. */
+const core = (token) => [...token].filter((ch) => LETTER_OR_DIGIT.test(ch)).join('').toLowerCase();
+
 export function alignWordsToText(phrases, text) {
   if (!text) return null;
 
@@ -259,21 +249,31 @@ export function alignWordsToText(phrases, text) {
     for (const word of phrase.words || []) if (word.text) spoken.push(word);
   }
 
+  const { flat, index } = project(text);
   const words = [];
+  // In the projection, not in the text: the cursor is what stops a repeated
+  // word from matching the earlier one again, and it has to advance in the
+  // same space the search happens in.
   let cursor = 0;
+
   for (const word of spoken) {
-    const core = word.text.replace(WORD_EDGES, '');
-    if (!core) continue;
-    const found = findCore(text, cursor, core);
-    if (!found) continue;
+    const wanted = core(word.text);
+    if (!wanted) continue;
+    const at = flat.indexOf(wanted, cursor);
+    if (at === -1) continue;
     words.push({
-      charStart: found.start,
-      charEnd: found.end,
+      // The span covers everything between the first and last letter matched,
+      // punctuation and spaces included. A token that ran several of the
+      // text's words together -- "ABCDE" for "A B C D E" -- therefore spans
+      // all of them, which is what the reading actually timed.
+      charStart: index[at],
+      charEnd: index[at + wanted.length - 1] + 1,
       offsetMs: word.offsetMs ?? null,
       durationMs: word.durationMs ?? null,
     });
-    cursor = found.end;
+    cursor = at + wanted.length;
   }
 
   return words.length ? words : null;
 }
+

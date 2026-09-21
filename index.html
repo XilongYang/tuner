@@ -12,25 +12,33 @@
   <link rel="stylesheet" href="css/panels.css">
 </head>
 <body>
-  <header class="app-header">
-    <label class="global-toggle" for="hide-all">
-      <input type="checkbox" id="hide-all">
-      <span>Hide text</span>
-    </label>
-    <h1 class="app-title">Tuner</h1>
-    <nav class="app-nav">
-      <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
-      <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
-    </nav>
-  </header>
+  <!-- One shell holds the masthead, the practice column and the panels, so the
+       header's own controls line up with the column beneath them rather than
+       with the far edges of the screen. An open panel widens the shell, and
+       everything in it moves together. -->
+  <div class="shell">
+    <header class="app-header">
+      <label class="global-toggle" for="hide-all">
+        <input type="checkbox" id="hide-all">
+        <span>Hide text</span>
+      </label>
+      <h1 class="app-title">Tuner</h1>
+      <nav class="app-nav">
+        <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
+        <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
+      </nav>
+    </header>
 
-  <main class="app-main">
-    <!-- The practice panel builds itself in here. -->
-    <section class="practice" id="practice" aria-label="Practice"></section>
-  </main>
+    <div class="columns">
+      <main class="app-main">
+        <!-- The practice panel builds itself in here. -->
+        <section class="practice" id="practice" aria-label="Practice"></section>
+      </main>
 
-  <aside class="sidebar" id="library" hidden aria-label="Library"></aside>
-  <aside class="sidebar" id="settings" hidden aria-label="Settings"></aside>
+      <aside class="sidebar" id="library" hidden aria-label="Library"></aside>
+      <aside class="sidebar" id="settings" hidden aria-label="Settings"></aside>
+    </div>
+  </div>
 
   <p class="app-status" id="app-status" role="status" hidden></p>
 

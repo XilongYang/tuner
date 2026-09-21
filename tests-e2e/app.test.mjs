@@ -324,6 +324,54 @@ test('Escape closes an open sidebar', async () => {
   await context.close();
 });
 
+test('the header controls sit on the column, and the panel beside it rather than over it', async () => {
+  const { page, context } = await openApp();
+  await page.setViewportSize({ width: 1440, height: 800 });
+
+  const edges = async (selector) => {
+    const box = await page.locator(selector).boundingBox();
+    return box && { left: Math.round(box.x), right: Math.round(box.x + box.width) };
+  };
+
+  const closed = { toggle: await edges('.global-toggle'), nav: await edges('.app-nav'), main: await edges('.app-main') };
+  assert.ok(closed.toggle.left >= closed.main.left && closed.toggle.left < closed.main.left + 40,
+    'the switch sits at the column, not at the edge of the screen');
+  assert.ok(closed.nav.right <= closed.main.right && closed.nav.right > closed.main.right - 40);
+
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('#library:not([hidden])');
+
+  const open = { toggle: await edges('.global-toggle'), nav: await edges('.app-nav'), main: await edges('.app-main'), panel: await edges('#library') };
+  assert.ok(open.panel.left >= open.main.right, 'the panel is beside the column, not on top of it');
+  assert.equal(open.main.right - open.main.left, closed.main.right - closed.main.left, 'the column is the same width');
+  assert.ok(open.main.left < closed.main.left, 'and the pair re-centres, so it moved left');
+  assert.equal(open.toggle.left - open.main.left, closed.toggle.left - closed.main.left,
+    'the switch moved with the column it belongs to');
+  // The header spans everything on show, so its right-hand controls sit on the
+  // right edge of whatever that is: the column alone, or the panel beside it.
+  assert.equal(closed.nav.right - closed.main.right, open.nav.right - open.panel.right);
+
+  await context.close();
+});
+
+test('the open panel is the one marked open', async () => {
+  const { page, context } = await openApp();
+  const state = (name) => page.getByRole('button', { name }).getAttribute('aria-expanded');
+
+  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'false']);
+
+  await page.getByRole('button', { name: 'Library' }).click();
+  assert.deepEqual([await state('Library'), await state('Settings')], ['true', 'false']);
+
+  await page.getByRole('button', { name: 'Settings' }).click();
+  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'true'], 'only one at a time');
+
+  await page.keyboard.press('Escape');
+  assert.deepEqual([await state('Library'), await state('Settings')], ['false', 'false']);
+
+  await context.close();
+});
+
 test('settings report what is missing, and remember what is entered', async () => {
   const { page, context } = await openApp();
 

@@ -1,5 +1,5 @@
-/* Page frame: a centred masthead, one narrow column of content, and sidebars
-   that slide over it. */
+/* Page frame: a centred masthead over one reading column, with a panel beside
+   it when one is open. */
 
 * { box-sizing: border-box; }
 
@@ -19,19 +19,40 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* The masthead: title centred, actions in the top corner, no rule under it.
-   `min-height` is the token the sidebar positions itself against, and the
-   title's own padding is what actually produces that height -- if either
-   changes, the other has to. */
+/* The shell is as wide as what is in it -- the reading column alone, or the
+   column and an open panel -- and is centred as a whole. That is what lets the
+   masthead's controls sit on the column's own edges instead of the screen's,
+   and what makes the pair re-centre when a panel opens.
+
+   The two columns are wrapped rather than being rows of the shell's own grid:
+   a masthead spanning both tracks lends its own width to the empty one, and
+   the column then sat off centre with no panel open at all. Here the wrapper
+   is what has a width, and the masthead stretches to it. */
+.shell {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.columns {
+  display: flex;
+  align-items: flex-start;
+}
+
+/* The masthead: title centred, actions in the corners of the shell, no rule
+   under it. */
 .app-header {
-  position: relative;
-  min-height: var(--header-h);
-  background: transparent;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 24px 24px 22px;
 }
 
 .app-title {
+  grid-column: 2;
   margin: 0;
-  padding: 40px 24px 30px;
+  padding: 0 var(--space-4);
   text-align: center;
   font-size: 32px;
   font-weight: 700;
@@ -39,10 +60,29 @@ body {
   line-height: 1.3;
 }
 
+/* Practising from memory is a mode, not an action, so it is a switch, and it
+   sits at the column's left edge opposite the panel links. */
+.global-toggle {
+  grid-column: 1;
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  user-select: none;
+}
+
+.global-toggle input {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--ink);
+}
+
 .app-nav {
-  position: absolute;
-  top: 24px;
-  right: 24px;
+  grid-column: 3;
+  justify-self: end;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -66,50 +106,38 @@ body {
   color: var(--accent);
 }
 
-/* Practising from memory is a mode, not an action, so it is a switch and it
-   sits opposite the panel links rather than among the controls of any one
-   sentence. */
-.global-toggle {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  color: var(--ink-soft);
-  cursor: pointer;
-  user-select: none;
-}
-
-.global-toggle input {
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--ink);
+/* The panel that is open says so: its link is in full ink rather than the
+   muted grey of the one that is not. `aria-expanded` already carries that
+   state for screen readers, so it carries it here too rather than a second
+   class being kept in step with it. */
+.app-nav .btn[aria-expanded="true"] {
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration-thickness: 2px;
 }
 
 .app-main {
-  max-width: 720px;
-  margin: 0 auto;
+  flex: none;
+  width: var(--column-w);
+  max-width: 100%;
+  min-width: 0;
   padding: 0 24px 72px;
 }
 
-/* Sidebars overlay rather than reflow, so opening one does not move the
-   sentence a user is in the middle of reading. */
+/* The panel sits beside the column, in the flow rather than over it: nothing it
+   covers, nothing to shadow. It scrolls on its own, though, so a long library
+   does not make the page taller than the practice list it is next to. */
 .sidebar {
-  position: fixed;
-  /* Starts below the masthead, so the link that opened it stays reachable. */
-  top: var(--header-h);
-  right: 0;
-  bottom: 0;
-  width: 360px;
-  max-width: 90vw;
-  padding: 20px;
+  flex: none;
+  width: var(--panel-w);
+  align-self: start;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
   overflow-y: auto;
-  background: var(--surface);
-  border-left: 1px solid var(--border-strong);
-  box-shadow: var(--shadow-panel);
-  z-index: 60;
+  margin-left: var(--space-6);
+  padding: 24px 24px 48px;
+  border-left: 1px solid var(--border);
 }
 
 .sidebar[hidden] { display: none; }
@@ -126,16 +154,49 @@ body {
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow);
   font-size: var(--text-sm);
-  z-index: 70;
+  z-index: 30;
 }
 
 .app-status[hidden] { display: none; }
 .app-status[data-kind="error"] { color: var(--danger); border-color: var(--danger); }
 
+/* Too narrow for both: the panel takes the full width and goes above the
+   practice list rather than beside it, since it is what was just asked for. */
+@media (max-width: 1140px) {
+  .shell { width: min(var(--column-w), 100%); }
+
+  /* Reversed rather than reordered in the markup: the panel is still the
+     second thing in the document, so the keyboard reaches it after the
+     practice column -- accepted, for a region that is only there while it is
+     being used. */
+  .columns { flex-direction: column-reverse; }
+
+  .sidebar {
+    width: auto;
+    align-self: stretch;
+    position: static;
+    max-height: none;
+    margin-left: 0;
+    padding: 0 24px 32px;
+    border-left: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .app-main { padding-top: 24px; }
+}
+
 @media (max-width: 560px) {
-  .app-title { padding: 22px 20px 18px; font-size: 27px; }
-  .app-nav { position: static; justify-content: center; padding-bottom: 12px; }
-  .global-toggle { position: static; justify-content: center; padding-top: 12px; }
+  .app-header {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: var(--space-2);
+    padding: 22px 20px 18px;
+  }
+
+  .app-title { grid-column: 1; grid-row: 1; font-size: 27px; padding: 0; }
+  .global-toggle { grid-column: 1; grid-row: 2; justify-self: center; }
+  .app-nav { grid-column: 1; grid-row: 3; justify-self: center; }
+
   .app-main { padding: 0 20px 48px; }
-  .sidebar { width: 100vw; max-width: 100vw; }
+  .sidebar { padding: 0 20px 24px; }
 }

@@ -21,12 +21,9 @@
   --radius: 4px;
   --radius-sm: 4px;
 
-  /* The masthead's height. Fixed rather than measured, so the sidebar can start
-     exactly below it without JavaScript reading a layout back; the header is
-     given this as its minimum height, so the two cannot drift apart. The
-     sidebar starts below the header rather than covering it, because these
-     panels are closed by the same button that opened them. */
-  --header-h: 114px;
+  /* The reading column, and the panel that sits beside it. */
+  --column-w: 720px;
+  --panel-w: 360px;
 
   /* Serif stack: prefer Latin Modern (if it is installed locally), then generic
      serifs and CJK Mincho/Song. */
@@ -73,9 +70,5 @@
   --focus: var(--ink-soft);
 
   --shadow: 0 8px 24px rgba(20, 30, 50, 0.14);
-  --shadow-panel: -14px 0 32px rgba(20, 30, 50, 0.16);
 }
 
-@media (max-width: 560px) {
-  :root { --header-h: 86px; }
-}

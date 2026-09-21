@@ -675,3 +675,55 @@ test('a clip is written once, and later edits leave the stored bytes alone', asy
 
   await context.close();
 });
+
+test('splitting a sentence collects the clip nothing references any more', async () => {
+  // A split replaces one sentence with two, under new ids, so the original's
+  // clip stops being reachable. Before content had a store of its own it went
+  // with the record; now it has to be collected, and with no container
+  // configured a sync round never happens to do it.
+  const { page, context, errors } = await openApp();
+
+  await page.evaluate(() => {
+    window.tuner.settings.saveCredentials({ key: 'k', region: 'japaneast' });
+    const realFetch = window.fetch;
+    window.fetch = async (url, options) => (String(url).includes('tts.speech')
+      ? new Response(new Uint8Array([4, 4, 4, 4]), { status: 200, headers: { 'Content-Type': 'audio/mpeg' } })
+      : realFetch(url, options));
+  });
+
+  const contentPaths = () => page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('tuner');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const keys = await new Promise((resolve, reject) => {
+      const req = db.transaction(['content'], 'readonly').objectStore('content').getAllKeys();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return keys.sort();
+  });
+
+  await page.fill('.practice-input', 'Cut me here please.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.getByRole('button', { name: 'Speak' }).click();
+  await page.waitForFunction(() => Boolean(window.tuner.store.get().sentences[0].reference));
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  const before = await contentPaths();
+  const reference = before.find((path) => path.startsWith('references/'));
+  assert.ok(reference, 'the clip was stored');
+
+  await page.locator('.split-marker').first().click();
+  await page.waitForFunction(() => window.tuner.store.get().sentences.length === 2);
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  const after = await contentPaths();
+  assert.ok(!after.includes(reference), 'the replaced sentence took its clip with it');
+  assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
+
+  await context.close();
+});

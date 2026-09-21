@@ -210,6 +210,12 @@ test('a record written locally while the round was in flight is not overwritten 
   assert.equal(result.written, 0);
   assert.equal(result.skipped, 1, 'the write was refused rather than clobbering');
   assert.equal((await db.getOne('sessions', 'sess1')).name, 'created here while syncing');
+
+  // And the bytes it downloaded for that record did not land either: there is
+  // no record reaching them, so they would be unreachable -- and the sweep at
+  // the end of the round would delete them anyway. The next round fetches them
+  // with the write that was refused.
+  assert.deepEqual(await db.listContentPaths(), [], 'no bytes without a record to reach them');
 });
 
 test('vocab from two devices unions rather than one overwriting the other', async () => {

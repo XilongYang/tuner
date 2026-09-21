@@ -97,7 +97,20 @@ async function start() {
   const commandDeps = {
     db, hash, audio, settings, speech, player, browserSpeech, ids, clock, saveRecord, autosave,
     release: () => releaseWorkspace(),
-    tombstone: (sentenceIds) => db.tombstoneSentences(sentenceIds),
+    // A split or a merge replaces sentences, which leaves their clips with
+    // nothing pointing at them. Collected here rather than only at the end of a
+    // sync round: someone with no container configured never has a round, and
+    // the bytes would sit in their quota for good.
+    //
+    // The flush is what lets the sweep see them at all. Saving is debounced, so
+    // at this moment the stored session still lists the sentences that were
+    // just replaced -- and content a stored record still references is content
+    // the sweep must leave alone.
+    tombstone: async (sentenceIds) => {
+      await db.tombstoneSentences(sentenceIds);
+      await autosave.flush();
+      await db.sweepContent();
+    },
   };
 
   const runSync = async (onProgress) => {

@@ -54,14 +54,6 @@ test('an empty slot gets a null hash -- a record never claims content it lacks',
   assert.equal(stamped.sentences[0].recordingHash, null);
 });
 
-test('a stale hash left on a record whose content is gone is cleared', async () => {
-  const stamped = await stampContentHashes(SESSION, session({
-    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: null, recordingHash: 'left-over' })],
-  }), { hash });
-
-  assert.equal(stamped.sentences[0].recordingHash, null);
-});
-
 test('unchanged content keeps its hash instead of being re-read', async () => {
   const recording = clip([1, 2, 3]);
   const before = await stampContentHashes(SESSION, session({
@@ -202,4 +194,47 @@ test('saveRecord: the stored record carries no bytes of its own', async () => {
   // sent went as a content entry.
   assert.deepEqual(db.writes[0].entries.map((e) => e.path).sort(),
     ['inputtext/sess1.txt', 'recordings/sess1/s1.wav']);
+});
+
+test('stampContentHashes: a claim whose bytes are missing is kept, not nulled', async () => {
+  // This replaces a test that asserted the opposite. It was right while a
+  // record carried its own bytes, because a hash with no value beside it could
+  // only be a leftover. Now that bytes live in the content store and a record
+  // is hydrated on the way out, a hash with no value means the bytes are not
+  // in hand -- and nulling it would drop the claim on every device at the next
+  // sync, after which the container's copy, possibly the last readable one,
+  // would be swept as an orphan.
+  const record = session({
+    sentences: [blankSentence({
+      id: 's1', text: 'hi', lang: 'en', now: 1,
+      recording: null, recordingHash: 'a-hash-whose-bytes-are-gone',
+    })],
+  });
+
+  const stamped = await stampContentHashes(SESSION, record, { hash });
+
+  assert.equal(stamped.sentences[0].recordingHash, 'a-hash-whose-bytes-are-gone');
+});
+
+test('stampContentHashes: a caller clearing content clears the claim with it', async () => {
+  // The other half of the same rule: a retake or a delete sets both to null,
+  // and stamping must not put the hash back.
+  const record = session({
+    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: null, recordingHash: null })],
+  });
+
+  const stamped = await stampContentHashes(SESSION, record, { hash });
+
+  assert.equal(stamped.sentences[0].recordingHash, null);
+});
+
+test('saveRecord: a claim with no bytes writes no content entry', async () => {
+  const db = fakeDb();
+
+  await saveRecord('sessions', session({
+    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: null, recordingHash: 'gone' })],
+  }), { db, hash });
+
+  assert.deepEqual(db.writes[0].entries, [], 'nothing to store, and nothing claimed away');
+  assert.equal(db.writes[0].record.sentences[0].recordingHash, 'gone');
 });

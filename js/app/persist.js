@@ -34,8 +34,17 @@ function hashValue(kind, value, hash) {
 /**
  * A copy of `record` with every content slot's hash matching its value.
  *
- * A slot with no value gets a null hash: a record must never claim content it
- * does not have, because sync would then look for bytes nobody holds.
+ * A slot with a value gets that value's hash. A slot with no value keeps
+ * whatever hash the caller gave it, which is the difference between "there is
+ * no clip here" and "there is a clip here and its bytes are missing" -- the
+ * first is a null hash the caller set on purpose (a retake clears both), the
+ * second is a hash whose value could not be read.
+ *
+ * Nulling that second case would be the same mistake as discarding it during a
+ * sync, with a worse reach: the record is what a merge compares, so a claim
+ * dropped here is dropped on every device, and the container's copy of those
+ * bytes -- the one copy that might still be readable -- is then swept as an
+ * orphan. Saving a sentence must not be able to destroy its audio elsewhere.
  *
  * `previous` is an optimisation, not a shortcut. When a slot's value is the
  * very same object as before, its bytes cannot have changed, so the hash is
@@ -54,7 +63,7 @@ export async function stampContentHashes(def, record, { hash, previous = null })
   for (const slot of walkContent(def, record)) {
     const path = contentPath(slot.kind, slot.ref);
     if (slot.value == null) {
-      computed.set(path, null);
+      computed.set(path, slot.hash ?? null);
       continue;
     }
     const before = previousByPath.get(path);

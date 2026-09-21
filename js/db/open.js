@@ -25,9 +25,12 @@ export function isSupported() {
 }
 
 let dbPromise = null;
+/** Which open this is, so a connection only ever forgets its own. */
+let generation = 0;
 
 export function openDb() {
   if (dbPromise) return dbPromise;
+  const mine = ++generation;
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
@@ -46,8 +49,25 @@ export function openDb() {
       // See ./content.js for why that is not an optimisation.
       if (!db.objectStoreNames.contains(CONTENT)) db.createObjectStore(CONTENT, { keyPath: 'path' });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab wants to upgrade the schema, and it cannot while this
+      // connection is open. Holding on would hang that tab for as long as this
+      // one lives, so this one lets go -- and forgets the connection, so the
+      // next call opens a fresh one at whatever version now exists.
+      db.onversionchange = () => {
+        db.close();
+        if (generation === mine) dbPromise = null;
+      };
+      resolve(db);
+    };
     request.onerror = () => reject(dbError(request.error, `Opening the ${DB_NAME} database`));
+    // The mirror image: this tab needs an upgrade and an older one is in the
+    // way. Without this the open never settles at all -- no success, no error
+    // -- and the app waits forever with nothing on screen to say why.
+    request.onblocked = () => reject(new Error(
+      `Opening the ${DB_NAME} database is blocked: another tab is still using an older version of this app. Close it and reload.`,
+    ));
   });
   return dbPromise;
 }

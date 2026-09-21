@@ -47,10 +47,16 @@ const isBlob = (value) => typeof value?.arrayBuffer === 'function';
  * Nothing is attached to a record: a stored record carries hashes, and the
  * bytes go beside it under the same blob path the container used. A downloaded
  * value came off the network and owns its bytes, so it is stored as it is.
+ *
+ * Each entry names the record it belongs to, because the store writes bytes
+ * only for records that were actually written -- see db/entities.js.
  */
 const contentEntries = (plan, downloaded) => plan.slots
   .filter((slot) => downloaded.has(slot.path))
-  .map((slot) => ({ path: slot.path, kind: slot.kind, hash: slot.hash, value: downloaded.get(slot.path) }));
+  .map((slot) => ({
+    path: slot.path, kind: slot.kind, hash: slot.hash,
+    ownerId: slot.ownerId, value: downloaded.get(slot.path),
+  }));
 
 /**
  * Run one round.

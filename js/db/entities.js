@@ -17,13 +17,14 @@ import {
   SESSIONS, FOLDERS, VOCAB, TOMBSTONES, CONTENT, ALL_STORES, transact, request,
 } from './open.js';
 import { putContentIn, deleteContentIn } from './content.js';
-// The content store's own reads are part of this module's surface: the app
-// asks the database for things, and should not have to know the database
-// keeps bytes in a second place.
-export { readOne as readContent, storedHashes as storedContentHashes, listContentPaths } from './content.js';
 import { tombstoneId } from '../model/merge.js';
 import { SESSION, FOLDER, VOCAB_ENTRY, walkContent, hashKey } from '../model/schema.js';
 import { contentPath } from '../model/content.js';
+
+// The content store's own reads are part of this module's surface: the app asks
+// the database for things, and should not have to know it keeps bytes in a
+// second place.
+export { readOne as readContent, storedHashes as storedContentHashes, listContentPaths } from './content.js';
 
 /** Which store each collection lives in, its tombstone kind, and its shape. */
 const COLLECTIONS = {
@@ -301,7 +302,10 @@ export async function sweepContent() {
  *
  * `content` is what the round downloaded, already materialized, and lands in
  * the same transaction as the records that reference it -- so a record is never
- * stored claiming bytes that did not make it in beside it.
+ * stored claiming bytes that did not make it in beside it. An entry whose
+ * owning record is skipped is dropped with it: bytes with no record to reach
+ * them through are unreachable, and the next round fetches them again alongside
+ * the write that was refused.
  *
  * @param {{localWrites: Array<{entity: string, record: object, baseClock: number|null, id: string}>,
  *          localDeletes: Array<{entity: string, id: string}>,
@@ -315,8 +319,6 @@ export async function applyPlan(plan, clocks, { content = [] } = {}) {
     const written = [];
     const skipped = [];
     const deleted = [];
-
-    await putContentIn(s, content);
 
     for (const write of plan.localWrites) {
       const { store, def } = collection(write.entity);
@@ -333,6 +335,9 @@ export async function applyPlan(plan, clocks, { content = [] } = {}) {
       await request(s[store].put(stripped(def, write.record)), `Storing ${write.entity} ${write.id}`);
       written.push(write.id);
     }
+
+    const landed = new Set(written);
+    await putContentIn(s, content.filter((entry) => landed.has(entry.ownerId)));
 
     for (const del of plan.localDeletes) {
       const { store } = collection(del.entity);

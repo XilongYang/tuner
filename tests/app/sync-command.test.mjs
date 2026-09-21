@@ -445,3 +445,60 @@ test('eraseCloud: releases the lock afterwards, so the next round is not blocked
 
   assert.equal(after.ok, true);
 });
+
+test('an upload that fails stops the round before anything is published', async () => {
+  // The invariant the whole content plan rests on: the container never carries
+  // a manifest naming bytes it does not have. A failed upload is not withheld
+  // and carried on from -- it ends the round, so the next one plans against a
+  // container that has not moved.
+  await seedSession({ recording: clip([1, 2]), inputText: 'text too' });
+  const container = fakeContainer();
+  const realUpload = container.uploadBytes;
+  container.uploadBytes = async (path, ...rest) => {
+    if (path.startsWith('recordings/')) throw new Error('Upload of "recordings/..." failed: HTTP 403');
+    return realUpload(path, ...rest);
+  };
+
+  const result = await syncNow({ deps: deps(container) });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /HTTP 403/);
+  assert.equal(container.has(MANIFEST_PATH), false, 'nothing was published');
+  assert.equal(container.has(LOCK_PATH), false, 'and the lock was still released');
+
+  // The local side is untouched, so the next round offers the same work again.
+  const stored = await db.getOne('sessions', 'sess1');
+  assert.equal(stored.sentences[0].recordingHash, await hashBlob(clip([1, 2])));
+});
+
+test('the round keeps its order: lock, read, upload, publish, write, sweep, release', async () => {
+  // Publishing before writing locally means a failure in between leaves the
+  // container ahead of this device, which the next round simply pulls. The
+  // reverse leaves content referenced by nothing, so the order is load-bearing
+  // rather than tidy.
+  await seedSession({ recording: clip([5]) });
+  const container = fakeContainer();
+  const log = [];
+  const traced = {
+    ...container,
+    uploadJson: async (path, value, opts) => { log.push(`put ${path}`); return container.uploadJson(path, value, opts); },
+    uploadBytes: async (path, ...rest) => { log.push(`put ${path}`); return container.uploadBytes(path, ...rest); },
+    downloadJsonConditional: async (path, etag) => { log.push(`get ${path}`); return container.downloadJsonConditional(path, etag); },
+    listBlobs: async (prefix) => { log.push('list'); return container.listBlobs(prefix); },
+    deleteBlob: async (path, opts) => { log.push(`delete ${path}`); return container.deleteBlob(path, opts); },
+  };
+  const tracedDb = { ...db, applyPlan: async (...args) => { log.push('write locally'); return db.applyPlan(...args); } };
+
+  const result = await syncNow({ deps: deps(traced, { db: tracedDb }) });
+  assert.equal(result.ok, true, result.reason);
+
+  const steps = log.filter((step) => step !== 'list' && !step.startsWith('get manifest'));
+  assert.deepEqual(steps, [
+    `put ${LOCK_PATH}`,
+    'put recordings/sess1/sess1-s1.wav',
+    `put ${MANIFEST_PATH}`,
+    'write locally',
+    `delete ${LOCK_PATH}`,
+  ]);
+  assert.equal(log[1], `get ${MANIFEST_PATH}`, 'the manifest is read once the lock is held');
+});

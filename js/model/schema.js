@@ -99,7 +99,10 @@ export const OCCURRENCE = entity('occurrence', {
 
 export const VOCAB_ENTRY = entity('vocabEntry', {
   id: f.id(),
-  text: f.plain(),
+  // Defaulted like every other field, and to a string rather than null:
+  // everything downstream indexes and slices it, and an absent `text` would
+  // not survive JSON at all -- the key would simply not be there.
+  text: f.plain({ default: '' }),
   lang: f.plain({ default: null }),
   audioPathKey: f.plain(),
   createdAt: f.plain({ default: 0 }),
@@ -111,7 +114,7 @@ export const VOCAB_ENTRY = entity('vocabEntry', {
 
 export const SENTENCE = entity('sentence', {
   id: f.id(),
-  text: f.plain(),
+  text: f.plain({ default: '' }),
   lang: f.plain({ default: null }),
   hidden: f.plain({ default: false }),
   updatedAt: f.plain({ default: null }),

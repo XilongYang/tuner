@@ -305,6 +305,70 @@ destructive "delete everything" dialog.)
 Destructive actions share one confirmation path, and the strength of the
 confirmation is proportional to what is destroyed.
 
+## Invariants, and what holds each one
+
+Every rule this design rests on, and the test that fails when it stops being
+true. An invariant with nothing under "checked by" is a convention, and a
+convention is a rule in the state just before it is broken -- which is how the
+clip-destroying write got in, under a comment asserting it could not happen.
+
+Storage:
+
+- A hash is non-null exactly when the record claims content; the value beside
+  it may be absent, which means the bytes are not in hand. *(`app/persist`
+  tests: a claim with no bytes is kept; a caller clearing content clears both.
+  `db/entities` tests: a hash with nothing behind it reads back as a claim.)*
+- Bytes are written once per path and hash, however often the record is
+  rewritten. *(`app/persist` tests; browser test "a clip is written once".)*
+- A stored record never contains bytes. *(`db/entities` test reading the raw
+  record.)*
+- A record and the bytes it brought land in one transaction, or neither does.
+  *(`db/entities` test, forced with a record the engine refuses to serialize.)*
+- A deletion and its tombstone land in one transaction. *(`db/entities`.)*
+- Deleting a record deletes its content; content no record references is
+  collected. *(`db/entities`; browser test "splitting a sentence collects the
+  clip nothing references any more".)*
+- Nothing but `db/entities.js` reaches the content store. *(`arch`.)*
+- Version 1's inline content is moved out before any reader expects it in the
+  content store. *(`db/migrate` tests; browser test that starts the app on a
+  real version 1 database.)*
+- An upgrade blocked by an older tab is reported, and a connection here lets go
+  when another tab needs one. *(`db/open`.)*
+
+Sync:
+
+- The published manifest never claims bytes the container does not have: a
+  failed upload ends the round before publishing, and content that could not be
+  sent is withheld from the manifest while the local record keeps its claim.
+  *(`app/sync-command`: an upload that fails publishes nothing; a withheld
+  upload is offered again next round.)*
+- A failed read never discards a claim, here or upstream. *(`app/persist`,
+  `app/sync-command`.)*
+- The round's order is lock, read, plan, upload, publish, write locally, sweep,
+  release. *(`app/sync-command`: the order is asserted as a sequence.)*
+- A local write whose record changed under the plan is skipped, and the bytes
+  it downloaded are skipped with it. *(`app/sync-command`.)*
+
+Model:
+
+- Word timings belong to the clip they were measured against. *(`model/session`
+  split and merge tests; browser geometry tests.)*
+- A blob path is a function of kind and ref, and the same one locally and
+  remotely. *(`model/schema`: a content field added reaches the manifest and
+  the content walk with nothing else touched.)*
+- Only identity has no default; every other field defaults, and no field
+  serializes as `undefined` -- the one value JSON drops. *(`model/schema`: the
+  required set is pinned, so adding a field without a default is a deliberate
+  edit to that list.)*
+- No `has<Field>` flag anywhere: a hash is the fact. *(`model/schema`.)*
+
+App and UI:
+
+- The session on screen is the only mutable state, and commands address
+  sentences by id. *(command tests throughout.)*
+- `ui/` never reaches the database or the network. *(`arch`.)*
+- A session with nothing in it is not stored. *(`app/session-command`.)*
+
 ## Tests
 
 Four tiers, in descending order of how many tests belong in each:

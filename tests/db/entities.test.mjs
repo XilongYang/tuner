@@ -217,3 +217,35 @@ test('dbError: a real failure is passed through untouched', () => {
   const real = Object.assign(new Error('Error preparing Blob/File data to be stored in object store'), { name: 'UnknownError' });
   assert.equal(dbError(real, 'The write'), real);
 });
+
+test('a record and its content land together, or neither does', async () => {
+  // They are one transaction because the hash and the bytes it names have to
+  // become true at the same moment. Forced here by a record the engine refuses
+  // to serialize: the content write has already gone in when it fails, so
+  // rolling back is the only way the store can come out of it consistent.
+  const value = new Blob([new Uint8Array([1, 2])]);
+  const refused = {
+    id: 's1', updatedAt: 1,
+    unserializable: () => {}, // structured clone cannot take a function
+    sentences: [{ id: 'x', recordingHash: 'h' }],
+  };
+
+  await assert.rejects(() => putRecord('sessions', refused, [
+    { path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h', value },
+  ]));
+
+  assert.equal(await getOne('sessions', 's1'), undefined, 'no record');
+  assert.deepEqual(await listContentPaths(), [], 'and no bytes left behind by the attempt');
+});
+
+test('a deletion and its tombstone land together, or neither does', async () => {
+  await put('sessions', { id: 's1', updatedAt: 1 });
+
+  // Same shape of argument, on the pair whose split once resurrected deleted
+  // records: the record goes and the tombstone that carries the deletion is
+  // recorded in the same transaction.
+  await remove('sessions', 's1');
+
+  assert.equal(await getOne('sessions', 's1'), undefined);
+  assert.deepEqual((await listTombstones()).map((t) => t.targetId), ['s1']);
+});

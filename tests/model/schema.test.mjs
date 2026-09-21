@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   entity, f, hashKey, toNode, fromNode, walkContent, presentContent, mapContent, dropContent,
-  SESSION, SENTENCE, VOCAB_ENTRY, FOLDER,
+  SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE, FOLDER,
 } from '../../js/model/schema.js';
 import { contentPath } from '../../js/model/content.js';
 
@@ -221,4 +221,88 @@ test('dropContent: what it drops is exactly what stops being walked', () => {
   const out = dropContent(SESSION, session, (slot) => slot.kind === 'recording');
 
   assert.deepEqual(presentContent(SESSION, out).map((s) => s.field), ['inputText']);
+});
+
+// The discipline every entity is written to, checked over the definitions
+// themselves rather than trusted. Each of these was a convention with nothing
+// enforcing it, which is the state a rule is in just before it is broken.
+const ENTITIES = { SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE, FOLDER };
+
+test('no entity carries a has<Something> flag', () => {
+  // A hash is non-null exactly when content exists, so a boolean beside it is a
+  // second source of truth that can disagree with the first.
+  const flags = Object.entries(ENTITIES).flatMap(([name, def]) => def.entries
+    .map(([field]) => field)
+    .filter((field) => /^has[A-Z]/.test(field))
+    .map((field) => `${name}.${field}`));
+
+  assert.deepEqual(flags, []);
+});
+
+test('every content field is paired with its hash, and nothing else ends in Hash', () => {
+  for (const [name, def] of Object.entries(ENTITIES)) {
+    const content = def.entries.filter(([, d]) => d.role === 'content').map(([field]) => hashKey(field));
+    const plainHashes = def.entries
+      .filter(([field, d]) => d.role !== 'content' && /Hash$/.test(field))
+      .map(([field]) => field);
+
+    assert.deepEqual(plainHashes.filter((field) => !content.includes(field)), [],
+      `${name} declares a Hash field with no content field behind it`);
+  }
+});
+
+/**
+ * Which fields have no default, and so must be supplied.
+ *
+ * Pinned rather than derived: a field with no default comes out `undefined`,
+ * and `undefined` is the one value that does not survive JSON -- the key is
+ * simply not in the manifest. That is fine for identity, where a record
+ * without one is not a record, and it is a hole anywhere else. Adding a field
+ * without a default therefore has to come through this list, deliberately.
+ */
+const REQUIRED = {
+  SESSION: ['id'],
+  SENTENCE: ['id'],
+  VOCAB_ENTRY: ['id', 'audioPathKey'],
+  OCCURRENCE: ['occurrenceId'],
+  FOLDER: ['id'],
+};
+
+// A descriptor built by f.plain({ default }) carries that default; one built by
+// f.plain() carries undefined, which is exactly the case this pins down.
+const required = (def) => def.entries
+  .filter(([, d]) => (d.role === 'id' || d.role === 'plain') && d.default === undefined)
+  .map(([field]) => field);
+
+test('only identity is required; every other field declares a default', () => {
+  for (const [name, def] of Object.entries(ENTITIES)) {
+    const supplied = Object.fromEntries(REQUIRED[name].map((field) => [field, 'x']));
+    const built = fromNode(def, supplied);
+    const missing = def.entries
+      .map(([field]) => field)
+      .filter((field) => !(field in built) || built[field] === undefined);
+
+    assert.deepEqual(missing, [], `${name}: these came out undefined rather than defaulted`);
+    assert.deepEqual(required(def).sort(), [...REQUIRED[name]].sort(),
+      `${name}: the set of fields with no default has changed -- see REQUIRED above`);
+  }
+});
+
+test('identity is never invented: a record without it is not a record', () => {
+  for (const [name, def] of Object.entries(ENTITIES)) {
+    for (const field of REQUIRED[name]) {
+      assert.equal(fromNode(def, {})[field], undefined, `${name} invented ${field}`);
+    }
+  }
+});
+
+test('a node carries no undefined either, so JSON cannot silently drop a field', () => {
+  for (const [name, def] of Object.entries(ENTITIES)) {
+    const node = toNode(def, Object.fromEntries(REQUIRED[name].map((field) => [field, 'x'])));
+    for (const [field, value] of Object.entries(node)) {
+      assert.notEqual(value, undefined, `${name}.${field} serialized as undefined`);
+    }
+    assert.deepEqual(JSON.parse(JSON.stringify(node)), node,
+      `${name} does not survive a JSON round-trip unchanged`);
+  }
 });

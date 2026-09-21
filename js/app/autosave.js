@@ -8,6 +8,10 @@
 // Saves are coalesced: typing, toggling and recording produce bursts of
 // changes, and hashing then writing each one separately is wasted work. The
 // last state wins, which is the only one that matters.
+//
+// A session with nothing in it is not written at all -- see isWorthStoring().
+
+import { isWorthStoring } from '../model/session.js';
 
 /**
  * @param {object} deps
@@ -39,6 +43,10 @@ export function createAutosave({
   async function writeNow() {
     const session = store.get();
     if (!session) return;
+    // Nothing has been split or imported into it yet, so there is nothing to
+    // keep. Saving it would put an empty row in the library, and give the next
+    // sync a record with no content to carry.
+    if (!isWorthStoring(session)) return;
 
     try {
       // `previous` lets unchanged content keep its hash instead of being

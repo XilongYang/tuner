@@ -221,3 +221,41 @@ test('reset: the next save re-hashes rather than trusting the previous record', 
   await h.timers.fire();
   assert.equal(seen[2], null, 'after a reset it assumes nothing');
 });
+
+test('a session with nothing in it is not stored at all', async () => {
+  // A blank session is the resting state -- one exists at startup and after
+  // every New session. Storing them fills the library with rows that have
+  // nothing to open.
+  const h = harness();
+  h.store.replace(session({ id: 'blank', sentences: [] }));
+  await h.timers.fire();
+
+  assert.deepEqual(h.saves, []);
+});
+
+test('it is stored as soon as something is split into it', async () => {
+  const h = harness();
+  h.store.replace(session({ id: 'blank', sentences: [] }));
+  await h.timers.fire();
+
+  h.store.replace(session({ id: 'blank' }));
+  await h.timers.fire();
+
+  assert.deepEqual(h.saves.map((record) => record.id), ['blank']);
+});
+
+test('an import is stored while it is still only a source file', async () => {
+  const h = harness();
+  h.store.replace(session({ id: 'imported', sentences: [], sourceAudio: 'FILE', splitMode: 'audio' }));
+  await h.timers.fire();
+
+  assert.deepEqual(h.saves.map((record) => record.id), ['imported']);
+});
+
+test('flush does not write a blank session either', async () => {
+  const h = harness();
+  h.store.replace(session({ id: 'blank', sentences: [] }));
+  await h.autosave.flush();
+
+  assert.deepEqual(h.saves, []);
+});

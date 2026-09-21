@@ -24,6 +24,7 @@ import { createSessionStore } from './app/store.js';
 import { createAutosave } from './app/autosave.js';
 import { saveRecord } from './app/persist.js';
 import * as session from './app/commands/session.js';
+import { isWorthStoring } from './model/session.js';
 import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
@@ -155,7 +156,10 @@ async function start() {
   // blank page. Opening a session records this too, but a session the user just
   // created by splitting text has never been opened -- and that is precisely
   // the one they are in the middle of.
-  store.subscribe((current) => settings.saveLastSessionId(current?.id ?? null));
+  //
+  // Only one that is being stored: an id that was never written is an id the
+  // next startup would look for, fail to find, and have to recover from.
+  store.subscribe((current) => settings.saveLastSessionId(isWorthStoring(current) ? current.id : null));
 
   // ---- Panels ----
 

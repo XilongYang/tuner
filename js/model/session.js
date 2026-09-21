@@ -93,6 +93,22 @@ export function setOnEverySentence(session, patch, now) {
   )));
 }
 
+/**
+ * Whether a session is worth storing yet.
+ *
+ * A blank session is the app's resting state: one is minted at startup, and
+ * again every time the workspace is cleared. Storing those fills the library
+ * with rows that have nothing in them and nothing to open, and hands the next
+ * sync a record that says nothing. A session earns its place by holding
+ * something -- sentences, or the audio file an import is being built from.
+ *
+ * Once stored it stays stored: this decides whether to write a record, not
+ * whether to keep one.
+ */
+export function isWorthStoring(session) {
+  return Boolean(session && ((session.sentences || []).length || session.sourceAudio));
+}
+
 /** Edit the session's own fields (its name, its folder). */
 export const updateSession = (session, patch, now) => withMeta(session, now, patch);
 

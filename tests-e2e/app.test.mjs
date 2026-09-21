@@ -235,6 +235,32 @@ test('the header switch hides every sentence, and holds across a reload and a ne
   await context.close();
 });
 
+test('a session nothing has been split into is not put in the library', async () => {
+  const { page, context } = await openApp();
+
+  // The app opens with a blank session on screen; typing alone does not make
+  // it one worth keeping.
+  await page.fill('.practice-input', 'Typed, but not split yet.');
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('.panel-empty:not([hidden])');
+  assert.equal(await page.locator('.library-row').count(), 0);
+  assert.equal(await page.evaluate(async () => (await window.tuner.db.listAll('sessions')).length), 0);
+
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  // Closed and opened again: the library lists what is stored when it opens.
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('.library-row');
+  assert.equal(await page.locator('.library-row').count(), 1, 'splitting is what makes it a session');
+
+  await context.close();
+});
+
 test('the library lists a saved session and opens it', async () => {
   const { page, context, errors } = await openApp();
 

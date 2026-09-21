@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   sentenceById, indexOfSentence, blankSentence, updateSentence, updateSession,
   splitSentence, mergeSentences, canMerge, derivedInputText, sessionLabel, mergeSelectable
-, setOnEverySentence} from '../../js/model/session.js';
+, setOnEverySentence, isWorthStoring} from '../../js/model/session.js';
 
 const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', now: 10, ...over });
 
@@ -356,4 +356,23 @@ test('setOnEverySentence: nothing to change gives back the same session, so noth
 test('setOnEverySentence: an empty session is left alone rather than restamped', () => {
   const before = { sentences: [], updatedAt: 1 };
   assert.equal(setOnEverySentence(before, { hidden: true }, 50), before);
+});
+
+test('isWorthStoring: a session earns its place by holding something', () => {
+  const blank = { id: 'a', sentences: [], sourceAudio: null };
+
+  assert.equal(isWorthStoring(blank), false);
+  assert.equal(isWorthStoring({ ...blank, sentences: [{ id: 's1' }] }), true);
+  assert.equal(isWorthStoring({ ...blank, sourceAudio: 'FILE' }), true, 'an import in progress counts');
+});
+
+test('isWorthStoring: typed text on its own is not yet a session', () => {
+  // What is in the box has not been split into anything; there is nothing to
+  // list in the library and nothing to open.
+  assert.equal(isWorthStoring({ id: 'a', sentences: [], sourceAudio: null, inputText: 'typed but not split' }), false);
+});
+
+test('isWorthStoring: nothing on screen is not something to store', () => {
+  assert.equal(isWorthStoring(null), false);
+  assert.equal(isWorthStoring(undefined), false);
 });

@@ -214,7 +214,12 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
       // but replace it, and a SAS URL sitting in a field is a credential on
       // screen. Clear brings the field back.
       sasForm,
-      el('div', { class: 'settings-actions' }, [clearSas, syncBtn, clearLockBtn, eraseCloudBtn]),
+      // Two rows, and the split is the point: what this panel is for on a
+      // normal day on the first, what cannot be undone on the second. Mixing
+      // them put Forget container first, so the leftmost button -- where a
+      // hand goes without reading -- was a destructive one.
+      el('div', { class: 'settings-actions' }, [syncBtn, clearLockBtn]),
+      el('div', { class: 'settings-actions' }, [clearSas, eraseCloudBtn]),
     ]),
   );
 

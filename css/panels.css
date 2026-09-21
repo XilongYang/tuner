@@ -69,7 +69,6 @@
 }
 
 .library-row .btn { font-size: var(--text-sm); padding: 4px 10px; }
-
 /* Counts and dates are data. */
 .library-meta {
   font-family: var(--mono);
@@ -159,6 +158,10 @@
   gap: 10px;
   margin-top: 14px;
 }
+
+/* A second row of the same group: its own gap, not the gap that separates the
+   group from what comes before it. */
+.settings-actions + .settings-actions { margin-top: 10px; }
 
 /* ---- Add vocab: the sentence, one chip per word ---- */
 

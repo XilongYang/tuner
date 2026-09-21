@@ -120,11 +120,18 @@ export async function getOne(name, id) {
   });
 }
 
-export async function listAll(name) {
+/**
+ * Every record of one kind.
+ *
+ * `content: false` returns them as stored -- hashes, no bytes -- which is what
+ * a caller wants when it is listing rather than opening: hydrating a library of
+ * sessions reads every recording in it to show a list of names.
+ */
+export async function listAll(name, { content = true } = {}) {
   const { store, def } = collection(name);
   return transact([store, CONTENT], 'readonly', async (stores) => {
     const records = await request(stores[store].getAll(), `Listing ${name}`);
-    return attachContent(def, records, stores);
+    return content ? attachContent(def, records, stores) : records;
   });
 }
 

@@ -960,3 +960,62 @@ test('words are picked out of a spoken sentence and kept, adjacency deciding wha
   assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
   await context.close();
 });
+
+test('the library list is arranged by hand, and stays arranged', async () => {
+  const { page, context, errors } = await openApp();
+
+  // Three sessions, made oldest first. Each new one goes to the top, so the
+  // list reads newest-first before anything is dragged.
+  for (const [index, text] of ['First session.', 'Second session.', 'Third session.'].entries()) {
+    // New session only exists once there is one on screen to leave.
+    if (index) await page.getByRole('button', { name: 'New session' }).click();
+    await page.fill('.practice-input', text);
+    await page.getByRole('button', { name: 'Split', exact: true }).click();
+    await page.waitForSelector('.sentence-row');
+    await page.evaluate(() => window.tuner.autosave.flush());
+  }
+
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('.library-row');
+  const labels = () => page.locator('.library-open').allTextContents();
+  assert.deepEqual(await labels(), ['Third session.', 'Second session.', 'First session.'],
+    'a new session is added at the top');
+
+  // Drag the bottom row to the top, by its handle.
+  const rows = page.locator('.library-row');
+  const grip = rows.nth(2).locator('.library-grip');
+  const from = await grip.boundingBox();
+  const to = await rows.nth(0).boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  // In steps, because a drag is a run of pointermoves: one jump would be a
+  // teleport, which is not what a hand does.
+  await page.mouse.move(to.x + to.width / 2, to.y + 2, { steps: 12 });
+  await page.mouse.up();
+
+  await page.waitForFunction(
+    () => document.querySelector('.library-open')?.textContent === 'First session.',
+  );
+  assert.deepEqual(await labels(), ['First session.', 'Third session.', 'Second session.']);
+
+  // And it is the stored arrangement, not just what is on screen: closing the
+  // panel and opening it again re-reads the list from the database.
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.getByRole('button', { name: 'Library' }).click();
+  await page.waitForSelector('.library-row');
+  assert.deepEqual(await labels(), ['First session.', 'Third session.', 'Second session.']);
+
+  // Renaming used to move a row to the top, because the order was read off
+  // updatedAt. Nothing re-sorts the list now.
+  page.once('dialog', () => {});
+  await rows.nth(2).getByRole('button', { name: 'Rename' }).click();
+  await page.fill('.modal-card input', 'Renamed');
+  await page.locator('.modal-actions button', { hasText: 'Save' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.library-open')[2]?.textContent === 'Renamed');
+
+  assert.deepEqual(await labels(), ['First session.', 'Third session.', 'Renamed'],
+    'a rename changes the name and nothing else');
+
+  assert.deepEqual(errors, []);
+  await context.close();
+});

@@ -3,7 +3,7 @@
 import 'fake-indexeddb/auto';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { migrateInlineContent } from '../../js/db/migrate.js';
+import { migrateInlineContent, assignSortKeys } from '../../js/db/migrate.js';
 import { getOne, snapshot } from '../../js/db/entities.js';
 import { listContentPaths, readOne } from '../../js/db/content.js';
 import { SESSIONS, VOCAB, ALL_STORES, transact, request } from '../../js/db/open.js';
@@ -127,4 +127,55 @@ test('a clip whose bytes cannot be read is reported, and its sentence still clai
 test('an empty database is not a special case', async () => {
   const result = await migrateInlineContent({ hash });
   assert.deepEqual(result, { moved: [], unreadable: [], records: 0 });
+});
+
+// ---- placing sessions stored before the library had an arrangement ----
+
+test('assignSortKeys: unplaced sessions are stamped in the order they were being shown', async () => {
+  // Which was most-recently-changed first. The point is that the first look
+  // after the upgrade is the same list, not a reshuffle.
+  await storeInline(SESSIONS, oldSession({ id: 'old', updatedAt: 10, sentences: [], inputText: null, inputTextHash: null }));
+  await storeInline(SESSIONS, oldSession({ id: 'newest', updatedAt: 30, sentences: [], inputText: null, inputTextHash: null }));
+  await storeInline(SESSIONS, oldSession({ id: 'middle', updatedAt: 20, sentences: [], inputText: null, inputTextHash: null }));
+
+  const outcome = await assignSortKeys();
+  assert.equal(outcome.placed, 3);
+
+  const { sessions } = await snapshot();
+  const order = sessions.slice().sort((a, b) => (a.sortKey < b.sortKey ? -1 : 1)).map((s) => s.id);
+  assert.deepEqual(order, ['newest', 'middle', 'old']);
+});
+
+test('assignSortKeys: running again finds nothing to do', async () => {
+  await storeInline(SESSIONS, oldSession({ id: 'a', sentences: [], inputText: null, inputTextHash: null }));
+  await assignSortKeys();
+  const before = (await snapshot()).sessions[0].sortKey;
+
+  assert.deepEqual(await assignSortKeys(), { placed: 0 });
+  assert.equal((await snapshot()).sessions[0].sortKey, before);
+});
+
+test('assignSortKeys: sessions already placed keep their places, and the rest go below them', async () => {
+  // The shape a second device arrives in: a few sessions synced down with
+  // positions on them, and its own older ones with none.
+  await storeInline(SESSIONS, oldSession({ id: 'synced', sortKey: 'i', sentences: [], inputText: null, inputTextHash: null }));
+  await storeInline(SESSIONS, oldSession({ id: 'local', updatedAt: 99, sentences: [], inputText: null, inputTextHash: null }));
+
+  await assignSortKeys();
+
+  const { sessions } = await snapshot();
+  const byId = Object.fromEntries(sessions.map((s) => [s.id, s.sortKey]));
+  assert.equal(byId.synced, 'i', 'an arrangement that exists is not disturbed');
+  assert.ok(byId.local > 'i');
+});
+
+test('assignSortKeys: stamping a position is not an edit, so the clocks stay put', async () => {
+  // Otherwise this device would outrank a genuine rename made on another one,
+  // purely by having upgraded later.
+  await storeInline(SESSIONS, oldSession({ id: 'a', updatedAt: 10, metaUpdatedAt: 10, sentences: [], inputText: null, inputTextHash: null }));
+  await assignSortKeys();
+
+  const stored = (await snapshot()).sessions[0];
+  assert.equal(stored.updatedAt, 10);
+  assert.equal(stored.metaUpdatedAt, 10);
 });

@@ -9,7 +9,7 @@
 
 import * as db from './db/entities.js';
 import { isSupported } from './db/open.js';
-import { migrateInlineContent } from './db/migrate.js';
+import { migrateInlineContent, assignSortKeys } from './db/migrate.js';
 import { container } from './cloud/blob.js';
 import { speechClient } from './cloud/speech.js';
 import { forceRelease } from './cloud/sync/lock.js';
@@ -29,6 +29,7 @@ import { isWorthStoring } from './model/session.js';
 import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
+import * as order from './app/commands/order.js';
 import { importAudio } from './app/commands/import-audio.js';
 import { syncNow, eraseCloud } from './app/commands/sync.js';
 
@@ -82,6 +83,9 @@ async function start() {
     db,
     hash,
     saveRecord,
+    // A session joins the library the first time it is worth storing, and it
+    // joins it at the top. Nothing moves it afterwards but the user.
+    prepare: (record) => order.placeNew({ db, record }),
     onError: (err) => say(`Could not save: ${err.message}`, 'error'),
   });
 
@@ -248,7 +252,9 @@ async function start() {
     // a word list in plain sight is the answer key to the sentences beside it.
     hideText: () => settings.hideText(),
     actions: {
-      listSessions: async () => (await db.listAll('sessions')).sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)),
+      // In the order the user arranged, and in no other: see model/order.js.
+      listSessions: () => order.listOrdered({ db }),
+      moveSession: (move) => order.moveSession({ db, clock, ...move }),
       listVocab: () => vocab.list({ deps: commandDeps }),
       // The library stays open: picking a session is often one of several --
       // comparing, or working through a few -- and closing it would make the
@@ -330,6 +336,10 @@ async function start() {
   // content store. This moves them, once; afterwards it finds nothing to do.
   try {
     const migration = await migrateInlineContent({ hash });
+    // Sessions stored before the list had an arrangement get one here, in the
+    // order they were last shown in, so the first look after this is not a
+    // reshuffle.
+    await assignSortKeys();
     const lost = migration.unreadable.length;
     if (lost) {
       say(`${lost} stored clip${lost === 1 ? '' : 's'} could not be read, so ${lost === 1 ? 'its sentence still claims it' : 'their sentences still claim them'}; a sync brings ${lost === 1 ? 'it' : 'them'} back if the cloud copy has ${lost === 1 ? 'it' : 'them'}.`, 'error');

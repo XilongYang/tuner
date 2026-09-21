@@ -134,6 +134,10 @@ export const SESSION = entity('session', {
   name: f.plain({ default: null }),
   folderId: f.plain({ default: null }),
   splitMode: f.plain({ default: 'auto' }),
+  // Where this session sits in the library list; see model/order.js. A plain
+  // field like any other, which is the point: moving a row is an edit to one
+  // record, so it merges the same way a rename does.
+  sortKey: f.plain({ default: null }),
   createdAt: f.plain({ default: 0 }),
   updatedAt: f.plain({ default: 0 }),
   metaUpdatedAt: f.plain({ default: 0 }),

@@ -11,6 +11,7 @@
 import { el, button, reconcile } from '../../dom.js';
 import { confirmModal, promptModal } from '../../modal.js';
 import { maskedText } from '../../masked-text.js';
+import { dragReorder } from '../../drag-list.js';
 import { panelStatus } from '../../panel-status.js';
 import { sessionLabel } from '../../../model/session.js';
 
@@ -47,6 +48,27 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
   const status = panelStatus();
   const say = status.say;
 
+  // The sessions list is arranged by hand. Attached to the container once, not
+  // to the rows: rows are rebuilt on every refresh, and a listener per row
+  // would be re-registered on each of them for the life of the panel.
+  const reorder = dragReorder({
+    list,
+    rowSelector: '.library-row[data-session-id]',
+    handleSelector: '.library-grip',
+    idOf: (row) => row.dataset.sessionId,
+    onMove: async ({ id, beforeId, afterId }) => {
+      const outcome = await actions.moveSession?.({ sessionId: id, beforeId, afterId });
+      // A refusal means the list this move was aimed at is not the list that is
+      // stored -- a sync brought a change in, or the row above was deleted
+      // elsewhere. Re-read rather than leave the row where the drag dropped it:
+      // the screen would otherwise claim an arrangement nothing has.
+      if (outcome && !outcome.ok) {
+        say('That list had changed, so the move was not kept.', 'error');
+        refresh();
+      }
+    },
+  });
+
   const tabButtons = new Map();
   for (const spec of TABS) {
     const btn = button({
@@ -70,6 +92,8 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
       btn.classList.toggle('is-active', name === tab);
       btn.setAttribute('aria-selected', String(name === tab));
     }
+    // Whatever is about to be drawn, it is not the list the drag started on.
+    reorder.cancel();
     if (tab === 'sessions') await renderSessions();
     else await renderVocab();
   }
@@ -104,6 +128,14 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
 
   function sessionRow(session) {
     const row = el('div', { class: 'library-row', dataset: { sessionId: session.id } });
+    // A button, so the list can be rearranged without a pointer. Its label says
+    // what it does rather than naming the shape drawn on it.
+    const grip = button({
+      class: 'btn library-grip',
+      text: '⠿',
+      title: 'Drag to reorder, or use the arrow keys',
+      'aria-label': `Move ${sessionLabel(session)}`,
+    });
     const open = button({
       class: 'btn library-open',
       text: sessionLabel(session),
@@ -138,7 +170,7 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
       },
     });
 
-    row.append(open, count, rename, remove);
+    row.append(grip, open, count, rename, remove);
     return row;
   }
 

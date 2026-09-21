@@ -143,6 +143,27 @@ but a join is always at a word boundary, and word boundaries are exactly what
 the text's own positions when it does not. The seam was the same position
 twice.
 
+### order.js — where a session sits in the library
+
+The list is arranged by hand and nothing re-sorts it. It used to be read off
+`updatedAt`, which meant opening or renaming a session moved it -- an order the
+user did not choose and could not keep.
+
+Position is a per-session key, and the list is read in ascending key order.
+Keys are strings read as digits after an implied "0.", so between any two there
+is always another: a row is placed by computing a key between its new
+neighbours, and no arrangement can run out of room. The alternative, an index
+per row, makes moving one row a write to every row below it -- and on two
+devices that is a conflict over records neither person touched, where a reorder
+here silently reverts a rename there. With keys, a move writes exactly one
+record: the one whose position actually changed, which is the one last-write-
+wins should be deciding about.
+
+Two devices can compute the same key (both putting a new session at the top of
+the same list is deterministic, and they are looking at the same neighbours).
+The comparator breaks that tie on the id, so both devices then show those rows
+in the same order as each other -- which matters more than which one is first.
+
 ### geometry.js — split/merge math
 
 Pure. Takes explicit values, never global state. In particular a split point
@@ -324,6 +345,16 @@ many went in, and the picker freezes the selection once Add has been pressed
 and retries with the rest: a retry that started over would record everything
 that had already succeeded a second time.
 
+The library list is rearranged with `ui/drag-list.js`, on pointer events rather
+than HTML5 drag-and-drop -- the same code then works for a mouse, a trackpad and
+a finger, and `dragstart` never fires for touch at all. The drag starts from a
+handle, because a row that is draggable everywhere turns every slightly-moved
+click on the buttons it carries into a drag; the handle is a real button, so the
+arrangement can also be set with the arrow keys, which is the difference between
+an order some people cannot change and one they can. It reports where a row
+landed as the ids of the rows above and below it, and knows nothing else about
+what it is moving.
+
 Sync is the one thing the app does without being asked, so it has a permanent
 place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
 masthead, with the round's full account on hover or focus. It renders a state
@@ -388,6 +419,14 @@ Sync:
 
 Model:
 
+- The library's order changes only when the user changes it: a session is
+  placed once, at the top, when it is first stored, and moved only by a drag or
+  the handle's arrow keys. Nothing derives position from a field that changes on
+  its own. *(`model/order`, `app/order-command`; browser test "the library list
+  is arranged by hand, and stays arranged", which renames a row and checks it
+  did not move.)*
+- Moving one row writes one record. *(`app/order-command`: the neighbours are
+  asserted to be the same objects afterwards.)*
 - Word timings belong to the clip they were measured against. *(`model/session`
   split and merge tests; browser geometry tests.)*
 - A blob path is a function of kind and ref, and the same one locally and

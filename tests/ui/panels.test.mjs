@@ -99,7 +99,7 @@ const vocabEntry = (id, over = {}) => ({
   ...over,
 });
 
-function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')], hidden = false } = {}) {
+function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')], hidden = false, moveOutcome = { ok: true } } = {}) {
   const dispatched = [];
   const container = document.createElement('div');
   document.body.append(container);
@@ -115,6 +115,7 @@ function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('di
       renameSession: async (id, name) => dispatched.push(['renameSession', id, name]),
       deleteSession: async (id) => { dispatched.push(['deleteSession', id]); sessions = sessions.filter((s) => s.id !== id); },
       deleteVocab: async (id) => { dispatched.push(['deleteVocab', id]); vocab = vocab.filter((v) => v.id !== id); },
+      moveSession: async (move) => { dispatched.push(['moveSession', move]); return moveOutcome; },
       pickOccurrence: (entry) => entry.sources[0],
       sentenceAudioFor: async (source) => { dispatched.push(['sentenceAudioFor', source.occurrenceId]); return 'SENTENCE_CLIP'; },
     },
@@ -206,6 +207,55 @@ test('library: deleting a session asks first, and says what will happen elsewher
 
   assert.deepEqual(h.dispatched, [['deleteSession', 'sess1']]);
   assert.equal(h.container.querySelectorAll('.library-row').length, 0);
+});
+
+test('library: rows are shown in the order they arrive, and the panel sorts nothing itself', async () => {
+  // The arrangement is the user's, and it is decided before the list gets here
+  // (app/commands/order.js). A panel with an opinion about it would be a second
+  // sort, quietly overriding theirs.
+  const h = libraryHarness({ sessions: [session('c'), session('a'), session('b')] });
+  h.panel.setOpen(true);
+  await tick();
+
+  assert.deepEqual([...h.container.querySelectorAll('.library-row')].map((row) => row.dataset.sessionId),
+    ['c', 'a', 'b']);
+});
+
+test('library: a session row can be moved from the keyboard, and says what it landed between', async () => {
+  const h = libraryHarness({ sessions: [session('a'), session('b'), session('c')] });
+  h.panel.setOpen(true);
+  await tick();
+
+  h.container.querySelector('.library-row[data-session-id="c"] .library-grip')
+    .dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  await tick();
+
+  assert.deepEqual(h.dispatched, [['moveSession', { sessionId: 'c', beforeId: 'a', afterId: 'b' }]]);
+});
+
+test('library: a move the store refuses is not left on screen', async () => {
+  const h = libraryHarness({ sessions: [session('a'), session('b')], moveOutcome: { ok: false, reason: 'stale' } });
+  h.panel.setOpen(true);
+  await tick();
+
+  h.container.querySelector('.library-row[data-session-id="b"] .library-grip')
+    .dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+  await tick();
+  await tick();
+
+  assert.match(h.container.querySelector('.panel-status').textContent, /had changed/);
+  assert.deepEqual([...h.container.querySelectorAll('.library-row')].map((row) => row.dataset.sessionId),
+    ['a', 'b'], 'the list is re-read rather than left claiming an arrangement nothing has');
+});
+
+test('library: the vocabulary list is not rearrangeable', async () => {
+  const h = libraryHarness();
+  h.panel.setOpen(true);
+  await tick();
+  clickLabelled(h.container, 'Vocabulary');
+  await tick();
+
+  assert.equal(h.container.querySelector('.library-grip'), null);
 });
 
 test('library: the line about the last visit does not come back with the panel', async () => {

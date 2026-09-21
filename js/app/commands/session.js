@@ -23,6 +23,9 @@ export function emptySession({ id, now, splitMode = 'auto' }) {
     name: null,
     folderId: null,
     splitMode,
+    // No place in the library yet: it gets one when it is first stored, which
+    // is the moment it becomes something the library shows (commands/order.js).
+    sortKey: null,
     createdAt: now,
     updatedAt: now,
     metaUpdatedAt: now,

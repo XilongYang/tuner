@@ -24,12 +24,17 @@ import { isWorthStoring } from '../model/session.js';
  * @param {(error: Error) => void} [deps.onError] Told when a save fails. Saving
  *   is the write behind every edit, so a failure is the user's business: left
  *   silent, they can practise for an hour with nothing being kept.
+ * @param {(record: object) => Promise<object>|object} [deps.prepare] Last look
+ *   at the record before it is stored. This is where a session first joining
+ *   the library gets its place in it (see commands/order.js); autosave itself
+ *   has no opinion about the list.
  */
 export function createAutosave({
   store,
   db,
   hash,
   saveRecord,
+  prepare = (record) => record,
   delayMs = 400,
   schedule = setTimeout,
   cancel = clearTimeout,
@@ -51,7 +56,7 @@ export function createAutosave({
     try {
       // `previous` lets unchanged content keep its hash instead of being
       // re-read; see persist.js.
-      const stored = await saveRecord('sessions', session, { db, hash, previous: lastSaved });
+      const stored = await saveRecord('sessions', await prepare(session), { db, hash, previous: lastSaved });
       lastSaved = stored;
 
       // The stamped record carries hashes the one on screen lacks. Put it back,

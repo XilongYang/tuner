@@ -20,7 +20,8 @@
 
 import { SESSION, FOLDER, VOCAB_ENTRY, walkContent } from '../model/schema.js';
 import { contentPath } from '../model/content.js';
-import { snapshot, putRecord, stripped } from './entities.js';
+import { initialKeys } from '../model/order.js';
+import { snapshot, putRecord, stripped, put, listAll } from './entities.js';
 
 const DEFS = { sessions: SESSION, folders: FOLDER, vocab: VOCAB_ENTRY };
 
@@ -77,4 +78,42 @@ export async function migrateInlineContent({ hash, onProgress = noop } = {}) {
   }
 
   return { moved, unreadable, records: pending.length };
+}
+
+/**
+ * Give sessions stored before the library had an arrangement a place in it.
+ *
+ * The order they get is the order they were being shown in when this runs --
+ * most recently changed first, which is what the list used to sort itself by.
+ * So the first look after the upgrade is the same list the user saw before it,
+ * and from then on it only moves when they move it.
+ *
+ * Idempotent: a session that already has a key keeps it, and the ones without
+ * are placed below every key already in use, so running this again -- or
+ * running it on a device that has synced a few placed sessions from another --
+ * never reshuffles what is already arranged.
+ *
+ * @returns {Promise<{placed: number}>}
+ */
+export async function assignSortKeys() {
+  const sessions = await listAll('sessions', { content: false });
+  const unplaced = sessions.filter((session) => (session.sortKey ?? null) === null);
+  if (!unplaced.length) return { placed: 0 };
+
+  unplaced.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+
+  const highest = sessions
+    .map((session) => session.sortKey ?? null)
+    .filter(Boolean)
+    .reduce((high, key) => (high === null || key > high ? key : high), null);
+  const keys = initialKeys(unplaced.length, { after: highest });
+
+  for (const [index, session] of unplaced.entries()) {
+    // Only the field this is here for. The clocks are left alone deliberately:
+    // stamping a position is this device catching up with a schema change, not
+    // the user editing the session, and bumping metaUpdatedAt would let it
+    // outrank a real edit made on another device.
+    await put('sessions', { ...session, sortKey: keys[index] });
+  }
+  return { placed: unplaced.length };
 }

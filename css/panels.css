@@ -69,6 +69,37 @@
 }
 
 .library-row .btn { font-size: var(--text-sm); padding: 4px 10px; }
+
+/* The drag handle. `touch-action: none` is what makes a finger drag the row
+   instead of scrolling the panel -- without it the browser claims the gesture
+   before the first pointermove arrives. */
+.library-row .btn.library-grip {
+  cursor: grab;
+  touch-action: none;
+  padding: 4px 6px;
+  color: var(--ink-faint);
+  border-color: transparent;
+  background: transparent;
+  line-height: 1;
+}
+
+.library-row .btn.library-grip:hover:not(:disabled) { color: var(--ink); background: var(--surface-sunken); }
+.library-row .btn.library-grip:active { cursor: grabbing; }
+
+/* The row being carried. It stays in the list rather than following the
+   pointer: the list itself shows where it will land, so a second copy of the
+   row under the finger would be saying the same thing twice. */
+.library-row.is-dragging {
+  opacity: 0.65;
+  border-color: var(--ink);
+  box-shadow: var(--shadow);
+}
+
+/* Hover belongs to "you can click this", and during a drag every row the
+   pointer crosses would claim it. */
+.panel-list.is-reordering .library-row:hover { background: var(--surface); }
+.panel-list.is-reordering { user-select: none; }
+
 /* Counts and dates are data. */
 .library-meta {
   font-family: var(--mono);

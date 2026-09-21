@@ -259,3 +259,15 @@ test('flush does not write a blank session either', async () => {
 
   assert.deepEqual(h.saves, []);
 });
+
+test('a record gets its last look before storage, and what comes back is what is stored', async () => {
+  // How a session joins the library list: it is given a place on the way to
+  // the first write (app/commands/order.js). Autosave itself has no opinion
+  // about the list -- it just hands the record over on its way past.
+  const h = harness({ prepare: (record) => ({ ...record, sortKey: 'i' }) });
+  h.store.apply((s) => ({ ...s, name: 'edited' }));
+  await h.timers.fire();
+
+  assert.equal(h.saves.at(-1).sortKey, 'i');
+  assert.equal(h.store.get().sortKey, 'i', 'and the screen has it too, so the next save is not a second placement');
+});

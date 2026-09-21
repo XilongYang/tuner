@@ -46,7 +46,7 @@ test('emptySession: sets every field the schema names', () => {
   const session = emptySession({ id: 'x', now: 5 });
   assert.deepEqual(Object.keys(session).sort(), [
     'createdAt', 'folderId', 'id', 'inputText', 'inputTextHash', 'metaUpdatedAt',
-    'name', 'sentences', 'sourceAudio', 'sourceAudioHash', 'splitMode', 'updatedAt',
+    'name', 'sentences', 'sortKey', 'sourceAudio', 'sourceAudioHash', 'splitMode', 'updatedAt',
   ]);
   assert.equal(session.splitMode, 'auto');
 });

@@ -316,6 +316,7 @@ function settingsHarness({ storage = new Map() } = {}) {
     actions: {
       sync: async () => { dispatched.push(['sync']); return { ok: true, uploaded: 2, downloaded: 1, written: 1, skipped: 0, deleted: 0, swept: 0, warnings: [] }; },
       clearSyncLock: async () => { dispatched.push(['clearSyncLock']); return { ok: true }; },
+      eraseCloud: async () => { dispatched.push(['eraseCloud']); return { ok: true, reason: null, deleted: 3 }; },
     },
   });
 
@@ -399,8 +400,7 @@ test('settings: a stored container puts its field away and leaves Clear', () => 
 
   assert.equal(sasField().hidden, true);
   assert.equal(inputLabelled(h.container, 'Container SAS URL').value, '', 'and the URL is not left on screen');
-  const clear = [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.danger');
-  assert.equal(clear.hidden, false);
+  assert.equal(buttonNamed(h.container, 'Forget container').hidden, false);
 });
 
 test('settings: clearing the container asks first, and brings the field back', async () => {
@@ -408,10 +408,10 @@ test('settings: clearing the container asks first, and brings the field back', a
   h.settings.saveSasUrl('https://acct.blob.core.windows.net/tuner?sig=x');
   h.panel.refresh();
 
-  [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.danger').click();
+  clickLabelled(h.container, 'Forget container');
   await tick();
-  assert.match(document.querySelector('.modal-body').textContent, /nothing more is uploaded or downloaded/);
-  confirmDialog('Clear');
+  assert.match(document.querySelector('.modal-body').textContent, /Nothing in the container is deleted/);
+  confirmDialog('Forget it');
   await tick();
 
   assert.equal(h.settings.sasUrl(), null);
@@ -432,6 +432,44 @@ test('settings: Save with an empty field says so rather than quietly clearing th
   [...h.container.querySelectorAll('.settings-section')].at(-1).querySelector('.btn.primary').click();
 
   assert.match(h.container.querySelector('.panel-status').textContent, /Paste the container SAS URL first/);
+});
+
+test('settings: clearing the cloud copy asks first, and says what it deleted', async () => {
+  const h = settingsHarness();
+  h.settings.saveSasUrl('https://acct.blob.core.windows.net/tuner?sig=x');
+  h.panel.refresh();
+
+  clickLabelled(h.container, 'Clear cloud data');
+  await tick();
+
+  const message = document.querySelector('.modal-body').textContent;
+  assert.match(message, /for every device that syncs with it/);
+  assert.match(message, /This device keeps its own copy/, 'and says what survives');
+
+  confirmDialog('Delete it all');
+  await tick();
+  await tick();
+
+  assert.deepEqual(h.dispatched.at(-1), ['eraseCloud']);
+  assert.match(h.container.querySelector('.panel-status').textContent, /Container cleared — 3 files deleted/);
+});
+
+test('settings: declining leaves the container alone', async () => {
+  const h = settingsHarness();
+  h.settings.saveSasUrl('https://x');
+  h.panel.refresh();
+
+  clickLabelled(h.container, 'Clear cloud data');
+  await tick();
+  confirmDialog('Cancel');
+  await tick();
+
+  assert.deepEqual(h.dispatched, []);
+});
+
+test('settings: there is nothing to clear until a container is configured', () => {
+  const h = settingsHarness();
+  assert.equal(buttonNamed(h.container, 'Clear cloud data').disabled, true);
 });
 
 test('settings: a completed sync reports what moved', async () => {

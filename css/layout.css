@@ -160,6 +160,10 @@ body {
   box-shadow: var(--shadow);
   font-size: var(--text-sm);
   z-index: 30;
+  /* It is something to read, not something to press, and it floats over the
+     column: without this it swallows clicks on whatever sits beneath it --
+     which a startup sync failure, reported here, did to the settings panel. */
+  pointer-events: none;
 }
 
 .app-status[hidden] { display: none; }

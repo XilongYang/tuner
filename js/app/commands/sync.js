@@ -14,6 +14,7 @@
 import { planSync } from '../../cloud/sync/plan.js';
 import { transferContent, publishManifest, readManifest, sweepOrphans } from '../../cloud/sync/run.js';
 import { acquire, release } from '../../cloud/sync/lock.js';
+import { eraseContainer } from '../../cloud/sync/erase.js';
 import { SESSION, FOLDER, VOCAB_ENTRY, walkContent, mapContent } from '../../model/schema.js';
 import { contentPath } from '../../model/content.js';
 
@@ -163,6 +164,52 @@ export async function syncNow({ deps }) {
       await release(container, lock.etag);
     } catch {
       outcome.warnings.push('the sync lock could not be released; it will expire on its own');
+    }
+  }
+}
+
+/**
+ * Empty the container, leaving this device's own data alone.
+ *
+ * For a container whose contents have stopped making sense -- a half-written
+ * round, blobs the manifest has lost track of, a version this build no longer
+ * reads. It is the cloud copy that is discarded, not the practice: the next
+ * sync finds nothing there and uploads what this device holds.
+ *
+ * Takes the lock first, like any round, so nothing is mid-write while it runs,
+ * and drops the cached manifest afterwards -- the cache describes a container
+ * that no longer exists, and a sync trusting it would publish a manifest
+ * pointing at blobs that were just deleted.
+ */
+export async function eraseCloud({ deps }) {
+  const { container, settings, manifestCache, onProgress } = deps;
+
+  if (!container) return { ok: false, reason: 'not-configured', deleted: 0 };
+
+  let lock;
+  try {
+    lock = await acquire(container, settings.deviceId());
+  } catch (err) {
+    return { ok: false, reason: `lock-failed: ${err.message}`, deleted: 0 };
+  }
+  if (!lock.acquired) {
+    return { ok: false, reason: lock.heldBy ? `locked-by:${lock.heldBy}` : 'locked', deleted: 0 };
+  }
+
+  try {
+    const result = await eraseContainer(container, { onProgress });
+    // Dropped whether or not every blob went: what is left up there is not what
+    // the cache says either way.
+    manifestCache?.set?.({ etag: null, manifest: null });
+
+    return result.reason
+      ? { ok: false, reason: result.reason, deleted: result.deleted.length }
+      : { ok: true, reason: null, deleted: result.deleted.length };
+  } finally {
+    try {
+      await release(container, lock.etag);
+    } catch {
+      // The lock expires on its own; the erase itself is already reported.
     }
   }
 }

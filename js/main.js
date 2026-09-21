@@ -29,7 +29,7 @@ import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
 import { importAudio } from './app/commands/import-audio.js';
-import { syncNow } from './app/commands/sync.js';
+import { syncNow, eraseCloud } from './app/commands/sync.js';
 
 import { createPanelRegistry } from './ui/panels/registry.js';
 import { createPracticePanel } from './ui/panels/practice/panel.js';
@@ -225,6 +225,13 @@ async function start() {
     settings,
     actions: {
       sync: (onProgress) => runSync(onProgress),
+      eraseCloud: async (onProgress) => {
+        const outcome = await eraseCloud({
+          deps: { container: containerOrNull(), settings, manifestCache: manifestCacheApi, onProgress },
+        });
+        library.refreshIfOpen();
+        return outcome;
+      },
       clearSyncLock: async () => {
         const target = containerOrNull();
         if (!target) return { ok: false, reason: 'no container configured' };

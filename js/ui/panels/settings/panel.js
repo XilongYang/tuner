@@ -104,13 +104,16 @@ export function createSettingsPanel({ container, actions, settings }) {
     },
   });
 
+  // "Forget", not "Clear": it sits beside a button that deletes what is in the
+  // container, and two buttons both called Clear next to each other is how the
+  // wrong one gets pressed. This one only forgets the URL, on this device.
   const clearSas = button({
-    class: 'btn danger', text: 'Clear',
+    class: 'btn danger', text: 'Forget container',
     onClick: async () => {
       if (!await confirmModal({
-        title: 'Clear the sync container?',
-        message: 'Everything stays on this device, and nothing more is uploaded or downloaded until a container is set again.',
-        confirmLabel: 'Clear',
+        title: 'Forget the sync container?',
+        message: 'The URL is removed from this device. Nothing in the container is deleted, and everything here stays as it is -- there is simply nothing to sync with until a container is set again.',
+        confirmLabel: 'Forget it',
         danger: true,
       })) return;
       settings.saveSasUrl('');
@@ -129,6 +132,29 @@ export function createSettingsPanel({ container, actions, settings }) {
         say(describeSync(outcome), outcome.ok ? 'info' : 'error');
       } finally {
         syncBtn.disabled = false;
+      }
+    },
+  });
+
+  const eraseCloudBtn = button({
+    class: 'btn danger', text: 'Clear cloud data',
+    title: 'Delete everything in the sync container. This device keeps its own copy.',
+    onClick: async () => {
+      if (!await confirmModal({
+        title: 'Delete everything in the container?',
+        message: 'Every session, recording and word stored in the cloud is removed, for every device that syncs with it. This device keeps its own copy, and the next sync uploads it again.',
+        confirmLabel: 'Delete it all',
+        danger: true,
+      })) return;
+
+      eraseCloudBtn.disabled = true;
+      say('Clearing the container…', 'busy');
+      try {
+        const outcome = await actions.eraseCloud((progress) => say(erasing(progress), 'busy'));
+        say(describeErase(outcome), outcome.ok ? 'info' : 'error');
+      } finally {
+        eraseCloudBtn.disabled = false;
+        refresh();
       }
     },
   });
@@ -179,7 +205,7 @@ export function createSettingsPanel({ container, actions, settings }) {
       // but replace it, and a SAS URL sitting in a field is a credential on
       // screen. Clear brings the field back.
       sasForm,
-      el('div', { class: 'settings-actions' }, [clearSas, syncBtn, clearLockBtn]),
+      el('div', { class: 'settings-actions' }, [clearSas, syncBtn, clearLockBtn, eraseCloudBtn]),
     ]),
   );
 
@@ -204,6 +230,7 @@ export function createSettingsPanel({ container, actions, settings }) {
     clearSas.hidden = !sasUrl;
     syncBtn.disabled = !sasUrl;
     clearLockBtn.disabled = !sasUrl;
+    eraseCloudBtn.disabled = !sasUrl;
   }
 
   refresh();
@@ -221,6 +248,22 @@ export function createSettingsPanel({ container, actions, settings }) {
 
 const field = (label, input) => el('label', { class: 'settings-field' }, [el('span', { text: label }), input]);
 const section = (heading, children) => el('section', { class: 'settings-section' }, [el('h3', { text: heading }), ...children]);
+
+const erasing = (progress) => (progress?.total
+  ? `Clearing ${progress.done ?? 0} / ${progress.total}…`
+  : 'Clearing the container…');
+
+function describeErase(outcome) {
+  if (outcome.ok) {
+    return outcome.deleted
+      ? `Container cleared — ${outcome.deleted} file${outcome.deleted === 1 ? '' : 's'} deleted. The next sync uploads this device's copy.`
+      : 'The container was already empty.';
+  }
+  if (outcome.reason === 'not-configured') return 'Add a container SAS URL first.';
+  if (outcome.reason?.startsWith('locked-by:')) return `Another device (${outcome.reason.slice('locked-by:'.length)}) is syncing. Try again shortly.`;
+  if (outcome.reason === 'locked') return 'Another device is syncing. Try again shortly.';
+  return `Only ${outcome.deleted} file${outcome.deleted === 1 ? '' : 's'} could be deleted: ${outcome.reason}`;
+}
 
 const syncProgress = (progress) => (progress?.total
   ? `Syncing ${progress.done ?? 0} / ${progress.total}…`

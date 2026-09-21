@@ -4,7 +4,7 @@
 import 'fake-indexeddb/auto';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { syncNow } from '../../js/app/commands/sync.js';
+import { syncNow, eraseCloud } from '../../js/app/commands/sync.js';
 import { fakeContainer } from '../cloud/fake-container.mjs';
 import * as db from '../../js/db/entities.js';
 import { transact, ALL_STORES, request } from '../../js/db/open.js';
@@ -284,4 +284,82 @@ test('content the container cannot supply is warned about, and the round still c
   // would publish "there is no recording" and lose the reference for everyone.
   // Keeping it means the next round asks again.
   assert.ok(session.sentences[0].recordingHash, 'but the reference survives for the next round');
+});
+
+// ---- Clearing the cloud copy ----
+
+test('eraseCloud: empties the container and leaves this device alone', async () => {
+  await wipe();
+  await seedSession({ recording: clip([1, 2, 3]) });
+  const container = fakeContainer();
+  const cache = makeCache();
+
+  await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  assert.ok((await container.listBlobs('')).length > 1, 'there is something up there to clear');
+
+  const outcome = await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
+
+  assert.equal(outcome.ok, true);
+  assert.ok(outcome.deleted >= 2);
+  assert.deepEqual((await container.listBlobs('')).filter((path) => path !== LOCK_PATH), []);
+  assert.equal((await db.listAll('sessions')).length, 1, 'the practice is still here');
+});
+
+test('eraseCloud: the cached manifest goes with it, so the next round starts fresh', async () => {
+  await wipe();
+  await seedSession({ recording: clip([4]) });
+  const container = fakeContainer();
+  const cache = makeCache();
+
+  await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  assert.ok(cache.get().manifest, 'the round cached what it published');
+
+  await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
+  assert.deepEqual(cache.get(), { etag: null, manifest: null });
+});
+
+test('eraseCloud: the next sync uploads this device s copy again', async () => {
+  await wipe();
+  await seedSession({ recording: clip([5, 6]) });
+  const container = fakeContainer();
+  const cache = makeCache();
+
+  await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
+
+  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+
+  assert.equal(second.ok, true);
+  assert.ok(second.uploaded > 0, 'it found nothing there and put it all back');
+  assert.ok((await container.listBlobs('')).includes(MANIFEST_PATH));
+});
+
+test('eraseCloud: refuses while another device holds the lock', async () => {
+  const container = fakeContainer();
+  await container.uploadJson(LOCK_PATH, { deviceId: 'device-b', acquiredAt: Date.now() });
+  await container.uploadJson(MANIFEST_PATH, { version: 6 });
+
+  const outcome = await eraseCloud({ deps: deps(container) });
+
+  assert.equal(outcome.ok, false);
+  assert.match(outcome.reason, /locked-by:device-b/);
+  assert.ok((await container.listBlobs('')).includes(MANIFEST_PATH), 'and nothing was deleted');
+});
+
+test('eraseCloud: with no container configured it says so', async () => {
+  assert.deepEqual(
+    await eraseCloud({ deps: deps(null) }),
+    { ok: false, reason: 'not-configured', deleted: 0 },
+  );
+});
+
+test('eraseCloud: releases the lock afterwards, so the next round is not blocked', async () => {
+  await wipe();
+  await seedSession();
+  const container = fakeContainer();
+
+  await eraseCloud({ deps: deps(container) });
+  const after = await syncNow({ deps: deps(container) });
+
+  assert.equal(after.ok, true);
 });

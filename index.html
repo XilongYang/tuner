@@ -51,9 +51,13 @@
       <!-- One sidebar, with the tab row above its views. Each view builds
            itself into its own container and says nothing about the others. -->
       <aside class="sidebar" id="sidebar" hidden aria-label="Panel">
-        <div class="panel-tabs" id="sidebar-tabs" role="tablist"></div>
-        <div class="panel-view" id="library" hidden></div>
-        <div class="panel-view" id="settings" hidden></div>
+        <!-- The scrolling happens one box in, so the rule drawn on the aside
+             stays where it is while the list under it scrolls. -->
+        <div class="sidebar-scroll">
+          <div class="panel-tabs" id="sidebar-tabs" role="tablist"></div>
+          <div class="panel-view" id="library" hidden></div>
+          <div class="panel-view" id="settings" hidden></div>
+        </div>
       </aside>
     </div>
   </div>

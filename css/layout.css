@@ -185,13 +185,38 @@ body {
   align-self: start;
   position: sticky;
   top: 0;
+  /* Exactly the viewport, so what is drawn on it can be placed against the
+     screen rather than against however much is in the panel. */
+  height: 100vh;
+  margin-left: var(--space-6);
+}
+
+/* The rule between the panel and the practice column. A short centred line
+   rather than a full-height border: the border's length was the panel's
+   content height, so it grew and shrank with whichever list was showing and
+   ran to the bottom of a long one -- a divider that reports how many sessions
+   there are. This one is the same on every list.
+
+   Drawn on the aside, which does not scroll, so it stays put while the list
+   inside does. Fixed rather than absolute, and with no `left`: the vertical
+   placement then comes from the screen -- 60vh tall, centred, wherever the
+   page happens to be scrolled -- while the horizontal placement is still the
+   one the layout gives it, which is the aside's own left edge. */
+.sidebar::before {
+  content: '';
+  position: fixed;
+  top: 20vh;
+  width: 1px;
+  height: 60vh;
+  background: var(--border);
+}
+
+.sidebar-scroll {
   max-height: 100vh;
   overflow-y: auto;
-  margin-left: var(--space-6);
   /* No padding above: the panel's first row lines up with the practice
      column's first row, which is what puts its tabs level with New session. */
   padding: 0 24px 48px;
-  border-left: 1px solid var(--border);
 }
 
 .sidebar[hidden] { display: none; }
@@ -233,11 +258,20 @@ body {
     width: auto;
     align-self: stretch;
     position: static;
-    max-height: none;
+    height: auto;
     margin-left: 0;
-    padding: 0 24px 32px;
-    border-left: none;
     border-bottom: 1px solid var(--border);
+  }
+
+  /* Stacked, the panel is above the column rather than beside it, so the line
+     that separates them is the bottom border and a vertical rule would cross
+     nothing. */
+  .sidebar::before { display: none; }
+
+  .sidebar-scroll {
+    max-height: none;
+    overflow-y: visible;
+    padding: 0 24px 32px;
   }
 
   .app-main { padding-top: 24px; }
@@ -247,5 +281,5 @@ body {
   .app-header { padding: 16px 20px; }
   .app-title { font-size: 27px; }
   .app-main { padding: 0 20px 48px; }
-  .sidebar { padding: 0 20px 24px; }
+  .sidebar-scroll { padding: 0 20px 24px; }
 }

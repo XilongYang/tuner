@@ -12,6 +12,7 @@ import { blankSentence } from '../../js/model/session.js';
 import { hashBlob, hashString, materializeBlob } from '../../js/platform/hash.js';
 import { MANIFEST_PATH } from '../../js/cloud/sync/run.js';
 import { LOCK_PATH } from '../../js/cloud/sync/lock.js';
+import { seed } from '../helpers/seed.mjs';
 
 const settings = (deviceId = 'device-a') => ({ deviceId: () => deviceId });
 
@@ -43,7 +44,7 @@ async function seedSession({ id = 'sess1', text = 'hello', recording = null, inp
     sentence.recording = recording;
     sentence.recordingHash = await hashBlob(recording);
   }
-  await db.put('sessions', {
+  await seed('sessions', {
     id, name: null, folderId: null, splitMode: 'auto',
     createdAt: 1, updatedAt: 10, metaUpdatedAt: 10,
     inputText, inputTextHash: inputText ? await hashString(inputText) : null,
@@ -194,7 +195,7 @@ test('a record written locally while the round was in flight is not overwritten 
 
   container.downloadBytes = async (path) => {
     // Lands between the plan being computed and its writes being applied.
-    await db.put('sessions', {
+    await seed('sessions', {
       id: 'sess1', name: 'created here while syncing', folderId: null, splitMode: 'auto',
       createdAt: 1, updatedAt: 9999, metaUpdatedAt: 9999,
       inputText: null, inputTextHash: null, sourceAudio: null, sourceAudioHash: null,
@@ -213,14 +214,14 @@ test('a record written locally while the round was in flight is not overwritten 
 
 test('vocab from two devices unions rather than one overwriting the other', async () => {
   const container = fakeContainer();
-  await db.put('vocab', {
+  await seed('vocab', {
     id: 'word', text: 'word', lang: 'en', audioPathKey: 'k1', createdAt: 1, updatedAt: 100,
     sources: [{ occurrenceId: 'occ-a', sessionId: 's1', sentenceId: 'x', sentenceTextSnapshot: 'from A', addedAt: 100, audio: null, audioHash: null }],
   });
   await syncNow({ deps: deps(container) });
 
   await wipe();
-  await db.put('vocab', {
+  await seed('vocab', {
     id: 'word', text: 'word', lang: 'en', audioPathKey: 'k1', createdAt: 1, updatedAt: 200,
     sources: [{ occurrenceId: 'occ-b', sessionId: 's2', sentenceId: 'y', sentenceTextSnapshot: 'from B', addedAt: 200, audio: null, audioHash: null }],
   });
@@ -234,7 +235,7 @@ test('vocab from two devices unions rather than one overwriting the other', asyn
 test('vocab occurrence audio moves both ways', async () => {
   const container = fakeContainer();
   const audio = clip([9, 9, 9]);
-  await db.put('vocab', {
+  await seed('vocab', {
     id: 'word', text: 'word', lang: 'en', audioPathKey: 'k1', createdAt: 1, updatedAt: 100,
     sources: [{ occurrenceId: 'occ-a', sessionId: null, sentenceId: null, sentenceTextSnapshot: null, addedAt: 100, audio, audioHash: await hashBlob(audio) }],
   });
@@ -332,6 +333,81 @@ test('eraseCloud: the next sync uploads this device s copy again', async () => {
   assert.equal(second.ok, true);
   assert.ok(second.uploaded > 0, 'it found nothing there and put it all back');
   assert.ok((await container.listBlobs('')).includes(MANIFEST_PATH));
+});
+
+test('content is read at the moment it is uploaded, not when the snapshot was taken', async () => {
+  await wipe();
+  await seedSession({ recording: clip([5, 6]) });
+  const container = fakeContainer();
+  const seen = [];
+
+  await syncNow({
+    deps: deps(container, {
+      hash: { materializeBlob: async (blob) => { seen.push(blob.size); return materializeBlob(blob); } },
+    }),
+  });
+
+  // Once: on its way up to the container. The round does not write this clip
+  // back, because it already holds it -- the record is rewritten, the bytes
+  // are not.
+  assert.deepEqual(seen, [2]);
+});
+
+const dead = (message = 'The object can not be found here') => ({
+  materializeBlob: async () => { throw new Error(message); },
+});
+
+test('content that could not be read is withheld from the manifest, not dropped from the record', async () => {
+  await wipe();
+  await seedSession({ recording: clip([5, 6]) });
+  const container = fakeContainer();
+
+  const outcome = await syncNow({ deps: deps(container, { hash: dead() }) });
+
+  assert.equal(outcome.ok, true, 'the round finishes: one unreadable clip is not a sync failure');
+  assert.equal(outcome.uploaded, 0);
+  assert.match(outcome.warnings.join("\n"), /recordings\/sess1\/sess1-s1\.wav: the local copy could not be read \(The object can not be found here\); it stays out of the cloud copy/);
+  assert.equal(outcome.warnings.length, 1, 'and it is said once, not twice');
+
+  // The container claims only what it has.
+  const manifest = await container.downloadJson(MANIFEST_PATH);
+  assert.equal(manifest.sessions[0].sentences[0].recordingHash, null);
+
+  // The record is untouched: nothing is discarded on the strength of one
+  // failed read, so the user still decides what happens to that clip.
+  const stored = await db.getOne('sessions', 'sess1');
+  assert.equal(stored.sentences[0].recordingHash, await hashBlob(clip([5, 6])));
+  assert.ok(stored.sentences[0].recording, 'the Blob is still on the record');
+});
+
+test('a withheld upload is offered again on the next round', async () => {
+  await wipe();
+  await seedSession({ recording: clip([5, 6]) });
+  const container = fakeContainer();
+  const cache = makeCache();
+
+  await syncNow({ deps: deps(container, { hash: dead(), manifestCache: cache }) });
+  // Whatever went wrong with the read has passed.
+  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+
+  assert.equal(second.ok, true);
+  assert.equal(second.uploaded, 1, 'the container never claimed it, so it is still due');
+  assert.deepEqual([...new Uint8Array(container.bytesOf('recordings/sess1/sess1-s1.wav'))], [5, 6]);
+  assert.deepEqual(second.warnings, []);
+});
+
+test('withholding one slot leaves the rest of the round alone', async () => {
+  await wipe();
+  await seedSession({ recording: clip([5, 6]), inputText: 'hello there' });
+  const container = fakeContainer();
+
+  const outcome = await syncNow({ deps: deps(container, { hash: dead() }) });
+
+  assert.equal(outcome.ok, true);
+  // The practice text is a string, not a Blob, so it is unaffected.
+  assert.equal(container.textOf('inputtext/sess1.txt'), 'hello there');
+  const manifest = await container.downloadJson(MANIFEST_PATH);
+  assert.ok(manifest.sessions[0].inputTextHash, 'and the manifest still claims it');
 });
 
 test('eraseCloud: refuses while another device holds the lock', async () => {

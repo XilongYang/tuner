@@ -19,6 +19,20 @@ const API_VERSION = '2021-08-06';
 const TRANSFER_TIMEOUT_MS = 60_000;
 const METADATA_TIMEOUT_MS = 20_000;
 
+// An upload's fetch() does not settle until the whole body has gone out, so its
+// deadline has to allow for the body's size -- a download's does not, since it
+// settles on the response headers and the body is read afterwards. At a fixed
+// 60s the cap was effectively a bandwidth floor: a few megabytes of source
+// audio on a slow uplink timed out every time, which is invisible until a round
+// has to upload everything at once -- the first sync after the container is
+// emptied. 25 bytes/ms is 25 KB/s: slower than any link worth waiting for, so
+// the timeout stays what it is meant to be, a stall detector rather than a
+// speed limit.
+const SLOW_BYTES_PER_MS = 25;
+
+const sizeOf = (data) => data?.byteLength ?? data?.size ?? 0;
+const uploadTimeout = (bytes) => TRANSFER_TIMEOUT_MS + Math.ceil(bytes / SLOW_BYTES_PER_MS);
+
 async function fetchWithTimeout(url, opts, timeoutMs) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -36,9 +50,40 @@ async function fetchWithTimeout(url, opts, timeoutMs) {
   }
 }
 
-function networkError(action, err) {
-  if (err?.timedOut) return new Error(`${action} failed: ${err.message}. Check your network connection and the SAS URL.`);
-  return new Error(`${action} failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
+/**
+ * Send a request, with one retry when repeating it is safe.
+ *
+ * Only the transport is retried -- a rejected fetch(), meaning the request
+ * never got an answer. A response with a bad status is the server's answer and
+ * is handed to `check` as it is.
+ *
+ * `retry` is the caller's promise that a second attempt cannot be read as a
+ * different event than the first. A conditional write cannot promise that: if
+ * the first attempt reached Azure and only the reply was lost, the retry fails
+ * its own precondition and comes back as a conflict -- which the lock would
+ * read as another device holding it, when what it hit was its own write. Reads,
+ * deletes and unconditional writes are all safe to repeat.
+ */
+async function send(attempt, { action, retry, bytes = 0 }) {
+  try {
+    return await attempt();
+  } catch (err) {
+    if (!retry) throw networkError(action, err, bytes);
+    try {
+      return await attempt();
+    } catch (retryErr) {
+      throw networkError(action, retryErr, bytes);
+    }
+  }
+}
+
+function networkError(action, err, bytes = 0) {
+  // The size is in the message because it is the difference between "the
+  // network is down" and "this blob is too big for this link", and the two
+  // have nothing to do with each other.
+  const size = bytes > 1024 * 1024 ? ` (${(bytes / (1024 * 1024)).toFixed(1)} MB)` : '';
+  if (err?.timedOut) return new Error(`${action}${size} failed: ${err.message}. Check your network connection and the SAS URL.`);
+  return new Error(`${action}${size} failed: network request failed. Check the SAS URL and that CORS is enabled on the storage account.`);
 }
 
 /**
@@ -152,24 +197,23 @@ export function container(sasUrl) {
     if (opts.ifNoneMatch) headers['If-None-Match'] = opts.ifNoneMatch;
     if (opts.ifMatch) headers['If-Match'] = opts.ifMatch;
 
-    let response;
-    try {
-      response = await fetchWithTimeout(blobUrl(path), { method: 'PUT', headers, body: data }, TRANSFER_TIMEOUT_MS);
-    } catch (err) {
-      throw networkError(`Upload of "${path}"`, err);
-    }
-    await check(response, `Upload of "${path}"`);
+    const action = `Upload of "${path}"`;
+    const bytes = sizeOf(data);
+    const response = await send(
+      () => fetchWithTimeout(blobUrl(path), { method: 'PUT', headers, body: data }, uploadTimeout(bytes)),
+      { action, bytes, retry: !opts.ifNoneMatch && !opts.ifMatch },
+    );
+    await check(response, action);
     return response.headers.get('ETag') || null;
   }
 
   async function downloadBytes(path) {
-    let response;
-    try {
-      response = await fetchWithTimeout(blobUrl(path), { method: 'GET', headers: { 'x-ms-version': API_VERSION } }, TRANSFER_TIMEOUT_MS);
-    } catch (err) {
-      throw networkError(`Download of "${path}"`, err);
-    }
-    await check(response, `Download of "${path}"`);
+    const action = `Download of "${path}"`;
+    const response = await send(
+      () => fetchWithTimeout(blobUrl(path), { method: 'GET', headers: { 'x-ms-version': API_VERSION } }, TRANSFER_TIMEOUT_MS),
+      { action, retry: true },
+    );
+    await check(response, action);
     return response.blob();
   }
 
@@ -185,14 +229,15 @@ export function container(sasUrl) {
     const headers = { 'x-ms-version': API_VERSION };
     if (knownEtag) headers['If-None-Match'] = knownEtag;
 
-    let response;
-    try {
-      response = await fetchWithTimeout(blobUrl(path), { method: 'GET', headers }, TRANSFER_TIMEOUT_MS);
-    } catch (err) {
-      throw networkError(`Download of "${path}"`, err);
-    }
+    const action = `Download of "${path}"`;
+    // A conditional *read* is safe to repeat: both attempts answer the same
+    // question, and nothing was changed by asking it.
+    const response = await send(
+      () => fetchWithTimeout(blobUrl(path), { method: 'GET', headers }, TRANSFER_TIMEOUT_MS),
+      { action, retry: true },
+    );
     if (response.status === 304) return { notModified: true };
-    await check(response, `Download of "${path}"`);
+    await check(response, action);
     return { notModified: false, value: JSON.parse(await response.text()), etag: response.headers.get('ETag') || null };
   }
 
@@ -201,13 +246,12 @@ export function container(sasUrl) {
     const names = [];
     let marker = '';
     do {
-      let response;
-      try {
-        response = await fetchWithTimeout(listUrl(prefix, marker), { method: 'GET', headers: { 'x-ms-version': API_VERSION } }, METADATA_TIMEOUT_MS);
-      } catch (err) {
-        throw networkError(`Listing blobs under "${prefix}"`, err);
-      }
-      await check(response, `Listing blobs under "${prefix}"`);
+      const action = `Listing blobs under "${prefix}"`;
+      const response = await send(
+        () => fetchWithTimeout(listUrl(prefix, marker), { method: 'GET', headers: { 'x-ms-version': API_VERSION } }, METADATA_TIMEOUT_MS),
+        { action, retry: true },
+      );
+      await check(response, action);
       const xml = await response.text();
       names.push(...parseBlobNames(xml));
       marker = parseNextMarker(xml);
@@ -226,14 +270,13 @@ export function container(sasUrl) {
     const headers = { 'x-ms-version': API_VERSION };
     if (opts.ifMatch) headers['If-Match'] = opts.ifMatch;
 
-    let response;
-    try {
-      response = await fetchWithTimeout(blobUrl(path), { method: 'DELETE', headers }, METADATA_TIMEOUT_MS);
-    } catch (err) {
-      throw networkError(`Delete of "${path}"`, err);
-    }
+    const action = `Delete of "${path}"`;
+    const response = await send(
+      () => fetchWithTimeout(blobUrl(path), { method: 'DELETE', headers }, METADATA_TIMEOUT_MS),
+      { action, retry: !opts.ifMatch },
+    );
     if (response.status === 404) return;
-    await check(response, `Delete of "${path}"`);
+    await check(response, action);
   }
 
   return {

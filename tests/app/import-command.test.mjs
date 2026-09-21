@@ -37,7 +37,7 @@ function harness({
       clock: () => 1000,
       release: () => released.push('released'),
       autosave: { reset: () => {} },
-      hash: { hashBlob: async () => 'source-hash' },
+      hash: { hashBlob: async () => 'source-hash', materializeBlob: async (blob) => blob },
       settings: {
         hasCredentials: () => credentials,
         credentials: () => ({ key: 'k', region: 'r', resourceName }),

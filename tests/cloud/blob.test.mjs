@@ -117,6 +117,82 @@ test('an aborted request is reported as a timeout, not a generic failure', async
   });
 });
 
+// A stub that rejects the way a dead connection does, counting attempts.
+function failingFetch(times, { name = 'TypeError', after = response() } = {}) {
+  const state = { calls: 0 };
+  globalThis.fetch = async () => {
+    state.calls += 1;
+    if (state.calls > times) return after;
+    const err = new Error(name === 'AbortError' ? 'aborted' : 'Failed to fetch');
+    err.name = name;
+    throw err;
+  };
+  return state;
+}
+
+test("an upload's deadline allows for the body's size: a stall detector, not a bandwidth floor", async () => {
+  failingFetch(2, { name: 'AbortError' });
+  const big = new Uint8Array(10 * 1024 * 1024);
+
+  await assert.rejects(() => container(SAS).uploadBytes('sourceaudio/s1.audio', big), (err) => {
+    // 60s base plus 10 MB at 25 KB/s, rather than the flat 60s that timed out
+    // every time a source-audio file met a slow uplink.
+    assert.match(err.message, /timed out after 479s/);
+    return true;
+  });
+});
+
+test('a large upload that fails says how large it was: a slow link and a broken one read differently', async () => {
+  failingFetch(2);
+  await assert.rejects(
+    () => container(SAS).uploadBytes('sourceaudio/s1.audio', new Uint8Array(3 * 1024 * 1024)),
+    /Upload of "sourceaudio\/s1\.audio" \(3\.0 MB\) failed/,
+  );
+});
+
+test('a dropped connection is retried once, so one lost packet does not lose the round', async () => {
+  const state = failingFetch(1, { after: response({ etag: '"v2"' }) });
+
+  const etag = await container(SAS).uploadBytes('references/s1/a.audio', new Uint8Array([1]));
+
+  assert.equal(etag, '"v2"');
+  assert.equal(state.calls, 2);
+});
+
+test('a conditional write is not retried: its second attempt would fail its own precondition', async () => {
+  const state = failingFetch(1, { after: response({ etag: '"v2"' }) });
+
+  await assert.rejects(() => container(SAS).uploadJson('sync.lock', { deviceId: 'a' }, { ifNoneMatch: '*' }), /network request failed/);
+  assert.equal(state.calls, 1, 'a retry of a write that may already have landed reads as another device holding the lock');
+});
+
+test('a conditional delete is not retried either, for the same reason', async () => {
+  const state = failingFetch(1, { after: response({ status: 202 }) });
+
+  await assert.rejects(() => container(SAS).deleteBlob('sync.lock', { ifMatch: '"v1"' }), /network request failed/);
+  assert.equal(state.calls, 1);
+});
+
+test('reads and unconditional deletes are retried: repeating them asks the same question', async () => {
+  const list = failingFetch(1, { after: response({ body: '<Blobs><Blob><Name>a.txt</Name></Blob></Blobs>' }) });
+  assert.deepEqual(await container(SAS).listBlobs(''), ['a.txt']);
+  assert.equal(list.calls, 2);
+
+  const del = failingFetch(1, { after: response({ status: 202 }) });
+  await container(SAS).deleteBlob('manifest.json');
+  assert.equal(del.calls, 2);
+
+  const get = failingFetch(1, { after: response({ body: '{"version":6}' }) });
+  assert.deepEqual(await container(SAS).downloadJson('manifest.json'), { version: 6 });
+  assert.equal(get.calls, 2);
+});
+
+test('a bad status is the server answering, and is not retried', async () => {
+  stubFetch([response({ status: 403 }), response({ etag: '"v1"' })]);
+  await assert.rejects(() => container(SAS).uploadBytes('a.txt', new Uint8Array([1])), /HTTP 403/);
+  assert.equal(calls.length, 1);
+});
+
 test('downloadJson: parses the body', async () => {
   stubFetch([response({ body: JSON.stringify({ version: 6 }) })]);
   assert.deepEqual(await container(SAS).downloadJson('manifest.json'), { version: 6 });

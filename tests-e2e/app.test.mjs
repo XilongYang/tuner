@@ -611,3 +611,67 @@ test('a reading with no word timings leaves the text alone rather than guessing'
 
   await context.close();
 });
+
+test('a clip is written once, and later edits leave the stored bytes alone', async () => {
+  // The invariant the storage layout exists for. Safari refuses a write that
+  // hands the engine back a Blob it read out of IndexedDB, and takes the
+  // stored copy with it -- so what matters is not that saving works but that
+  // saving does not touch the audio at all.
+  const { page, context, errors } = await openApp();
+
+  await page.evaluate(() => {
+    window.tuner.settings.saveCredentials({ key: 'k', region: 'japaneast' });
+    const realFetch = window.fetch;
+    window.fetch = async (url, options) => (String(url).includes('tts.speech')
+      ? new Response(new Uint8Array([7, 7, 7, 7]), { status: 200, headers: { 'Content-Type': 'audio/mpeg' } })
+      : realFetch(url, options));
+  });
+
+  await page.fill('.practice-input', 'Store this once.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.getByRole('button', { name: 'Speak' }).click();
+  await page.waitForFunction(() => Boolean(window.tuner.store.get().sentences[0].reference));
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  /** When each stored clip was last written, by path. */
+  const storedAt = () => page.evaluate(async () => {
+    const db = await new Promise((resolve, reject) => {
+      const req = indexedDB.open('tuner');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    const entries = await new Promise((resolve, reject) => {
+      const req = db.transaction(['content'], 'readonly').objectStore('content').getAll();
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return entries.map((e) => [e.path, e.storedAt, e.value.size ?? String(e.value).length]);
+  });
+
+  const before = await storedAt();
+  assert.ok(before.some(([path]) => path.startsWith('references/')), 'the clip is in the content store');
+
+  // Edits of the kind that happen constantly: a hidden toggle, then another.
+  await page.waitForTimeout(5);
+  await page.getByRole('button', { name: 'Hide' }).first().click();
+  await page.evaluate(() => window.tuner.autosave.flush());
+  await page.getByRole('button', { name: 'Show' }).first().click();
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  assert.deepEqual(await storedAt(), before, 'the audio was not rewritten by either save');
+
+  // And it is still playable after a reload, which is where the old design
+  // came apart.
+  await page.reload();
+  await page.waitForSelector('.sentence-row');
+  const bytes = await page.evaluate(async () => {
+    const clip = window.tuner.store.get().sentences[0].reference;
+    return [...new Uint8Array(await clip.arrayBuffer())];
+  });
+  assert.deepEqual(bytes, [7, 7, 7, 7]);
+  assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
+
+  await context.close();
+});

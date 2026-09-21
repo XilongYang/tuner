@@ -29,7 +29,7 @@ function deps(over = {}) {
       ids: () => `new-${++n}`,
       clock: () => 1000,
       tombstone: async (idsToKill) => { tombstoned.push(...idsToKill); },
-      hash: { hashBlob: async (blob) => `hash(${blob})` },
+      hash: { hashBlob: async (blob) => `hash(${blob})`, materializeBlob: async (blob) => blob },
       audio: {
         decode: async () => { decoded++; return { channelData: new Float32Array(16_000), sampleRate: 16_000 }; },
         cutClip: (_decoded, range) => `cut:${range.offsetMs}+${range.durationMs}`,

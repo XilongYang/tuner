@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  entity, f, hashKey, toNode, fromNode, walkContent, presentContent, mapContent,
+  entity, f, hashKey, toNode, fromNode, walkContent, presentContent, mapContent, dropContent,
   SESSION, SENTENCE, VOCAB_ENTRY, FOLDER,
 } from '../../js/model/schema.js';
 import { contentPath } from '../../js/model/content.js';
@@ -180,4 +180,45 @@ test('adding a content field reaches the manifest and the content walk with no o
   assert.deepEqual(node, { id: 'x', updatedAt: 0, recordingHash: 'a', extraHash: 'b' });
   assert.deepEqual([...walkContent(WITH_EXTRA, { id: 'x', recordingHash: 'a', extraHash: 'b' })].map((s) => s.field),
     ['recording', 'extra']);
+});
+
+test('dropContent: empties the selected slots, value and hash together', () => {
+  const session = {
+    id: 'sess1',
+    inputText: 'hello', inputTextHash: 'h1',
+    sourceAudio: { size: 1 }, sourceAudioHash: 'h2',
+    sentences: [{ id: 's1', recording: { size: 2 }, recordingHash: 'h3', reference: { size: 3 }, referenceHash: 'h4' }],
+  };
+
+  const out = dropContent(SESSION, session, (slot) => (
+    contentPath(slot.kind, slot.ref) === 'references/sess1/s1.audio'
+  ));
+
+  assert.equal(out.sentences[0].reference, null);
+  assert.equal(out.sentences[0].referenceHash, null, 'the claim goes with the bytes');
+  assert.equal(out.sentences[0].recordingHash, 'h3', 'and nothing else is touched');
+  assert.equal(out.inputTextHash, 'h1');
+  assert.equal(out.sourceAudioHash, 'h2');
+});
+
+test('dropContent: an empty slot is never offered to the predicate', () => {
+  const asked = [];
+  const out = dropContent(SESSION, { id: 'sess1', inputTextHash: null, sentences: [] }, (slot) => {
+    asked.push(slot.field);
+    return true;
+  });
+  assert.deepEqual(asked, []);
+  assert.equal(out.id, 'sess1');
+});
+
+test('dropContent: what it drops is exactly what stops being walked', () => {
+  const session = {
+    id: 'sess1',
+    inputText: 'hello', inputTextHash: 'h1',
+    sentences: [{ id: 's1', recording: { size: 2 }, recordingHash: 'h3' }],
+  };
+
+  const out = dropContent(SESSION, session, (slot) => slot.kind === 'recording');
+
+  assert.deepEqual(presentContent(SESSION, out).map((s) => s.field), ['inputText']);
 });

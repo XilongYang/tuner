@@ -280,6 +280,10 @@ function describeSync(outcome) {
   if (outcome.deleted) parts.push(`${outcome.deleted} deleted`);
   if (outcome.skipped) parts.push(`${outcome.skipped} left for the next round`);
   if (outcome.swept) parts.push(`${outcome.swept} orphaned file${outcome.swept === 1 ? '' : 's'} removed`);
-  const warnings = outcome.warnings?.length ? ` (${outcome.warnings.length} warning${outcome.warnings.length === 1 ? '' : 's'})` : '';
-  return `Sync complete — ${parts.join(', ')}.${warnings}`;
+  // A warning says something was lost or left behind, so the first one is shown
+  // in full rather than counted: a bare "(1 warning)" with no way to read it is
+  // worth nothing to the person who has to decide what to do about it.
+  const [first, ...rest] = outcome.warnings || [];
+  if (!first) return `Sync complete — ${parts.join(', ')}.`;
+  return `Sync complete — ${parts.join(', ')}. ${first}${rest.length ? ` (and ${rest.length} more)` : ''}`;
 }

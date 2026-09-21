@@ -15,7 +15,7 @@ import { planSync } from '../../cloud/sync/plan.js';
 import { transferContent, publishManifest, readManifest, sweepOrphans } from '../../cloud/sync/run.js';
 import { acquire, release } from '../../cloud/sync/lock.js';
 import { eraseContainer } from '../../cloud/sync/erase.js';
-import { SESSION, FOLDER, VOCAB_ENTRY, walkContent, mapContent } from '../../model/schema.js';
+import { SESSION, FOLDER, VOCAB_ENTRY, dropContent } from '../../model/schema.js';
 import { contentPath } from '../../model/content.js';
 
 const DEFS = { sessions: SESSION, folders: FOLDER, vocab: VOCAB_ENTRY };
@@ -23,64 +23,34 @@ const DEFS = { sessions: SESSION, folders: FOLDER, vocab: VOCAB_ENTRY };
 /** The clock field each collection's staleness check compares. */
 const CLOCKS = { sessions: 'updatedAt', folders: 'updatedAt', vocab: 'updatedAt' };
 
-/** Every content value this device holds, by blob path, out of one snapshot. */
-function localContentByPath(snapshot) {
-  const byPath = new Map();
+/**
+ * The same snapshot with the content at `paths` given up: no value, no hash.
+ *
+ * Pure, and it goes through the schema rather than naming fields, so a content
+ * kind added later is covered without touching this.
+ */
+function withoutContent(snapshot, paths) {
+  const out = { ...snapshot };
   for (const [key, def] of Object.entries(DEFS)) {
-    for (const record of snapshot[key] || []) {
-      for (const slot of walkContent(def, record)) {
-        if (slot.value != null) byPath.set(contentPath(slot.kind, slot.ref), slot.value);
-      }
-    }
+    out[key] = (snapshot[key] || []).map((record) => (
+      dropContent(def, record, (slot) => paths.has(contentPath(slot.kind, slot.ref)))
+    ));
   }
-  return byPath;
+  return out;
 }
+
+const isBlob = (value) => typeof value?.arrayBuffer === 'function';
 
 /**
- * Fill each record the plan wants written with the content it should carry:
- * what was just downloaded, or what this device already held.
+ * The content a round downloaded, as entries for the content store.
  *
- * A Blob that came out of IndexedDB is re-read into memory first. The backing
- * resource of a stored Blob can be gone by the time a sync finishes its
- * transfers, and storing it then fails -- a deferred rewrap is not enough,
- * because it still does not read until the store.
- *
- * Only Blobs: content is not all binary. Practice text is a string and an
- * assessment is a plain object, and neither needs -- or survives -- being read
- * as bytes.
+ * Nothing is attached to a record: a stored record carries hashes, and the
+ * bytes go beside it under the same blob path the container used. A downloaded
+ * value came off the network and owns its bytes, so it is stored as it is.
  */
-const isBlob = (value) => typeof value?.arrayBuffer === 'function';
-async function withContent(plan, { downloaded, local, materialize }) {
-  const writes = [];
-  for (const write of plan.localWrites) {
-    const def = DEFS[write.entity];
-    const slots = [];
-    const record = mapContent(def, write.record, (slot) => {
-      const path = contentPath(slot.kind, slot.ref);
-      if (slot.hash === null) return null;
-      if (downloaded.has(path)) return downloaded.get(path);
-      const held = local.get(path);
-      if (held == null) return null;
-      if (isBlob(held)) slots.push({ path, value: held });
-      return held;
-    });
-
-    // Materialise after mapping, so the traversal stays synchronous and every
-    // held Blob is read exactly once.
-    const readied = new Map();
-    for (const { path, value } of slots) readied.set(path, await materialize(value));
-    writes.push({
-      ...write,
-      record: readied.size
-        ? mapContent(def, record, (slot) => {
-          const path = contentPath(slot.kind, slot.ref);
-          return readied.has(path) ? readied.get(path) : slot.value;
-        })
-        : record,
-    });
-  }
-  return { ...plan, localWrites: writes };
-}
+const contentEntries = (plan, downloaded) => plan.slots
+  .filter((slot) => downloaded.has(slot.path))
+  .map((slot) => ({ path: slot.path, kind: slot.kind, hash: slot.hash, value: downloaded.get(slot.path) }));
 
 /**
  * Run one round.
@@ -122,31 +92,81 @@ export async function syncNow({ deps }) {
     const snapshot = await db.snapshot();
     const plan = planSync({ local: snapshot, remote });
 
-    const local = localContentByPath(snapshot);
+    // Bytes this device claims to hold and turned out not to be able to read.
+    const unreadable = new Map();
     const transfer = await transferContent(plan, container, {
-      getValue: (slot) => local.get(slot.path) ?? null,
+      // One slot's bytes, read when that slot is uploaded and not before: a
+      // round that has to send a whole library should not hold the whole
+      // library in memory to do it. Reading here also means a clip whose bytes
+      // are gone is found as that, rather than as an opaque network error about
+      // the SAS URL, which is the wrong thing to go looking at.
+      getValue: async (slot) => {
+        const entry = await db.readContent(slot.path);
+        if (!entry || entry.value == null) return null;
+        if (!isBlob(entry.value)) return entry.value;
+        try {
+          // Read now rather than handing fetch() a Blob to read later: a Blob
+          // whose bytes are gone fails inside fetch as a connection problem,
+          // and that sends the search in the wrong direction entirely.
+          return await hash.materializeBlob(entry.value);
+        } catch (err) {
+          unreadable.set(slot.path, err.message);
+          return null;
+        }
+      },
       onProgress,
     });
 
     outcome.uploaded = transfer.uploaded.length;
     outcome.downloaded = transfer.downloaded.size;
-    for (const missing of transfer.missing) outcome.warnings.push(`${missing.path}: ${missing.reason}`);
+    for (const missing of transfer.missing) {
+      if (!unreadable.has(missing.path)) outcome.warnings.push(`${missing.path}: ${missing.reason}`);
+    }
 
-    const published = await publishManifest(plan, container);
+    // Content that was due to go up and did not. The manifest must not claim
+    // it: a claim is "these bytes exist and can be fetched", and publishing one
+    // for a blob that never arrived is the one failure this design cannot
+    // recover from on its own -- this device would read its own claim back as
+    // `reuse` and stop offering the bytes, while every other device downloads a
+    // 404 for good.
+    //
+    // So the round publishes a manifest without those slots, and changes
+    // nothing locally: the record keeps its hash, the sentence keeps whatever
+    // is left of its clip, and because the container does not claim the bytes,
+    // every later round offers them again. Nothing is discarded on the strength
+    // of one failed read, and the warning says so on every round until either
+    // the bytes go up or the user replaces them.
+    const withheld = new Set([
+      ...unreadable.keys(),
+      ...transfer.missing.filter((m) => m.direction === 'up').map((m) => m.path),
+    ]);
+    for (const [path, message] of unreadable) {
+      outcome.warnings.push(`${path}: the local copy could not be read (${message}); it stays out of the cloud copy, and the record keeps it, until it can be read again`);
+    }
+
+    const publishedPlan = withheld.size
+      ? planSync({ local: withoutContent(snapshot, withheld), remote })
+      : plan;
+    const published = await publishManifest(publishedPlan, container);
     manifestCache?.set?.({
       etag: published.published ? published.etag : (read.notModified ? cached.etag : read.etag),
-      manifest: plan.manifest,
+      // What is actually up there, which is not what this device holds when
+      // something was withheld.
+      manifest: publishedPlan.manifest,
     });
 
-    const ready = await withContent(plan, {
-      downloaded: transfer.downloaded,
-      local,
-      materialize: hash.materializeBlob,
-    });
-    const applied = await db.applyPlan(ready, CLOCKS);
+    // Records and the bytes they arrived with, in one transaction. Nothing this
+    // device already holds is rewritten: an unchanged clip is not touched by a
+    // round at all, which is the point of the content store.
+    const applied = await db.applyPlan(plan, CLOCKS, { content: contentEntries(plan, transfer.downloaded) });
     outcome.written = applied.written.length;
     outcome.skipped = applied.skipped.length;
     outcome.deleted = applied.deleted.length;
+
+    // Both sides, by the same arithmetic: content a split or a merge left
+    // behind is unreachable here for exactly the reason it is unreachable
+    // there, and only the storage quota would ever mention it.
+    await db.sweepContent();
 
     const sweep = await sweepOrphans(plan, container, { onProgress });
     outcome.swept = sweep.deleted.length;

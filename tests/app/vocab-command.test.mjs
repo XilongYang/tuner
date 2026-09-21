@@ -10,7 +10,8 @@ import { saveRecord } from '../../js/app/persist.js';
 import * as db from '../../js/db/entities.js';
 import { transact, ALL_STORES, request } from '../../js/db/open.js';
 import { blankSentence } from '../../js/model/session.js';
-import { hashBlob, hashString, hashJson } from '../../js/platform/hash.js';
+import { hashBlob, hashString, hashJson, materializeBlob } from '../../js/platform/hash.js';
+import { seed } from '../helpers/seed.mjs';
 
 const clip = (bytes) => new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
 const word = (charStart, charEnd, offsetMs, durationMs) => ({ charStart, charEnd, offsetMs, durationMs });
@@ -32,7 +33,7 @@ function harness({ sentences, sessionOver = {}, credentials = true, decodeFails 
     synthesized,
     deps: {
       db,
-      hash: { hashBlob, hashString, hashJson },
+      hash: { hashBlob, hashString, hashJson, materializeBlob },
       saveRecord,
       ids: () => `occ-${++n}`,
       clock: () => 1000,
@@ -198,14 +199,14 @@ test('selectionHasRealAudio: true only when the selection lies inside the senten
 });
 
 test('list: newest first', async () => {
-  await db.put('vocab', { id: 'old', text: 'old', audioPathKey: 'k1', createdAt: 1, updatedAt: 100, sources: [] });
-  await db.put('vocab', { id: 'new', text: 'new', audioPathKey: 'k2', createdAt: 1, updatedAt: 900, sources: [] });
+  await seed('vocab', { id: 'old', text: 'old', audioPathKey: 'k1', createdAt: 1, updatedAt: 100, sources: [] });
+  await seed('vocab', { id: 'new', text: 'new', audioPathKey: 'k2', createdAt: 1, updatedAt: 900, sources: [] });
 
   assert.deepEqual((await list({ deps: { db } })).map((e) => e.id), ['new', 'old']);
 });
 
 test('removeEntry: deletes the record and its tombstone together', async () => {
-  await db.put('vocab', { id: 'word', text: 'word', audioPathKey: 'k', createdAt: 1, updatedAt: 1, sources: [] });
+  await seed('vocab', { id: 'word', text: 'word', audioPathKey: 'k', createdAt: 1, updatedAt: 1, sources: [] });
 
   await removeEntry({ id: 'word', deps: { db } });
 
@@ -233,16 +234,16 @@ test('pickOccurrenceAudio: an entry with no audio at all yields null', () => {
 
 test('sourceSentenceAudio: returns the sentence\'s reference, never the user\'s own take', async () => {
   // The point is hearing how it should sound.
-  await db.put('sessions', session([sentence('s1', 'x', { reference: 'REFERENCE', recording: 'MY_TAKE' })]));
+  await seed('sessions', session([sentence('s1', 'x', { reference: clip([1, 1, 1]), recording: clip([2, 2, 2]) })]));
 
   const audio = await sourceSentenceAudio({ occurrence: { sessionId: 'sess1', sentenceId: 's1' }, deps: { db } });
-  assert.equal(audio, 'REFERENCE');
+  assert.deepEqual([...new Uint8Array(await audio.arrayBuffer())], [1, 1, 1], 'the reference, not the take');
 });
 
 test('sourceSentenceAudio: a session or sentence that is gone yields null, which is ordinary', async () => {
   assert.equal(await sourceSentenceAudio({ occurrence: { sessionId: 'deleted', sentenceId: 's1' }, deps: { db } }), null);
 
-  await db.put('sessions', session([sentence('other', 'x')]));
+  await seed('sessions', session([sentence('other', 'x')]));
   assert.equal(await sourceSentenceAudio({ occurrence: { sessionId: 'sess1', sentenceId: 'split-away' }, deps: { db } }), null);
   assert.equal(await sourceSentenceAudio({ occurrence: {}, deps: { db } }), null);
 });

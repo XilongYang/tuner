@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hashBlob, hashString, hashJson, rewrapBlob, materializeBlob } from '../../js/platform/hash.js';
+import { hashBlob, hashString, hashJson, materializeBlob } from '../../js/platform/hash.js';
 
 // The known SHA-256 of "abc", so these assert the actual algorithm rather than
 // just "returns 64 hex characters" -- a hash of the wrong bytes would pass that.
@@ -30,19 +30,6 @@ test('hashBlob: one different byte gives a different hash', async () => {
 test('hashJson: hashes the exact serialization that will be stored', async () => {
   const value = { score: 0, words: [] };
   assert.equal(await hashJson(value), await hashString(JSON.stringify(value)));
-});
-
-test('rewrapBlob: returns a different instance with the same bytes and type', async () => {
-  const original = new Blob([new Uint8Array([7, 8])], { type: 'audio/wav' });
-  const copy = rewrapBlob(original);
-  assert.notEqual(copy, original);
-  assert.equal(copy.type, 'audio/wav');
-  assert.deepEqual([...new Uint8Array(await copy.arrayBuffer())], [7, 8]);
-});
-
-test('rewrapBlob: passes null and undefined straight through', () => {
-  assert.equal(rewrapBlob(null), null);
-  assert.equal(rewrapBlob(undefined), undefined);
 });
 
 test('materializeBlob: produces a self-contained copy with the same bytes and type', async () => {

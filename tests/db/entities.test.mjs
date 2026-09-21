@@ -2,10 +2,11 @@ import 'fake-indexeddb/auto';
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  getOne, listAll, listTombstones, snapshot, put, putMany,
-  remove, removeRecord, tombstoneSentences, clearAll, applyPlan,
+  getOne, listAll, listTombstones, snapshot, put, putMany, putRecord,
+  remove, removeRecord, tombstoneSentences, clearAll, applyPlan, sweepContent,
 } from '../../js/db/entities.js';
-import { transact, ALL_STORES, request } from '../../js/db/open.js';
+import { listContentPaths } from '../../js/db/content.js';
+import { transact, ALL_STORES, request, dbError } from '../../js/db/open.js';
 
 const CLOCKS = { sessions: 'updatedAt', folders: 'updatedAt', vocab: 'updatedAt' };
 
@@ -19,6 +20,60 @@ test('put/getOne/listAll round-trip a record unchanged', async () => {
   await put('sessions', { id: 's1', name: 'One', updatedAt: 5 });
   assert.deepEqual(await getOne('sessions', 's1'), { id: 's1', name: 'One', updatedAt: 5 });
   assert.equal((await listAll('sessions')).length, 1);
+});
+
+test('a record is stored without its content, and comes back with it', async () => {
+  const recording = new Blob([new Uint8Array([3, 4])], { type: 'audio/wav' });
+  const record = {
+    id: 's1', updatedAt: 5,
+    sentences: [{ id: 'x', text: 'hi', recording, recordingHash: 'h3' }],
+  };
+
+  await putRecord('sessions', record, [
+    { path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h3', value: recording },
+  ]);
+
+  const raw = await transact([ALL_STORES[0]], 'readonly', (s) => request(s.sessions.get('s1')));
+  assert.equal(raw.sentences[0].recording, null, 'the record holds no bytes');
+  assert.equal(raw.sentences[0].recordingHash, 'h3', 'only the claim');
+
+  const whole = await getOne('sessions', 's1');
+  assert.deepEqual([...new Uint8Array(await whole.sentences[0].recording.arrayBuffer())], [3, 4]);
+});
+
+test('a hash whose content is missing comes back as a claim with nothing behind it', async () => {
+  // What a clip whose bytes were lost looks like: the sentence still says it
+  // has one, so a sync can fetch it back, and the UI can say it is unplayable
+  // rather than pretending it never existed.
+  await put('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'x', text: 'hi', recordingHash: 'gone' }] });
+
+  const whole = await getOne('sessions', 's1');
+  assert.equal(whole.sentences[0].recording, null);
+  assert.equal(whole.sentences[0].recordingHash, 'gone');
+});
+
+test('deleting a record takes its content with it', async () => {
+  const value = new Blob([new Uint8Array([1])]);
+  await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'x', recordingHash: 'h' }] },
+    [{ path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h', value }]);
+
+  await remove('sessions', 's1');
+
+  assert.deepEqual(await listContentPaths(), []);
+});
+
+test('sweepContent removes what no record references any more', async () => {
+  const value = new Blob([new Uint8Array([1])]);
+  await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'kept', recordingHash: 'h' }] }, [
+    { path: 'recordings/s1/kept.wav', kind: 'recording', hash: 'h', value },
+    // What a split or a merge leaves behind: bytes whose sentence is gone.
+    { path: 'recordings/s1/orphan.wav', kind: 'recording', hash: 'h2', value },
+  ]);
+
+  const swept = await sweepContent();
+
+  assert.deepEqual(swept, ['recordings/s1/orphan.wav']);
+  assert.deepEqual(await listContentPaths(), ['recordings/s1/kept.wav']);
 });
 
 test('putMany is a no-op on an empty list rather than an error', async () => {
@@ -145,4 +200,20 @@ test('a transaction that throws partway leaves nothing behind', async () => {
   }), /boom/);
 
   assert.equal(await getOne('sessions', 'half'), undefined, 'the put was rolled back with the transaction');
+});
+
+test('dbError: a failure with no error object still arrives as one', () => {
+  // WebKit aborts a transaction with tx.error === null. Rejecting with that
+  // null is how a failed save becomes a silent one: the handler reads
+  // `.message` of null and throws inside its own catch.
+  const invented = dbError(null, 'The write');
+
+  assert.ok(invented instanceof Error);
+  assert.match(invented.message, /The write failed, and the browser gave no reason/);
+  assert.equal(invented.name, 'UnknownError');
+});
+
+test('dbError: a real failure is passed through untouched', () => {
+  const real = Object.assign(new Error('Error preparing Blob/File data to be stored in object store'), { name: 'UnknownError' });
+  assert.equal(dbError(real, 'The write'), real);
 });

@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>IndexedDB blob survival</title>
+<style>
+  body { font: 15px/1.6 -apple-system, system-ui, sans-serif; margin: 2rem auto; max-width: 52rem; padding: 0 1rem; }
+  table { border-collapse: collapse; margin: 1rem 0; font-size: 14px; }
+  th, td { border: 1px solid #ccc; padding: 4px 10px; text-align: left; }
+  td.ok { color: #0a0; } td.bad { color: #c00; font-weight: 700; }
+  button { font: inherit; padding: 6px 14px; }
+  pre { background: #f4f4f4; padding: 10px; overflow-x: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>IndexedDB blob survival</h1>
+
+<p>Does a Blob stored in IndexedDB stay readable when the record around it is
+re-stored, the way this app re-stores a whole session on every save? Four cells,
+two variables: where the Blob's bytes came from, and whether the record is
+re-stored after being read back out of the database.</p>
+
+<p><strong>Run it in the same browser the app runs in</strong>, and leave the tab
+alone until it says it is done: it reloads itself several times on purpose,
+because a Blob read out of IndexedDB and stored again <em>within one page life</em>
+is not the case that matters. It uses its own database
+(<code>blob-survival-probe</code>) and touches nothing of the app's.</p>
+
+<p><button id="start">Start</button> <button id="reset">Delete probe data</button></p>
+<div id="out"></div>
+<pre id="report" hidden></pre>
+
+<script type="module">
+const DB = 'blob-survival-probe';
+const STATE = 'blob-survival-probe-state';
+const GENERATIONS = 3;   // page lives: each one reads every record and re-stores it
+const CHURN = 10;        // re-stores per generation, for the cells that churn
+const SIZE = 512 * 1024; // per blob; big enough that an engine may keep it in a file
+
+// Two provenances, mirroring the app: a recording is built in memory, while a
+// TTS clip arrives as a fetch response body (and an imported file is a File on
+// disk -- not covered here, it needs a picker).
+const CELLS = [
+  { id: 'memory-still', provenance: 'memory', churn: false, repair: 'none' },
+  { id: 'memory-churn', provenance: 'memory', churn: true, repair: 'none' },
+  { id: 'fetch-still', provenance: 'fetch', churn: false, repair: 'none' },
+  { id: 'fetch-churn', provenance: 'fetch', churn: true, repair: 'none' },
+  // The two candidate fixes, run against the same churn that kills the cells
+  // above. `rewrap` is the cheap one the previous implementation used on every
+  // save -- it allocates a new Blob around the old one and reads nothing.
+  // `materialize` reads the bytes out first, which costs the whole file.
+  // Which of these survives decides whether re-storing content can stay cheap
+  // or has to stop happening at all.
+  { id: 'rewrap-churn', provenance: 'memory', churn: true, repair: 'rewrap' },
+  { id: 'materialize-churn', provenance: 'memory', churn: true, repair: 'materialize' },
+];
+
+async function repaired(blob, how) {
+  if (how === 'rewrap') return new Blob([blob], { type: blob.type });
+  if (how === 'materialize') return new Blob([await blob.arrayBuffer()], { type: blob.type });
+  return blob;
+}
+
+const out = document.getElementById('out');
+const log = (html) => { out.insertAdjacentHTML('beforeend', html); };
+
+// Nothing may fail quietly: a stalled probe that shows a half-finished line is
+// indistinguishable from a slow one, and both look like a bug in the probe.
+addEventListener('error', (e) => log(`<p class="bad">page error: ${e.message}</p>`));
+addEventListener('unhandledrejection', (e) => log(`<p class="bad">unhandled rejection: ${e.reason?.name || ''} ${e.reason?.message ?? e.reason}</p>`));
+
+/**
+ * An IndexedDB operation that never settles is a real outcome -- a blocked
+ * upgrade, a transaction the engine never finishes -- and has to be reported
+ * as one rather than left hanging.
+ */
+/**
+ * IndexedDB hands out failures with no error object at all -- a transaction
+ * that aborts carries `tx.error === null` in WebKit -- so every failure is put
+ * through here before it is read or printed.
+ */
+const describe = (err) => {
+  if (!err) return 'failed with no error object (the engine gave none)';
+  return `${err.name || 'Error'}: ${err.message || String(err)}`;
+};
+
+const TIMEOUT_MS = 20000;
+function withTimeout(promise, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => {
+      const err = new Error(`${label}: never settled after ${TIMEOUT_MS / 1000}s`);
+      err.name = 'StalledError';
+      reject(err);
+    }, TIMEOUT_MS)),
+  ]);
+}
+
+const sha256 = async (buffer) => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', buffer)))
+  .map((b) => b.toString(16).padStart(2, '0')).join('');
+
+const open = () => withTimeout(new Promise((resolve, reject) => {
+  const req = indexedDB.open(DB, 1);
+  req.onupgradeneeded = () => req.result.createObjectStore('cells', { keyPath: 'id' });
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+  req.onblocked = () => reject(new Error('open blocked by another tab holding this database'));
+}), 'open');
+
+const read = (db, id) => withTimeout(new Promise((resolve, reject) => {
+  const req = db.transaction(['cells'], 'readonly').objectStore('cells').get(id);
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(req.error);
+}), `read ${id}`);
+
+const write = (db, record) => withTimeout(new Promise((resolve, reject) => {
+  const tx = db.transaction(['cells'], 'readwrite');
+  const req = tx.objectStore('cells').put(record);
+  // The request's error is usually the informative one; the transaction's is
+  // often null. Whichever exists is kept.
+  let reqError = null;
+  req.onerror = () => { reqError = req.error; };
+  tx.oncomplete = () => resolve();
+  tx.onerror = () => reject(tx.error || reqError);
+  tx.onabort = () => reject(tx.error || reqError);
+}), `write ${record.id}`);
+
+/** Bytes that compress badly, so nothing dedupes them away. */
+function noise(size) {
+  const bytes = new Uint8Array(size);
+  // getRandomValues refuses more than 65536 bytes at a time.
+  for (let offset = 0; offset < size; offset += 65536) {
+    crypto.getRandomValues(bytes.subarray(offset, Math.min(offset + 65536, size)));
+  }
+  return bytes;
+}
+
+async function makeBlob(provenance) {
+  const bytes = noise(SIZE);
+  if (provenance === 'memory') return new Blob([bytes], { type: 'audio/wav' });
+  // A fetch response body: the same shape the app gets back from Azure's
+  // synthesis endpoint, where the engine -- not the page -- decides where the
+  // bytes live.
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'audio/wav' }));
+  try {
+    return await (await fetch(url)).blob();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function seed() {
+  const db = await open();
+  const state = { stage: 'churn', generation: 0, cells: {} };
+  for (const cell of CELLS) {
+    const blob = await makeBlob(cell.provenance);
+    const hash = await sha256(await blob.arrayBuffer());
+    await write(db, { id: cell.id, blob, note: `${cell.provenance}, churn=${cell.churn}` });
+    state.cells[cell.id] = { hash, size: SIZE, stores: 1, error: null };
+  }
+  db.close();
+  localStorage.setItem(STATE, JSON.stringify(state));
+}
+
+/**
+ * One page life: read each record back and, for the churning cells, store it
+ * again -- the exact thing the app does on every autosave, where the Blob in
+ * the record came out of a previous transaction.
+ */
+async function churn(state) {
+  let db;
+  try {
+    db = await open();
+  } catch (err) {
+    // The database itself would not open this time round: record it against
+    // every cell and go to the verdict rather than stopping on a half-drawn
+    // page.
+    for (const cell of CELLS) {
+      state.cells[cell.id].error ||= `generation ${state.generation}: opening the database: ${describe(err)}`;
+    }
+    state.stage = 'verify';
+    localStorage.setItem(STATE, JSON.stringify(state));
+    return;
+  }
+
+  for (const cell of CELLS) {
+    const entry = state.cells[cell.id];
+    if (entry.error) continue;
+    try {
+      for (let i = 0; i < (cell.churn ? CHURN : 1); i += 1) {
+        const record = await read(db, cell.id);
+        if (!record) throw new Error('the record itself is gone');
+        if (cell.churn) {
+          await write(db, { ...record, blob: await repaired(record.blob, cell.repair), touchedAt: Date.now() });
+          entry.stores += 1;
+        }
+      }
+      log(`<p> ${cell.id}: ok (${entry.stores} stores so far).</p>`);
+    } catch (err) {
+      entry.error = `generation ${state.generation}, after ${entry.stores} stores: ${describe(err)}`;
+      log(`<p class="bad"> ${cell.id}: ${describe(err)}</p>`);
+
+      // The question a failed re-store immediately raises: did it take the
+      // stored bytes with it? Asked now, while the failure is fresh, because
+      // "the write failed" and "the write failed and destroyed what was there"
+      // are different faults and the app treats them the same way.
+      try {
+        const record = await read(db, cell.id);
+        if (!record?.blob) entry.afterFailure = 'the record or its blob is gone';
+        else {
+          const buffer = await record.blob.arrayBuffer();
+          entry.afterFailure = buffer.byteLength === entry.size
+            ? 'the stored copy is still readable'
+            : `the stored copy reads short: ${buffer.byteLength} of ${entry.size}`;
+        }
+      } catch (readErr) {
+        entry.afterFailure = `the stored copy is now unreadable — ${describe(readErr)}`;
+
+        // Is that permanent, or only true of this connection? A failed write
+        // seems to leave the open database holding a blob reference it can no
+        // longer resolve, and the answer decides whether the app should retry
+        // an unreadable clip on a fresh connection before reporting it lost.
+        try {
+          db.close();
+          const reopened = await open();
+          const record = await read(reopened, cell.id);
+          const buffer = await record.blob.arrayBuffer();
+          entry.afterReopen = buffer.byteLength === entry.size
+            ? 'readable again after reopening the database'
+            : `reads short after reopening: ${buffer.byteLength} of ${entry.size}`;
+          reopened.close();
+        } catch (reopenErr) {
+          entry.afterReopen = `still unreadable after reopening — ${describe(reopenErr)}`;
+        }
+        log(`<p class="bad"> ${cell.id}: ${entry.afterReopen}</p>`);
+        // The connection above was closed; the rest of this page life needs a
+        // fresh one.
+        try { db = await open(); } catch { /* the verdict pass will report it */ }
+      }
+      log(`<p class="bad"> ${cell.id}: after the failure, ${entry.afterFailure}</p>`);
+    }
+  }
+  try { db.close(); } catch { /* already closing */ }
+  state.generation += 1;
+  if (state.generation >= GENERATIONS) state.stage = 'verify';
+  localStorage.setItem(STATE, JSON.stringify(state));
+}
+
+async function verify(state) {
+  let db;
+  try {
+    db = await open();
+  } catch (err) {
+    return CELLS.map((cell) => ({
+      cell: cell.id, stores: state.cells[cell.id].stores,
+      verdict: 'DATABASE WOULD NOT OPEN', detail: describe(err),
+    }));
+  }
+  const rows = [];
+  for (const cell of CELLS) {
+    const entry = state.cells[cell.id];
+    const row = {
+      cell: cell.id,
+      stores: entry.stores,
+      verdict: '',
+      detail: [entry.error, entry.afterFailure, entry.afterReopen].filter(Boolean).join(' — '),
+    };
+    try {
+      const record = await read(db, cell.id);
+      if (!record?.blob) {
+        row.verdict = 'RECORD OR BLOB GONE';
+      } else {
+        const buffer = await record.blob.arrayBuffer();
+        const hash = await sha256(buffer);
+        if (buffer.byteLength !== entry.size) row.verdict = `SHORT: ${buffer.byteLength} of ${entry.size}`;
+        else if (hash !== entry.hash) row.verdict = 'BYTES CHANGED';
+        else row.verdict = 'readable, unchanged';
+      }
+    } catch (err) {
+      row.verdict = 'UNREADABLE';
+      row.detail = [row.detail, describe(err)].filter(Boolean).join(' — ');
+    }
+    rows.push(row);
+  }
+  try { db.close(); } catch { /* already closing */ }
+  return rows;
+}
+
+function render(rows, state) {
+  const cells = rows.map((r) => `<tr><td>${r.cell}</td><td>${r.stores}</td>` +
+    `<td class="${r.verdict.startsWith('readable') ? 'ok' : 'bad'}">${r.verdict}</td><td>${r.detail}</td></tr>`).join('');
+  log(`<h2>Result after ${state.generation} page lives</h2>
+    <table><tr><th>cell</th><th>times stored</th><th>verdict</th><th>detail</th></tr>${cells}</table>
+    <p>A "memory" cell and a "fetch" cell differ only in where the Blob's bytes
+    came from; a "churn" cell differs from a "still" one only in being re-stored
+    after being read back. Whichever line fails is the mechanism. The last two
+    cells churn the same way but put the Blob through a repair first -- rewrap
+    (cheap, reads nothing) or materialize (reads the whole file) -- so whichever
+    of those survives is the fix.</p>`);
+
+  const report = document.getElementById('report');
+  report.hidden = false;
+  report.textContent = [
+    `blob survival probe — ${SIZE} bytes per cell, ${state.generation} page lives, ${CHURN} re-stores per life`,
+    ...rows.map((r) => `${r.cell}: stored ${r.stores}x -> ${r.verdict}${r.detail ? ` | ${r.detail}` : ''}`),
+    navigator.userAgent,
+  ].join('\n');
+}
+
+async function step() {
+  try {
+    await runStep();
+  } catch (err) {
+    log(`<p class="bad">the probe itself failed: ${describe(err)}</p>`);
+  }
+}
+
+async function runStep() {
+  const raw = localStorage.getItem(STATE);
+  if (!raw) return;
+  const state = JSON.parse(raw);
+
+  if (state.stage === 'churn') {
+    log(`<p>page life ${state.generation + 1} of ${GENERATIONS}: reading each record back and storing it again…</p>`);
+    await churn(state);
+    location.reload();
+    return;
+  }
+
+  if (state.stage === 'verify') {
+    const rows = await verify(state);
+    render(rows, state);
+    localStorage.removeItem(STATE);
+  }
+}
+
+document.getElementById('start').addEventListener('click', async () => {
+  out.textContent = '';
+  log('<p>seeding four cells…</p>');
+  // Anything that goes wrong in here is the result too, so it is shown rather
+  // than left in the console.
+  try {
+    await seed();
+  } catch (err) {
+    log(`<p class="bad">seeding failed: ${err.name}: ${err.message}</p>`);
+    return;
+  }
+  location.reload();
+});
+
+document.getElementById('reset').addEventListener('click', () => {
+  localStorage.removeItem(STATE);
+  indexedDB.deleteDatabase(DB);
+  out.textContent = '';
+  log('<p>probe data deleted.</p>');
+});
+
+step();
+</script>
+</body>
+</html>

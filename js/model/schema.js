@@ -222,6 +222,37 @@ export function* walkContent(def, record, parentRef = {}) {
   }
 }
 
+/**
+ * A copy of `record` with the content slots `drop` selects emptied: value and
+ * hash both null, children included.
+ *
+ * The one operation that deliberately changes what a record *claims* to have,
+ * which is why it is separate from `mapContent` rather than a mode of it. It is
+ * for content whose bytes turn out to be gone -- a Blob in IndexedDB is a
+ * reference to a backing file, and a browser can lose it. Keeping the hash then
+ * would be a claim nobody can satisfy: it names bytes this device cannot read
+ * and the container does not have, and every sync from then on would offer it
+ * and fail.
+ *
+ * @param {(slot: {kind: string, ref: object, field: string, hash: string|null}) => boolean} drop
+ */
+export function dropContent(def, record, drop, parentRef = {}) {
+  const ref = def.ref(record, parentRef);
+  const out = { ...record };
+  for (const [field, d] of def.entries) {
+    if (d.role === 'content') {
+      const hash = record[hashKey(field)] ?? null;
+      if (hash !== null && drop({ kind: d.kind, ref, field, hash })) {
+        out[field] = null;
+        out[hashKey(field)] = null;
+      }
+    } else if (d.role === 'children') {
+      out[field] = (record[field] || []).map((child) => dropContent(d.def, child, drop, ref));
+    }
+  }
+  return out;
+}
+
 /** walkContent filtered to slots that actually hold content. */
 export function presentContent(def, record, parentRef = {}) {
   return [...walkContent(def, record, parentRef)].filter((c) => c.hash !== null);

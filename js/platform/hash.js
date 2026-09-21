@@ -1,9 +1,7 @@
-// Content hashing, and the one Blob quirk this app has to work around.
+// Content hashing, and reading a Blob's bytes into a value that owns them.
 //
 // Both are platform facts rather than domain rules: they depend on Web Crypto
-// and on how browsers hand Blobs back out of IndexedDB. (In the previous
-// implementation the Blob helper lived in a module called `hashing.js`, which
-// is why two call sites hand-wrote their own copy instead of finding it.)
+// and on how browsers hand Blobs back out of IndexedDB.
 
 /** SHA-256 as lowercase hex. */
 async function digestHex(bufferSource) {
@@ -15,9 +13,9 @@ async function digestHex(bufferSource) {
  * Content hash of a Blob.
  *
  * Content is addressed by hash throughout: it is what tells sync whether it
- * already holds a given recording, and it is the only reliable "did this
- * change" signal available, since `rewrapBlob` below replaces the Blob
- * instance on every save and so object identity means nothing here.
+ * already holds a given recording, what tells the store whether these bytes
+ * are ones it has written before, and the only "did this change" signal that
+ * does not depend on who happens to hold which object.
  */
 export async function hashBlob(blob) {
   return digestHex(await blob.arrayBuffer());
@@ -34,29 +32,15 @@ export async function hashJson(value) {
 }
 
 /**
- * Wrap a Blob read out of IndexedDB in a fresh in-memory Blob before storing it
- * again.
- *
- * Chromium fails with "Error preparing Blob/File data to be stored in object
- * store" when a Blob that came out of one transaction is written back in a
- * different one. Rewrapping costs nothing (no bytes are read eagerly) and is a
- * no-op for a Blob that was never stored.
- *
- * Note this defers reading rather than forcing it, so it does not protect a
- * Blob held across a long gap -- a sync that keeps one across its network
- * round-trip must materialize the bytes instead (see `materializeBlob`).
- */
-export function rewrapBlob(blob) {
-  return blob ? new Blob([blob], { type: blob.type }) : blob;
-}
-
-/**
  * Read a Blob's bytes now and return a self-contained copy.
  *
- * Needed wherever a Blob has to survive something slow: the backing resource a
- * Blob from IndexedDB refers to can be gone by the time a sync finishes its
- * uploads and tries to store it, and `rewrapBlob`'s deferred read is not enough
- * there because it never actually reads until the store.
+ * A Blob is a reference to bytes that live somewhere the page does not own --
+ * a fetch response, a file on disk, the database itself -- and that reference
+ * can stop resolving. Anything that has to survive being stored, or being
+ * carried across a network round-trip, is read into a copy of its own first.
+ *
+ * This is the only way bytes enter the content store, and the reason nothing
+ * there is a reference to somewhere else.
  */
 export async function materializeBlob(blob) {
   if (!blob) return blob;

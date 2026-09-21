@@ -10,13 +10,14 @@
 // stores it needs and gets one transaction across all of them.
 
 export const DB_NAME = 'tuner';
-export const DB_VERSION = 1;
+export const DB_VERSION = 2;
 
 export const SESSIONS = 'sessions';
 export const FOLDERS = 'folders';
 export const VOCAB = 'vocab';
 export const TOMBSTONES = 'tombstones';
-export const ALL_STORES = [SESSIONS, FOLDERS, VOCAB, TOMBSTONES];
+export const CONTENT = 'content';
+export const ALL_STORES = [SESSIONS, FOLDERS, VOCAB, TOMBSTONES, CONTENT];
 
 /** True when this browser can store anything at all; every caller checks once. */
 export function isSupported() {
@@ -39,9 +40,14 @@ export function openDb() {
       if (!db.objectStoreNames.contains(FOLDERS)) db.createObjectStore(FOLDERS, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(VOCAB)) db.createObjectStore(VOCAB, { keyPath: 'id' });
       if (!db.objectStoreNames.contains(TOMBSTONES)) db.createObjectStore(TOMBSTONES, { keyPath: 'id' });
+      // Content lives apart from the records that reference it, keyed by the
+      // same blob path the container uses, so a record can be rewritten as
+      // often as an edit demands without its audio being rewritten with it.
+      // See ./content.js for why that is not an optimisation.
+      if (!db.objectStoreNames.contains(CONTENT)) db.createObjectStore(CONTENT, { keyPath: 'path' });
     };
     request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onerror = () => reject(dbError(request.error, `Opening the ${DB_NAME} database`));
   });
   return dbPromise;
 }
@@ -51,11 +57,30 @@ export function resetDbForTests() {
   dbPromise = null;
 }
 
+/**
+ * Every failure out of this module, as something a caller can actually catch.
+ *
+ * IndexedDB reports failures with no error object at all: WebKit aborts a
+ * transaction with `tx.error === null`, and a request that failed inside one
+ * can carry null too. Rejecting with that null is how a failed save becomes a
+ * silent one -- the handler reads `.message` of null, throws inside its own
+ * catch block, and the write that did not happen is reported to nobody.
+ *
+ * @param {unknown} err  whatever IndexedDB offered, including nothing
+ * @param {string} what  the operation, for the message it may have to invent
+ */
+export function dbError(err, what) {
+  if (err && (err.name || err.message)) return err;
+  const failure = new Error(`${what} failed, and the browser gave no reason`);
+  failure.name = 'UnknownError';
+  return failure;
+}
+
 /** One IndexedDB request as a promise. */
-export function request(req) {
+export function request(req, what = 'A database request') {
   return new Promise((resolve, reject) => {
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => reject(dbError(req.error, what));
   });
 }
 
@@ -87,8 +112,8 @@ export async function transact(storeNames, mode, fn) {
 
   const committed = new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error || new Error('Transaction aborted'));
+    tx.onerror = () => reject(dbError(tx.error, `The ${mode} transaction over ${storeNames.join(', ')}`));
+    tx.onabort = () => reject(dbError(tx.error, `The ${mode} transaction over ${storeNames.join(', ')} was aborted and`));
   });
 
   let result;

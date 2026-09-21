@@ -2,10 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { stampContentHashes, saveRecord } from '../../js/app/persist.js';
 import { SESSION, VOCAB_ENTRY } from '../../js/model/schema.js';
-import { hashBlob, hashString, hashJson } from '../../js/platform/hash.js';
+import { hashBlob, hashString, hashJson, materializeBlob } from '../../js/platform/hash.js';
 import { blankSentence } from '../../js/model/session.js';
 
-const hash = { hashBlob, hashString, hashJson };
+const hash = { hashBlob, hashString, hashJson, materializeBlob };
 
 const clip = (bytes) => new Blob([new Uint8Array(bytes)], { type: 'audio/wav' });
 
@@ -128,17 +128,78 @@ test('does not mutate the record it was given, and keeps every other field', asy
   assert.equal(stamped.createdAt, 1);
 });
 
+/** A database that records what it was asked to store, and what it already holds. */
+function fakeDb(held = new Map()) {
+  const writes = [];
+  return {
+    writes,
+    held,
+    storedContentHashes: async (paths) => new Map(paths.filter((p) => held.has(p)).map((p) => [p, held.get(p)])),
+    putRecord: async (entity, record, entries) => {
+      for (const entry of entries) held.set(entry.path, entry.hash);
+      writes.push({ entity, record, entries });
+    },
+  };
+}
+
 test('saveRecord: stamps then stores, and hands back what was stored', async () => {
-  const stored = [];
-  const db = { put: async (entity, record) => stored.push([entity, record]) };
+  const db = fakeDb();
   const recording = clip([5]);
 
   const result = await saveRecord('sessions', session({
     sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording })],
   }), { db, hash });
 
-  assert.equal(stored.length, 1);
-  assert.equal(stored[0][0], 'sessions');
-  assert.equal(stored[0][1].sentences[0].recordingHash, await hashBlob(recording));
-  assert.equal(result, stored[0][1], 'the caller gets the stamped record without a second read');
+  assert.equal(db.writes.length, 1);
+  assert.equal(db.writes[0].entity, 'sessions');
+  assert.equal(db.writes[0].record.sentences[0].recordingHash, await hashBlob(recording));
+  assert.equal(result, db.writes[0].record, 'the caller gets the stamped record without a second read');
+});
+
+test('saveRecord: content the store already holds under that hash is not written again', async () => {
+  // The rule the storage layout exists for: a record is rewritten on every
+  // edit, and its audio is not rewritten with it.
+  const db = fakeDb();
+  const recording = clip([5, 6, 7]);
+  const record = session({ sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording })] });
+
+  const first = await saveRecord('sessions', record, { db, hash });
+  const second = await saveRecord('sessions', { ...first, name: 'renamed' }, { db, hash, previous: first });
+  const third = await saveRecord('sessions', { ...second, name: 'again' }, { db, hash, previous: second });
+
+  assert.equal(db.writes[0].entries.length, 1, 'the bytes go in once');
+  assert.deepEqual(db.writes[1].entries, [], 'and not again');
+  assert.deepEqual(db.writes[2].entries, []);
+  assert.equal(third.sentences[0].recordingHash, await hashBlob(recording));
+});
+
+test('saveRecord: replacing the content writes the new bytes, under the same path', async () => {
+  const db = fakeDb();
+  const first = await saveRecord('sessions', session({
+    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: clip([1]) })],
+  }), { db, hash });
+
+  const retaken = clip([9, 9]);
+  const second = await saveRecord('sessions', {
+    ...first,
+    sentences: [{ ...first.sentences[0], recording: retaken, recordingHash: null }],
+  }, { db, hash, previous: first });
+
+  assert.deepEqual(db.writes[1].entries.map((e) => e.path), ['recordings/sess1/s1.wav']);
+  assert.equal(db.writes[1].entries[0].hash, await hashBlob(retaken));
+  assert.equal(second.sentences[0].recordingHash, await hashBlob(retaken));
+});
+
+test('saveRecord: the stored record carries no bytes of its own', async () => {
+  const db = fakeDb();
+  await saveRecord('sessions', session({
+    inputText: 'hello',
+    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: clip([2]) })],
+  }), { db, hash });
+
+  // saveRecord hands the record to the database whole; the database is what
+  // strips it (see db/entities.js), so what matters here is that every byte it
+  // sent went as a content entry.
+  assert.deepEqual(db.writes[0].entries.map((e) => e.path).sort(),
+    ['inputtext/sess1.txt', 'recordings/sess1/s1.wav']);
 });

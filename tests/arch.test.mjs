@@ -56,6 +56,9 @@ function importsOf(file) {
   const source = readFileSync(file, 'utf8');
   const specifiers = [
     ...source.matchAll(/(?:^|\n)\s*import\s[^;]*?from\s*['"]([^'"]+)['"]/g),
+    // A re-export is an import with the result passed on, and hides the same
+    // dependency if it is not counted.
+    ...source.matchAll(/(?:^|\n)\s*export\s[^;]*?from\s*['"]([^'"]+)['"]/g),
     ...source.matchAll(/(?:^|\n)\s*import\s*['"]([^'"]+)['"]/g),
     ...source.matchAll(/\bimport\(\s*['"]([^'"]+)['"]\s*\)/g),
   ].map((m) => m[1]);
@@ -180,4 +183,17 @@ test('no module reaches outside js/ for source', () => {
     }
   }
   assert.deepEqual(violations, []);
+});
+
+test('stored bytes are reached only through db/entities.js', () => {
+  // The content store is the database's own business. A module that reached
+  // past `entities` could write a record and its bytes in separate
+  // transactions, or store a record with its content still inside it -- which
+  // is the write this layout exists to make impossible.
+  const offenders = files
+    .map((file) => [relative(jsRoot, file).replaceAll('\\', '/'), importsOf(file)])
+    .filter(([rel, imports]) => rel !== 'db/entities.js' && imports.includes('db/content.js'))
+    .map(([rel]) => rel);
+
+  assert.deepEqual(offenders, []);
 });

@@ -184,6 +184,27 @@ one place for every entity kind. In the previous design it was hand-written per
 kind, which is why the kind added last shipped without it and a mid-sync delete
 could be resurrected.
 
+### A hash is a claim, and a claim is never published without the bytes
+
+A content hash is not metadata about bytes; it is the assertion that those
+bytes exist and can be fetched. The manifest is that assertion published, and
+the content plan is arithmetic on it.
+
+So a round never publishes a manifest naming content that did not go up. A slot
+whose bytes could not be sent is withheld from the published manifest, while
+the local record keeps its hash unchanged. The alternative advertises a blob
+that never arrived, and the device that owns it then reads its own claim back
+as `reuse` and stops offering it, while every other device downloads a 404
+forever. Withholding instead means the container claims only what it has, the
+owning device offers the bytes again on every later round, and nothing is
+discarded on the strength of one failed read — which matters, because an
+unreadable Blob is sometimes readable again on a fresh connection.
+
+An upload's deadline scales with its size, because a PUT's `fetch()` does not
+settle until the body has gone out. A fixed timeout there is a bandwidth floor
+dressed as a stall detector, and it only shows up when a round has to upload
+everything at once — the first sync after the container is emptied.
+
 ### The container, and why no test mocks a module
 
 `cloud/blob.js` exposes `container(sasUrl)`, returning the seven blob
@@ -208,6 +229,48 @@ global.
 The cross-device lock and orphan cleanup stay, unchanged in behaviour: they
 are separate concerns with their own modules, and neither needs to be inside
 the planner.
+
+## db/ — bytes are written once
+
+A record carries hashes. The bytes those hashes name live in their own store,
+keyed by the same blob path the container uses, and are written exactly once:
+when the content is produced. Reading joins the two back together, so nothing
+above `db/` knows there are two places; writing separates them again.
+
+This is not a layout preference, and not an optimisation. Measured in Safari 27
+(the probe is `scratch/webkit-blob-repro.html`): a Blob stored in IndexedDB,
+read back in a later page life and stored again as part of its record, fails
+with `UnknownError: Error preparing Blob/File data to be stored in object
+store` — after 11 re-stores in one run, 22 in another, never in a third — and
+the failed write takes the stored copy with it, so the next read of that clip
+is `NotFoundError: The object can not be found here`. Where the bytes came from
+makes no difference; re-wrapping the Blob first (`new Blob([blob])`) does not
+prevent it. Only never handing the engine back a Blob it gave you does.
+
+The old design stored each Blob inside its record, and the record was rewritten
+on every edit — every keystroke, every hidden toggle, every score. So the audio
+was rewritten too, dozens of times per session, and one of those writes
+eventually destroyed a clip that had been fine for weeks. Nothing noticed,
+because the bytes were read exactly once (when hashed) and not again until a
+sync had to upload them.
+
+What follows from writing bytes once:
+
+- `app/persist.js` is the only place bytes enter the store, and it writes a
+  slot only when the content store does not already hold that hash. Everything
+  else about a record may be rewritten freely.
+- Bytes are materialized (`platform/hash.js`'s `materializeBlob`) before they
+  are stored or sent: a Blob is a reference to somewhere the page does not own,
+  and the content store holds no references to anywhere else.
+- A sync round reads one slot's bytes when it uploads that slot, so a round
+  does not hold a library in memory, and a clip whose bytes are gone is found
+  as that rather than as a network error about the SAS URL.
+- Deleting a record deletes its content in the same transaction, and
+  `sweepContent()` collects what a split or a merge left behind — the same
+  arithmetic as the container's orphan sweep, on the same paths.
+- `db/migrate.js` moves version 1's inline content out, once, record by record.
+  A slot whose bytes cannot be read is reported and keeps its hash: migration
+  is the wrong moment to decide a clip was worthless.
 
 ## app/ — live state as a store, mutations by id
 

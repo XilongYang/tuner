@@ -365,7 +365,17 @@ test('settings: a missing resource name is called out as what it costs', () => {
   const h = settingsHarness();
   h.settings.saveCredentials({ key: 'k', region: 'japaneast' });
   h.panel.refresh();
-  assert.match(h.container.querySelector('.settings-state').textContent, /audio import is unavailable/);
+  assert.match(h.container.querySelector('.settings-state').textContent, /audio import and word timings are unavailable/);
+});
+
+test('settings: a configured service says where it is, and does not read the resource name back', () => {
+  const h = settingsHarness();
+  h.settings.saveCredentials({ key: 'k', region: 'japanwest', resourceName: 'my-resource' });
+  h.panel.refresh();
+
+  const state = h.container.querySelector('.settings-state').textContent;
+  assert.equal(state, 'Configured for japanwest');
+  assert.ok(!state.includes('my-resource'));
 });
 
 test('settings: sync is unavailable until a container is configured', () => {

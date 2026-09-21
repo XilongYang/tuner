@@ -156,8 +156,11 @@ export function createSettingsPanel({ container, actions, settings }) {
 
   function refresh() {
     const credentials = settings.credentials();
+    // The region, and nothing else. The resource name is not worth a line of
+    // its own -- it is a name this person chose, read back to them -- but its
+    // absence is, because two features quietly do not work without it.
     credentialState.textContent = credentials
-      ? `Configured for ${credentials.region}${credentials.resourceName ? ` · ${credentials.resourceName}` : ' · no resource name, so audio import is unavailable'}`
+      ? `Configured for ${credentials.region}${credentials.resourceName ? '' : '. No resource name, so audio import and word timings are unavailable.'}`
       : 'Not configured. Speaking, scoring and audio import need a key and region.';
     regionInput.value = credentials?.region ?? '';
     resourceInput.value = credentials?.resourceName ?? '';

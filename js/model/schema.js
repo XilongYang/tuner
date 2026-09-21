@@ -119,7 +119,6 @@ export const SENTENCE = entity('sentence', {
   hidden: f.plain({ default: false }),
   updatedAt: f.plain({ default: null }),
   words: f.plain({ default: null }),
-  manualPoints: f.plain({ default: null }),
   referenceSource: f.plain({ default: null }),
   sourceOffsetMs: f.plain({ default: null }),
   sourceDurationMs: f.plain({ default: null }),

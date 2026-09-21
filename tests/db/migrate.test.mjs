@@ -22,7 +22,7 @@ const oldSession = (over = {}) => ({
   sourceAudio: null, sourceAudioHash: null,
   sentences: [{
     id: 's1', text: 'hi', lang: 'en', hidden: false, updatedAt: 10,
-    words: null, manualPoints: null, referenceSource: 'tts',
+    words: null, referenceSource: 'tts',
     sourceOffsetMs: null, sourceDurationMs: null,
     recording: clip([1, 2]), recordingHash: 'h-rec',
     reference: clip([3, 4, 5]), referenceHash: 'h-ref',

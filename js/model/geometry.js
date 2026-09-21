@@ -1,5 +1,5 @@
-// Split/merge geometry: where a sentence can be cut, how its word timings and
-// manual cut points divide, and how an audio range divides with them.
+// Split/merge geometry: where a sentence can be cut, how its word timings
+// divide, and how an audio range divides with them.
 //
 // Pure arithmetic over plain values. Nothing here reads app state, touches the
 // DOM, or decodes audio -- the actual re-slicing of samples lives in
@@ -22,8 +22,7 @@
 import { canCutBetween } from './text.js';
 
 /** @typedef {{ charStart: number, charEnd: number, offsetMs: number, durationMs: number }} Word */
-/** @typedef {{ charIndex: number, offsetMs: number|null }} ManualPoint */
-/** @typedef {{ charIndex: number, ms: number|null, kind: 'word'|'manual'|'text' }} SplitPoint */
+/** @typedef {{ charIndex: number, ms: number|null, kind: 'word'|'text' }} SplitPoint */
 /** @typedef {{ offsetMs: number, durationMs: number }} Range */
 
 /** Code points, so a split index never lands inside a surrogate pair. */
@@ -87,10 +86,9 @@ export function groupAdjacent(indices) {
 /**
  * Every position this sentence can be cut at, ascending by charIndex.
  *
- * Real word boundaries and user-confirmed manual points are preferred; a
- * sentence with neither falls back to textSplitPoints() so that it still
- * offers cuts, just without audio timing. Positions at either end are dropped:
- * cutting there yields an empty half.
+ * Real word boundaries when the sentence has them; textSplitPoints() when it
+ * does not, so a sentence still offers cuts, just without audio timing.
+ * Positions at either end are dropped: cutting there yields an empty half.
  * @returns {SplitPoint[]}
  */
 export function splitPointers(sentence) {
@@ -100,22 +98,11 @@ export function splitPointers(sentence) {
   for (const w of sentence.words || []) {
     if (inRange(w.charStart)) points.push({ charIndex: w.charStart, ms: w.offsetMs ?? null, kind: 'word' });
   }
-  for (const p of sentence.manualPoints || []) {
-    if (inRange(p.charIndex)) points.push({ charIndex: p.charIndex, ms: p.offsetMs ?? null, kind: 'manual' });
-  }
-
   // Word boundaries are the positions worth offering when there are any: they
-  // are the only ones that can divide the audio, and adding the text's own
-  // positions beside them would bury them. With no word timings there is no
-  // such thing to bury, so the text's positions are offered -- even alongside a
-  // seam left by a merge, which would otherwise be the single place a merged
-  // sentence could be cut.
-  if (!points.some((point) => point.kind === 'word')) {
-    const taken = new Set(points.map((point) => point.charIndex));
-    for (const point of textSplitPoints(sentence.text)) {
-      if (!taken.has(point.charIndex)) points.push(point);
-    }
-  }
+  // are the only ones that can actually divide the audio, and the text's own
+  // positions beside them would bury them. With no word timings there is
+  // nothing to bury, so the text's positions are what is offered.
+  if (!points.length) points.push(...textSplitPoints(sentence.text));
 
   points.sort((a, b) => a.charIndex - b.charIndex);
   return points;
@@ -145,7 +132,7 @@ export function isSplittable(text, charIndex) {
  * half's char offsets to its own new text.
  *
  * A word straddling the cut cannot occur: a word-kind cut is a word's own
- * charStart, and a text- or manual-kind cut falls in a gap no word occupies.
+ * charStart, and a text-kind cut falls in a gap no word occupies.
  * Anything straddling is therefore dropped rather than guessed at.
  * @returns {{ left: Word[], right: Word[] }}
  */
@@ -155,17 +142,6 @@ export function partitionWords(words, charIndex) {
   for (const w of words || []) {
     if (w.charEnd <= charIndex) left.push(w);
     else if (w.charStart >= charIndex) right.push({ ...w, charStart: w.charStart - charIndex, charEnd: w.charEnd - charIndex });
-  }
-  return { left, right };
-}
-
-/** The same division for manual cut points; the cut position itself is consumed by the split. */
-export function partitionManualPoints(points, charIndex) {
-  const left = [];
-  const right = [];
-  for (const p of points || []) {
-    if (p.charIndex < charIndex) left.push(p);
-    else if (p.charIndex > charIndex) right.push({ ...p, charIndex: p.charIndex - charIndex });
   }
   return { left, right };
 }
@@ -239,23 +215,3 @@ export function mergeWords(wordLists, texts) {
   return out;
 }
 
-/**
- * The seam positions of a merge, as manual cut points on the merged text, so a
- * later split can cut exactly where the sentences were joined even when there
- * are no word timings to offer that position.
- *
- * `ranges[i]` supplies the seam's timestamp where known; a sentence with no
- * range contributes a seam with `offsetMs: null`, which is still a usable cut
- * position for text and explicitly not a claim about audio.
- * @returns {ManualPoint[]}
- */
-export function mergeSeams(texts, ranges = []) {
-  const seams = [];
-  let shift = 0;
-  for (let i = 0; i < texts.length - 1; i++) {
-    shift += chars(texts[i]).length;
-    const next = ranges[i + 1];
-    seams.push({ charIndex: shift, offsetMs: next && Number.isFinite(next.offsetMs) ? next.offsetMs : null });
-  }
-  return seams;
-}

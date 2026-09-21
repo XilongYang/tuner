@@ -136,9 +136,12 @@ than absent: the cut markers then offer exact-looking timestamps into audio
 that is not there, and the karaoke highlight follows the wrong words. Both
 happened, which is why the rule is written here rather than left implied.
 
-Where a join happened is a different kind of fact -- it is about the text --
-so a merge seam survives either way, and only its timestamp goes with the
-audio.
+Where a join happened is not recorded at all. It used to be, as a "manual
+point" that outlived the audio and drew a second marker in a second colour --
+but a join is always at a word boundary, and word boundaries are exactly what
+`splitPointers` offers: from the word timings when the sentence has them, from
+the text's own positions when it does not. The seam was the same position
+twice.
 
 ### geometry.js — split/merge math
 

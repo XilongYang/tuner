@@ -13,7 +13,7 @@
 // -- supplies them, along with any audio it had to cut, since cutting audio is
 // a platform concern.
 
-import { splitText, isSplittable, partitionWords, partitionManualPoints, mergeWords, mergeSeams, chars } from './geometry.js';
+import { splitText, isSplittable, partitionWords, mergeWords, chars } from './geometry.js';
 import { seamSeparator } from './text.js';
 
 export const sentenceById = (session, id) => (session?.sentences || []).find((s) => s.id === id) || null;
@@ -28,7 +28,6 @@ export function blankSentence({ id, text, lang, now, ...rest }) {
     hidden: false,
     updatedAt: now,
     words: null,
-    manualPoints: null,
     referenceSource: null,
     sourceOffsetMs: null,
     sourceDurationMs: null,
@@ -136,9 +135,8 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
 
   const texts = splitText(sentence.text, charIndex);
   const words = partitionWords(sentence.words, charIndex);
-  const manual = partitionManualPoints(sentence.manualPoints, charIndex);
 
-  const half = (id, text, side, ownWords, ownManual) => blankSentence({
+  const half = (id, text, side, ownWords) => blankSentence({
     id,
     text,
     lang: sentence.lang,
@@ -149,7 +147,6 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
     // did not is left with text positions only, rather than markers that claim
     // a timestamp into audio it no longer holds.
     words: side.reference && ownWords.length ? ownWords : null,
-    manualPoints: ownManual.length ? ownManual.map((point) => (side.reference ? point : { ...point, offsetMs: null })) : null,
     // Reference audio survives only where the caller could cut it. Keeping the
     // source markers without the audio would claim a clip that is not there.
     referenceSource: side.reference ? sentence.referenceSource : null,
@@ -161,8 +158,8 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
 
   const sentences = [...session.sentences];
   sentences.splice(index, 1,
-    half(leftId, texts.left, left, words.left, manual.left),
-    half(rightId, texts.right, right, words.right, manual.right));
+    half(leftId, texts.left, left, words.left),
+    half(rightId, texts.right, right, words.right));
 
   return {
     session: withSentences(session, now, sentences),
@@ -182,9 +179,12 @@ export function splitSentence(session, { sentenceId, charIndex, leftId, rightId,
  * nothing between Japanese -- so the merged sentence reads as it was written.
  * It is not a cosmetic matter: this text is what gets read aloud and scored.
  *
- * The seams become manual cut points on the result, so the merge can be undone
- * at exactly the positions it joined even where there are no word timings to
- * offer those positions.
+ * Nothing records where the join was. A merged sentence is one sentence, and
+ * its cut positions are whatever it can actually be cut at now: its word
+ * boundaries when it kept a clip, the text's own positions when it did not --
+ * which include the join, since a join is at a word boundary. A separate mark
+ * for the seam offered the same positions a second time, in a second colour,
+ * and outlived the only case it was for.
  *
  * Returns null unless the ids name two or more sentences that are adjacent and
  * in order.
@@ -209,11 +209,6 @@ export function mergeSentences(session, { sentenceIds, newId, now, reference = n
   // leaving the separator on the left half exactly as a split always does.
   const own = run.map((s) => s.text);
   const texts = own.map((text, i) => (i === own.length - 1 ? text : text + seamSeparator(text, own[i + 1])));
-  const ranges = run.map((s) => (
-    s.sourceOffsetMs != null && s.sourceDurationMs != null
-      ? { offsetMs: s.sourceOffsetMs, durationMs: s.sourceDurationMs }
-      : null
-  ));
 
   const merged = blankSentence({
     id: newId,
@@ -231,9 +226,6 @@ export function mergeSentences(session, { sentenceIds, newId, now, reference = n
     // belong to audio it does not have. Speaking it again produces one clip and
     // one set of timings for the whole of it.
     words: reference ? mergeWords(run.map((s) => s.words), texts) : null,
-    // The seams themselves stay either way -- where the join happened is a fact
-    // about the text -- but their timestamps go with the audio.
-    manualPoints: mergeSeams(texts, reference ? ranges : []),
     referenceSource: reference ? run[0].referenceSource : null,
     reference,
     referenceHash: reference ? referenceHash : null,

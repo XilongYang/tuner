@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   isSessionLocked, textSplitPoints, splitPointers, splitText, isSplittable,
-  partitionWords, partitionManualPoints, splitRange, mergeRanges, mergeWords, mergeSeams,
+  partitionWords, splitRange, mergeRanges, mergeWords,
   groupAdjacent,
 } from '../../js/model/geometry.js';
 
@@ -48,20 +48,8 @@ test('splitPointers: a word starting at 0ms keeps 0, not null -- 0 is a real tim
   assert.deepEqual(splitPointers(sentence), [{ charIndex: 3, ms: 0, kind: 'word' }]);
 });
 
-test('splitPointers: manual points are offered alongside words, sorted together', () => {
-  const sentence = {
-    text: 'one two three',
-    words: [word(0, 3, 100, 50), word(8, 13, 700, 50)],
-    manualPoints: [{ charIndex: 4, offsetMs: 400 }],
-  };
-  assert.deepEqual(splitPointers(sentence), [
-    { charIndex: 4, ms: 400, kind: 'manual' },
-    { charIndex: 8, ms: 700, kind: 'word' },
-  ]);
-});
-
 test('splitPointers: no timing data at all falls back to text points with null ms', () => {
-  const points = splitPointers({ text: 'あいう', words: null, manualPoints: null });
+  const points = splitPointers({ text: 'あいう', words: null });
   assert.deepEqual(points, [
     { charIndex: 1, ms: null, kind: 'text' },
     { charIndex: 2, ms: null, kind: 'text' },
@@ -69,7 +57,7 @@ test('splitPointers: no timing data at all falls back to text points with null m
 });
 
 test('splitPointers: an empty words array is the same as none -- still falls back', () => {
-  const points = splitPointers({ text: 'あい', words: [], manualPoints: [] });
+  const points = splitPointers({ text: 'あい', words: [] });
   assert.deepEqual(points, [{ charIndex: 1, ms: null, kind: 'text' }]);
 });
 
@@ -96,14 +84,6 @@ test('partitionWords: right side is re-based onto its own new text', () => {
 
 test('partitionWords: a word straddling the cut is dropped rather than guessed at', () => {
   assert.deepEqual(partitionWords([word(2, 8, 100, 50)], 5), { left: [], right: [] });
-});
-
-test('partitionManualPoints: the cut position itself is consumed, the rest re-based', () => {
-  const points = [{ charIndex: 2, offsetMs: 10 }, { charIndex: 5, offsetMs: 20 }, { charIndex: 9, offsetMs: 30 }];
-  assert.deepEqual(partitionManualPoints(points, 5), {
-    left: [{ charIndex: 2, offsetMs: 10 }],
-    right: [{ charIndex: 4, offsetMs: 30 }],
-  });
 });
 
 test('splitRange: divides a range, both halves on the original timeline', () => {
@@ -170,45 +150,23 @@ test('mergeWords: any sentence without words yields null -- partial timings misp
   assert.equal(mergeWords([[word(0, 3, 100, 50)]], ['one', 'two']), null);
 });
 
-test('mergeSeams: a seam per join, timestamped from the following range when known', () => {
-  assert.deepEqual(
-    mergeSeams(['one', 'four', 'x'], [
-      { offsetMs: 100, durationMs: 50 },
-      { offsetMs: 300, durationMs: 50 },
-      { offsetMs: 500, durationMs: 50 },
-    ]),
-    [{ charIndex: 3, offsetMs: 300 }, { charIndex: 7, offsetMs: 500 }],
-  );
-});
-
-test('mergeSeams: a seam with no range is still a usable text cut, explicitly not an audio claim', () => {
-  assert.deepEqual(mergeSeams(['ab', 'cd'], [null, null]), [{ charIndex: 2, offsetMs: null }]);
-  assert.deepEqual(mergeSeams(['ab', 'cd']), [{ charIndex: 2, offsetMs: null }]);
-});
-
-test('splitPointers: a seam from a merge does not become the only place left to cut', () => {
-  // The merged sentence has no word timings -- there is no audio for a position
-  // to divide -- so the text's own positions are offered beside the seam. Before
-  // this, merging two sentences left exactly one marker on the result.
-  const merged = { text: 'Alpha beta. Gamma delta.', words: null, manualPoints: [{ charIndex: 12, offsetMs: null }] };
+test('splitPointers: a merged sentence with no timings is cut at the text\'s own positions', () => {
+  // Nothing marks where the join was. The merged sentence is one sentence, and
+  // the join is at a word boundary, so the position is on offer anyway -- as a
+  // text position, which is what it is: a place to cut with no audio behind it.
+  const merged = { text: 'Alpha beta. Gamma delta.', words: null };
 
   assert.deepEqual(splitPointers(merged), [
     { charIndex: 6, ms: null, kind: 'text' },
-    { charIndex: 12, ms: null, kind: 'manual' },
+    { charIndex: 12, ms: null, kind: 'text' },
     { charIndex: 18, ms: null, kind: 'text' },
   ]);
-});
-
-test('splitPointers: a position is offered once, and a seam outranks the text position at the same place', () => {
-  const merged = { text: 'Alpha beta', words: null, manualPoints: [{ charIndex: 6, offsetMs: null }] };
-  assert.deepEqual(splitPointers(merged), [{ charIndex: 6, ms: null, kind: 'manual' }]);
 });
 
 test('splitPointers: real word boundaries are not buried under the text positions', () => {
   const timed = {
     text: 'Alpha beta gamma',
     words: [{ charStart: 6, charEnd: 10, offsetMs: 500, durationMs: 100 }],
-    manualPoints: null,
   };
   assert.deepEqual(splitPointers(timed), [{ charIndex: 6, ms: 500, kind: 'word' }]);
 });

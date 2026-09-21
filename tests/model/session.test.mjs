@@ -71,10 +71,9 @@ test('splitSentence: rejoining the halves gives back the original text exactly',
   assert.equal(result.session.sentences.map((s) => s.text).join(''), 'Alpha beta');
 });
 
-test('splitSentence: word timings and manual points follow the half that kept the audio, re-based', () => {
+test('splitSentence: word timings follow the half that kept the audio, re-based', () => {
   const before = session([sentence('a', 'one two', {
     words: [word(0, 3, 100, 50), word(4, 7, 200, 50)],
-    manualPoints: [{ charIndex: 6, offsetMs: 300 }],
   })]);
   const { session: after } = splitSentence(before, {
     sentenceId: 'a',
@@ -88,8 +87,6 @@ test('splitSentence: word timings and manual points follow the half that kept th
 
   assert.deepEqual(after.sentences[0].words, [word(0, 3, 100, 50)]);
   assert.deepEqual(after.sentences[1].words, [word(0, 3, 200, 50)]);
-  assert.deepEqual(after.sentences[1].manualPoints, [{ charIndex: 2, offsetMs: 300 }]);
-  assert.equal(after.sentences[0].manualPoints, null, 'an empty list is stored as null, not []');
 });
 
 test('splitSentence: a half with no audio keeps no timings either', () => {
@@ -97,15 +94,12 @@ test('splitSentence: a half with no audio keeps no timings either', () => {
   // does not have -- and after a plain text split, neither half has one.
   const before = session([sentence('a', 'one two', {
     words: [word(0, 3, 100, 50), word(4, 7, 200, 50)],
-    manualPoints: [{ charIndex: 6, offsetMs: 300 }],
   })]);
 
   const { session: after } = splitSentence(before, { sentenceId: 'a', charIndex: 4, leftId: 'L', rightId: 'R', now: 1 });
 
   assert.equal(after.sentences[0].words, null);
   assert.equal(after.sentences[1].words, null);
-  assert.deepEqual(after.sentences[1].manualPoints, [{ charIndex: 2, offsetMs: null }],
-    'where it was cut before is still true; when, is not');
 });
 
 test('splitSentence: each half keeps the audio the caller cut for it', () => {
@@ -176,7 +170,7 @@ test('mergeSentences: Japanese is joined with nothing, because that is how it is
   assert.equal(after.sentences[0].text, '今日はいい天気ですね。散歩に行きましょう。');
 });
 
-test('mergeSentences: an inserted separator shifts the words and the seam past it', () => {
+test('mergeSentences: an inserted separator shifts the words past it', () => {
   const before = session([
     sentence('a', 'One.', { words: [word(0, 4, 100, 50)], sourceOffsetMs: 100, sourceDurationMs: 100 }),
     sentence('b', 'Two.', { words: [word(0, 4, 300, 50)], sourceOffsetMs: 300, sourceDurationMs: 100 }),
@@ -184,15 +178,16 @@ test('mergeSentences: an inserted separator shifts the words and the seam past i
   const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
 
   assert.equal(after.sentences[0].text, 'One. Two.');
-  assert.deepEqual(after.sentences[0].words, [word(0, 4, 100, 50), word(5, 9, 300, 50)]);
-  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 5, offsetMs: 300 }],
-    'the seam sits at the start of the second piece, so splitting there leaves the space on the left');
+  assert.deepEqual(after.sentences[0].words, [word(0, 4, 100, 50), word(5, 9, 300, 50)],
+    'the second piece starts after the separator, so splitting there leaves the space on the left');
 });
 
-test('mergeSentences: splitting at the seam a merge created gives the pieces back', () => {
+test('mergeSentences: splitting where the join was gives the pieces back', () => {
   const before = session([sentence('a', 'One.'), sentence('b', 'Two.')]);
   const merged = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 }).session;
-  const seam = merged.sentences[0].manualPoints[0].charIndex;
+  // Nothing records the join: the position is offered like any other, as the
+  // start of the second piece's first word.
+  const seam = merged.sentences[0].text.indexOf('Two.');
 
   const split = splitSentence(merged, { sentenceId: 'M', charIndex: seam, leftId: 'L', rightId: 'R', now: 2 });
   assert.deepEqual(split.session.sentences.map((s) => s.text), ['One. ', 'Two.'],
@@ -206,22 +201,20 @@ test('mergeSentences: split then merge restores the original text exactly', () =
   assert.equal(merged.session.sentences[0].text, original);
 });
 
-test('mergeSentences: seams become manual cut points, so the join can be undone', () => {
+test('mergeSentences: the join leaves no mark of its own', () => {
+  // A merged sentence is one sentence. Where it was joined is offered like any
+  // other cut position -- by its words when it kept a clip, by the text when it
+  // did not -- and a mark of its own only meant the same position twice, in a
+  // second colour, long after the case it was added for.
   const before = session([
     sentence('a', 'one ', { sourceOffsetMs: 0, sourceDurationMs: 400 }),
     sentence('b', 'two', { sourceOffsetMs: 500, sourceDurationMs: 300 }),
   ]);
-  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
-  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 4, offsetMs: 500 }]);
-});
 
-test('mergeSentences: with no clip to keep, the seam keeps its place but not its timestamp', () => {
-  const before = session([
-    sentence('a', 'one ', { sourceOffsetMs: 0, sourceDurationMs: 400 }),
-    sentence('b', 'two', { sourceOffsetMs: 500, sourceDurationMs: 300 }),
-  ]);
-  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1 });
-  assert.deepEqual(after.sentences[0].manualPoints, [{ charIndex: 4, offsetMs: null }]);
+  const { session: after } = mergeSentences(before, { sentenceIds: ['a', 'b'], newId: 'M', now: 1, reference: 'CLIP' });
+
+  assert.deepEqual(Object.keys(after.sentences[0]).filter((k) => /manual|seam/i.test(k)), [],
+    'the merged sentence carries no record of the join (where it can be cut is geometry.js\'s answer)');
 });
 
 test('mergeSentences: word timings are re-based onto the joined text, when the clip is kept', () => {

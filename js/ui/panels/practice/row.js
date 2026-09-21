@@ -266,8 +266,7 @@ export function createRow({
   function update(next, nextIndex = position) {
     const textChanged = next.text !== sentence.text
       || next.hidden !== sentence.hidden
-      || next.words !== sentence.words
-      || next.manualPoints !== sentence.manualPoints;
+      || next.words !== sentence.words;
 
     sentence = next;
     position = nextIndex;

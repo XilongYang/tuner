@@ -770,7 +770,7 @@ test('a database written by version 1 is migrated before anything reads it', asy
         sourceAudio: null, sourceAudioHash: null,
         sentences: [{
           id: 'old-sentence', text: 'Written the old way.', lang: 'en', hidden: false, updatedAt: 2,
-          words: null, manualPoints: null, referenceSource: 'tts',
+          words: null, referenceSource: 'tts',
           sourceOffsetMs: null, sourceDurationMs: null,
           recording: null, recordingHash: null,
           reference: new Blob([bytes], { type: 'audio/mpeg' }), referenceHash: hex,

@@ -242,7 +242,6 @@
 /* A position with real word timing can keep its audio when split; one derived
    from the text cannot, and is a guess at where to cut rather than a verified
    boundary. Worth distinguishing, since it changes what the split costs. */
-.split-marker--manual { color: var(--busy); }
 .split-marker--text { opacity: 0.55; }
 .split-marker--text:hover { opacity: 1; }
 

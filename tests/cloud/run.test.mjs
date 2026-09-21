@@ -17,7 +17,7 @@ const session = (over = {}) => ({
 });
 const sentence = (over = {}) => ({
   id: 'sent1', text: 'hello', lang: 'en', hidden: false, updatedAt: 10,
-  words: null, manualPoints: null, referenceSource: null, sourceOffsetMs: null, sourceDurationMs: null,
+  words: null, referenceSource: null, sourceOffsetMs: null, sourceDurationMs: null,
   recording: null, recordingHash: null, reference: null, referenceHash: null, assessment: null, assessmentHash: null,
   ...over,
 });

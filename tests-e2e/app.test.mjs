@@ -986,6 +986,17 @@ test('words are picked out of a spoken sentence and kept, adjacency deciding wha
   await page.waitForFunction(() => document.querySelectorAll('.vocab-text.is-masked').length === 1,
     null, { timeout: 5000 });
 
+  // The other word has its own button, and pressing it is a decision rather
+  // than a peek: one word was clicked, the other was uncovered.
+  await page.locator('.vocab-row:has(.vocab-text.is-masked)').locator('button:text-is("Show")').click();
+  await page.waitForFunction(() => document.querySelectorAll('.vocab-text.is-masked').length === 0);
+
+  await closePanel(page);
+  await openPanel(page, 'Vocabulary');
+  await page.waitForSelector('.vocab-row');
+  assert.equal(await page.locator('.vocab-text.is-masked').count(), 1,
+    'the peeked word is covered again; the one whose button was pressed stays uncovered');
+
   assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
   await context.close();
 });

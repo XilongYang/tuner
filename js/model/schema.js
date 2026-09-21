@@ -104,6 +104,11 @@ export const VOCAB_ENTRY = entity('vocabEntry', {
   // not survive JSON at all -- the key would simply not be there.
   text: f.plain({ default: '' }),
   lang: f.plain({ default: null }),
+  // Practising from memory, per entry, exactly as a sentence carries it. Not
+  // derived from the global switch at read time: the switch sets this on every
+  // entry, and after that an entry can differ from it -- which is the whole
+  // point of a per-row button.
+  hidden: f.plain({ default: false }),
   audioPathKey: f.plain(),
   createdAt: f.plain({ default: 0 }),
   updatedAt: f.plain({ default: 0 }),

@@ -241,9 +241,6 @@ async function start() {
   const library = createLibraryPanel({
     container: document.getElementById('library'),
     player,
-    // The vocabulary list answers to the same switch the practice column does:
-    // a word list in plain sight is the answer key to the sentences beside it.
-    hideText: () => settings.hideText(),
     actions: {
       // In the order the user arranged, and in no other: see model/order.js.
       listSessions: () => order.listOrdered({ db }),
@@ -264,6 +261,7 @@ async function start() {
       },
       deleteSession: (id) => session.remove({ store, sessionId: id, deps: commandDeps }),
       deleteVocab: (id) => vocab.removeEntry({ id, deps: commandDeps }),
+      setVocabHidden: (id, hidden) => vocab.setHidden({ id, hidden, deps: commandDeps }),
       pickOccurrence: (entry) => vocab.pickOccurrenceAudio(entry),
       sentenceAudioFor: (source) => vocab.sourceSentenceAudio({ occurrence: source, deps: commandDeps }),
     },
@@ -380,11 +378,12 @@ async function start() {
   // the way it is set -- otherwise it would be undone by the next Split.
   const hideAll = document.getElementById('hide-all');
   hideAll.checked = settings.hideText();
-  hideAll.addEventListener('change', () => {
+  hideAll.addEventListener('change', async () => {
     practice.setAllHidden({ store, hidden: hideAll.checked, deps: commandDeps });
-    // The vocabulary list reads the same setting, and is not driven by the
-    // session store, so it has to be told -- and a word revealed while hiding
-    // was off has to go back under cover.
+    // The vocabulary list carries the same fact per entry, and is not driven by
+    // the session store, so it is set here and told to repaint -- and a word
+    // peeked at while hiding was off has to go back under cover.
+    await vocab.setAllHidden({ hidden: hideAll.checked, deps: commandDeps });
     library.refreshIfOpen({ rehide: true });
   });
   // A session arriving from storage or a sync decides how the switch reads: it

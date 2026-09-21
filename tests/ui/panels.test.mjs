@@ -100,13 +100,14 @@ const vocabEntry = (id, over = {}) => ({
 });
 
 function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')], hidden = false, moveOutcome = { ok: true } } = {}) {
+  // Covered or not is a field on the entry, exactly as it is on a sentence.
+  vocab = vocab.map((entry) => ({ ...entry, hidden: entry.hidden ?? hidden }));
   const dispatched = [];
   const container = document.createElement('div');
   document.body.append(container);
 
   const panel = createLibraryPanel({
     container,
-    hideText: () => hidden,
     player: { play: (audio, token) => dispatched.push(['play', token]) },
     actions: {
       listSessions: async () => sessions,
@@ -116,6 +117,10 @@ function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('di
       deleteSession: async (id) => { dispatched.push(['deleteSession', id]); sessions = sessions.filter((s) => s.id !== id); },
       deleteVocab: async (id) => { dispatched.push(['deleteVocab', id]); vocab = vocab.filter((v) => v.id !== id); },
       moveSession: async (move) => { dispatched.push(['moveSession', move]); return moveOutcome; },
+      setVocabHidden: async (id, next) => {
+        dispatched.push(['setVocabHidden', id, next]);
+        vocab = vocab.map((entry) => (entry.id === id ? { ...entry, hidden: next } : entry));
+      },
       pickOccurrence: (entry) => entry.sources[0],
       sentenceAudioFor: async (source) => { dispatched.push(['sentenceAudioFor', source.occurrenceId]); return 'SENTENCE_CLIP'; },
     },
@@ -681,6 +686,41 @@ test('vocab: with the switch off, nothing is masked', async () => {
   const word = maskOf(h.container, '.vocab-text');
   assert.equal(word.classList.contains('is-masked'), false);
   assert.equal(word.textContent, 'difficult');
+});
+
+test('vocab: a word has its own show/hide button, the same as a sentence does', async () => {
+  const h = libraryHarness({ hidden: false });
+  h.panel.setOpen(true, 'vocab');
+  await tick();
+
+  const hideBtn = () => [...h.container.querySelectorAll('.vocab-head .btn')].find((b) => /^(Hide|Show)$/.test(b.textContent));
+  assert.equal(hideBtn().textContent, 'Hide');
+  assert.equal(hideBtn().getAttribute('aria-pressed'), 'false');
+
+  hideBtn().click();
+  await tick();
+  await tick();
+
+  assert.deepEqual(h.dispatched.at(-1), ['setVocabHidden', 'difficult', true],
+    'and it is stored, not just drawn: a covered word stays covered through a reload');
+  assert.equal(hideBtn().textContent, 'Show');
+  assert.equal(hideBtn().getAttribute('aria-pressed'), 'true');
+  assert.ok(maskOf(h.container, '.vocab-text').classList.contains('is-masked'));
+});
+
+test('vocab: the button uncovers a word the switch covered', async () => {
+  // What "independent" means here: the header's switch sets every entry, and
+  // after that an entry can disagree with it.
+  const h = libraryHarness({ hidden: true });
+  h.panel.setOpen(true, 'vocab');
+  await tick();
+
+  [...h.container.querySelectorAll('.vocab-head .btn')].find((b) => b.textContent === 'Show').click();
+  await tick();
+  await tick();
+
+  assert.deepEqual(h.dispatched.at(-1), ['setVocabHidden', 'difficult', false]);
+  assert.equal(maskOf(h.container, '.vocab-text').classList.contains('is-masked'), false);
 });
 
 test('vocab: a revealed word is hidden again next time the list is built', async () => {

@@ -364,6 +364,15 @@ shared with the settings panel, because the panel and the indicator describe
 the same round and two copies of that vocabulary would drift. A round's
 outcome is no longer also announced over the page: one fact, one home.
 
+Practising from memory is a stored field on each sentence and on each
+vocabulary entry, not a view mode read at paint time. The header's switch sets
+it on all of them at once and each row's own button sets it on one, so a row can
+differ from the switch until the switch is used again -- which is what makes the
+per-row button worth having. Clicking a covered word is a different gesture: a
+peek, remembered only until the list is next built. The switch rewrites only the
+entries that disagree with it, so flipping it twice does not make the whole
+library look edited to the next sync.
+
 There is one sidebar, with one row of tabs: sessions, vocabulary, settings.
 They were two sidebars with a header button each, and the header was growing a
 button per list -- but only one could ever be open at a time, and what they hold
@@ -436,6 +445,10 @@ Model:
   its own. *(`model/order`, `app/order-command`; browser test "the library list
   is arranged by hand, and stays arranged", which renames a row and checks it
   did not move.)*
+- The vocabulary list is read in the order the words were collected, never in
+  the order they were last written: an edit -- covering a word, meeting it in a
+  second sentence -- must not move the row the user is looking at. *(`app/vocab-command`:
+  covering an entry leaves the list order alone.)*
 - Moving one row writes one record. *(`app/order-command`: the neighbours are
   asserted to be the same objects afterwards.)*
 - Word timings belong to the clip they were measured against. *(`model/session`

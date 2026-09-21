@@ -23,12 +23,8 @@ import { sessionLabel } from '../../../model/session.js';
  * @param {Element} spec.container
  * @param {object} spec.actions
  * @param {object} spec.player
- * @param {() => boolean} [spec.hideText] Whether practising from memory is on.
- *   The vocabulary list answers to it too: a word list that spells out every
- *   word is the answer key, and hiding the sentences while leaving the words
- *   they were taken from on display hides nothing.
  */
-export function createLibraryPanel({ container, actions, player, hideText = () => false }) {
+export function createLibraryPanel({ container, actions, player }) {
   let tab = 'sessions';
   let openSources = new Set();
   // Words revealed by clicking them while hiding is on. Deliberately not
@@ -192,6 +188,20 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
       },
     });
 
+    // The same control a sentence has, and the same stored fact behind it: the
+    // header's switch sets it on every entry, and this is how one entry differs
+    // from the switch.
+    const hide = button({
+      class: 'btn',
+      text: entry.hidden ? 'Show' : 'Hide',
+      title: entry.hidden ? 'Show this word' : 'Hide this word',
+      onClick: async () => {
+        await actions.setVocabHidden(entry.id, !entry.hidden);
+        refresh();
+      },
+    });
+    hide.setAttribute('aria-pressed', String(Boolean(entry.hidden)));
+
     const remove = button({
       class: 'btn danger', text: 'Delete',
       onClick: async () => {
@@ -209,14 +219,16 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
       },
     });
 
-    const hidden = hideText() && !revealed.has(entry.id);
+    const hidden = Boolean(entry.hidden) && !revealed.has(entry.id);
     head.append(
       maskedText(entry.text, {
         class: 'vocab-text',
         hidden,
+        // A peek, not a decision: clicking the word shows it until the list is
+        // built again. Changing what is stored is what the button is for.
         onReveal: hidden ? () => { revealed.add(entry.id); refresh(); } : null,
       }),
-      play, toggle, remove,
+      play, toggle, hide, remove,
     );
     row.append(head);
 
@@ -238,7 +250,7 @@ export function createLibraryPanel({ container, actions, player, hideText = () =
     } else {
       // A use is revealed with its word: they are the same answer, and a
       // sentence containing the word in plain sight would give it away.
-      const hidden = hideText() && !revealed.has(entry.id);
+      const hidden = Boolean(entry.hidden) && !revealed.has(entry.id);
       use.append(maskedText(snippet, {
         class: 'vocab-snippet',
         hidden,

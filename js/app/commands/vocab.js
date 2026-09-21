@@ -11,6 +11,7 @@
 import { vocabKey, occurrenceKey } from '../../model/text.js';
 import { sentenceById } from '../../model/session.js';
 import { localeOf } from '../../model/lang.js';
+import { startsHidden } from './session.js';
 
 const failure = (reason) => ({ ok: false, reason });
 
@@ -68,7 +69,7 @@ export function rangeOfWords(words) {
  * created on first sight of the text and appended to on every later one.
  */
 export async function addOccurrence({ store, sentenceId, words, deps }) {
-  const { db, hash, clock, saveRecord } = deps;
+  const { db, hash, clock, saveRecord, settings } = deps;
 
   const session = store.get();
   const sentence = session && sentenceById(session, sentenceId);
@@ -112,6 +113,10 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
       id,
       text,
       lang: sentence.lang,
+      // A word collected while practising from memory starts covered, the same
+      // way a sentence split while the switch is on does. Otherwise the next
+      // word added would be the one thing on the page giving the answer away.
+      hidden: startsHidden(settings),
       // Derived once from the id and never recomputed: it is the folder every
       // occurrence's audio lives under, and changing it would strand all of it.
       audioPathKey: await hash.hashString(id),
@@ -168,10 +173,56 @@ export function selectionHasRealAudio(sentence, words) {
   return range.offsetMs >= sentence.sourceOffsetMs && (range.offsetMs + range.durationMs) <= sentenceEnd;
 }
 
-/** Every entry, newest first -- the order the library is read in. */
+/**
+ * Every entry, newest first -- the order the library is read in.
+ *
+ * By when it was collected, which never changes, and not by when it was last
+ * written. `updatedAt` moves on every edit, so covering a word or meeting it in
+ * a second sentence made it jump to the top of the list -- the row the user was
+ * looking at, moving because they pressed a button on it. The id breaks a tie,
+ * so two entries collected in the same millisecond (a picker adding several
+ * words at once does exactly that) are at least in the same order on every
+ * device.
+ */
 export async function list({ deps }) {
   const entries = await deps.db.listAll('vocab');
-  return [...entries].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  return [...entries].sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)
+    || String(a.id).localeCompare(String(b.id)));
+}
+
+/**
+ * Cover or uncover one entry's text.
+ *
+ * The stored field, not a view state: whether a word is covered survives a
+ * reload and a sync, the same as it does for a sentence. A momentary peek is
+ * still a click on the word itself, which changes nothing.
+ */
+export async function setHidden({ id, hidden, deps }) {
+  const { db, clock } = deps;
+  const entry = await db.getOne('vocab', id);
+  if (!entry) return failure('gone');
+  if (Boolean(entry.hidden) === hidden) return { ok: true, changed: false };
+
+  await db.put('vocab', { ...entry, hidden, updatedAt: clock() });
+  return { ok: true, changed: true };
+}
+
+/**
+ * Cover or uncover every entry at once, for the header's switch.
+ *
+ * One transaction, and only the entries that disagree with it are rewritten --
+ * a switch flipped twice should not make every word in the library look edited
+ * to the next sync.
+ */
+export async function setAllHidden({ hidden, deps }) {
+  const { db, clock } = deps;
+  const entries = await db.listAll('vocab', { content: false });
+  const changed = entries.filter((entry) => Boolean(entry.hidden) !== hidden);
+  if (!changed.length) return { ok: true, changed: 0 };
+
+  const now = clock();
+  await db.putMany('vocab', changed.map((entry) => ({ ...entry, hidden, updatedAt: now })));
+  return { ok: true, changed: changed.length };
 }
 
 /**

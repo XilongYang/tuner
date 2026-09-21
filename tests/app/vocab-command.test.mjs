@@ -3,7 +3,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addOccurrence, addOccurrences, list, removeEntry, rangeOfWords, selectionHasRealAudio,
-  pickOccurrenceAudio, sourceSentenceAudio,
+  pickOccurrenceAudio, sourceSentenceAudio, setHidden, setAllHidden,
 } from '../../js/app/commands/vocab.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { saveRecord } from '../../js/app/persist.js';
@@ -26,7 +26,7 @@ const session = (sentences, over = {}) => ({
 
 const sentence = (id, text, over = {}) => blankSentence({ id, text, lang: 'en', now: 1, ...over });
 
-function harness({ sentences, sessionOver = {}, credentials = true, decodeFails = false } = {}) {
+function harness({ sentences, sessionOver = {}, credentials = true, decodeFails = false, hideText = false } = {}) {
   let n = 0;
   const synthesized = [];
   return {
@@ -38,7 +38,11 @@ function harness({ sentences, sessionOver = {}, credentials = true, decodeFails 
       saveRecord,
       ids: () => `occ-${++n}`,
       clock: () => 1000,
-      settings: { hasCredentials: () => credentials, voice: (locale) => `voice-${locale}` },
+      settings: {
+        hasCredentials: () => credentials,
+        voice: (locale) => `voice-${locale}`,
+        hideText: () => hideText,
+      },
       speech: () => ({
         synthesize: async (text) => { synthesized.push(text); return clip([7, 7]); },
       }),
@@ -199,11 +203,33 @@ test('selectionHasRealAudio: true only when the selection lies inside the senten
   assert.equal(selectionHasRealAudio(sentence('s1', 'x'), [word(0, 1, 100, 100)]), false, 'not an imported sentence');
 });
 
-test('list: newest first', async () => {
-  await seed('vocab', { id: 'old', text: 'old', audioPathKey: 'k1', createdAt: 1, updatedAt: 100, sources: [] });
-  await seed('vocab', { id: 'new', text: 'new', audioPathKey: 'k2', createdAt: 1, updatedAt: 900, sources: [] });
+test('list: newest first, by when it was collected', async () => {
+  await seed('vocab', { id: 'old', text: 'old', audioPathKey: 'k1', createdAt: 100, updatedAt: 900, sources: [] });
+  await seed('vocab', { id: 'new', text: 'new', audioPathKey: 'k2', createdAt: 500, updatedAt: 100, sources: [] });
 
-  assert.deepEqual((await list({ deps: { db } })).map((e) => e.id), ['new', 'old']);
+  assert.deepEqual((await list({ deps: { db } })).map((e) => e.id), ['new', 'old'],
+    'and not by when it was last written: an edit is not a reason to move a row');
+});
+
+test('list: editing an entry leaves it where it is', async () => {
+  // Reported as "Hide and Show change the order of the words". They did: the
+  // list was read in `updatedAt` order, and covering a word is a write.
+  await seed('vocab', { id: 'a', text: 'a', audioPathKey: 'k1', createdAt: 300, updatedAt: 300, sources: [] });
+  await seed('vocab', { id: 'b', text: 'b', audioPathKey: 'k2', createdAt: 200, updatedAt: 200, sources: [] });
+  await seed('vocab', { id: 'c', text: 'c', audioPathKey: 'k3', createdAt: 100, updatedAt: 100, sources: [] });
+  const deps = { db, clock: () => 9000 };
+
+  await setHidden({ id: 'c', hidden: true, deps });
+
+  assert.deepEqual((await list({ deps })).map((e) => e.id), ['a', 'b', 'c']);
+});
+
+test('list: two words collected in the same moment are in the same order everywhere', async () => {
+  // A picker adding several words at once stamps them all with one clock.
+  await seed('vocab', { id: 'zeta', text: 'zeta', audioPathKey: 'k1', createdAt: 1, updatedAt: 1, sources: [] });
+  await seed('vocab', { id: 'alpha', text: 'alpha', audioPathKey: 'k2', createdAt: 1, updatedAt: 1, sources: [] });
+
+  assert.deepEqual((await list({ deps: { db } })).map((e) => e.id), ['alpha', 'zeta']);
 });
 
 test('removeEntry: deletes the record and its tombstone together', async () => {
@@ -363,4 +389,79 @@ test('picking the same word again keeps its audio at the same path', async () =>
   await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
 
   assert.deepEqual(await db.listContentPaths(), before, 'the same one path, before and after');
+});
+
+// ---- practising from memory, per entry ----
+
+test('a word collected while the switch is on starts covered', async () => {
+  // As a sentence split while it is on does. Otherwise the word just added
+  // would be the one thing on the page giving the answer away.
+  const h = harness({ hideText: true });
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+
+  const [entry] = await list({ deps: h.deps });
+  assert.equal(entry.hidden, true);
+});
+
+test('a word collected with the switch off starts in plain sight', async () => {
+  const h = harness();
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+
+  const [entry] = await list({ deps: h.deps });
+  assert.equal(entry.hidden, false);
+});
+
+test('one entry is covered on its own, and it stays covered', async () => {
+  const h = harness();
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+  const [entry] = await list({ deps: h.deps });
+
+  assert.deepEqual(await setHidden({ id: entry.id, hidden: true, deps: h.deps }), { ok: true, changed: true });
+  assert.equal((await db.getOne('vocab', entry.id)).hidden, true, 'stored, so a reload still has it');
+
+  assert.deepEqual(await setHidden({ id: entry.id, hidden: true, deps: h.deps }), { ok: true, changed: false },
+    'and setting it to what it already is writes nothing');
+});
+
+test('covering an entry that is gone is refused rather than recreating it', async () => {
+  const h = harness();
+  assert.deepEqual(await setHidden({ id: 'nope', hidden: true, deps: h.deps }), { ok: false, reason: 'gone' });
+});
+
+test('the switch covers every entry, and leaves the audio where it is', async () => {
+  const h = harness({ sentences: [sentence('s1', 'This is difficult.'), sentence('s2', 'Another hard one.')] });
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+  await addOccurrence({ store: h.store, sentenceId: 's2', words: [word(8, 12, 300, 400)], deps: h.deps });
+
+  const before = await list({ deps: h.deps });
+  assert.deepEqual(await setAllHidden({ hidden: true, deps: h.deps }), { ok: true, changed: 2 });
+
+  const after = await list({ deps: h.deps });
+  assert.deepEqual(after.map((entry) => entry.hidden), [true, true]);
+  assert.deepEqual(after.map((entry) => entry.audioPathKey), before.map((entry) => entry.audioPathKey));
+  assert.deepEqual(after.map((entry) => entry.sources.map((source) => Boolean(source.audio))),
+    before.map((entry) => entry.sources.map((source) => Boolean(source.audio))),
+    'a bulk field change must not cost the clips their bytes');
+});
+
+test('the switch rewrites only the entries that disagree with it', async () => {
+  // Flipping it twice should not make every word in the library look edited to
+  // the next sync.
+  const h = harness();
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+
+  await setAllHidden({ hidden: true, deps: h.deps });
+  assert.deepEqual(await setAllHidden({ hidden: true, deps: h.deps }), { ok: true, changed: 0 });
+});
+
+test('an entry uncovered on its own is covered again by the switch', async () => {
+  const h = harness({ hideText: true });
+  await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(10, 19, 300, 400)], deps: h.deps });
+  const [entry] = await list({ deps: h.deps });
+
+  await setHidden({ id: entry.id, hidden: false, deps: h.deps });
+  await setAllHidden({ hidden: true, deps: h.deps });
+
+  assert.equal((await db.getOne('vocab', entry.id)).hidden, true,
+    'the switch is for every entry at once; the button is how one of them differs until it is used again');
 });

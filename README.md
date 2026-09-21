@@ -20,8 +20,8 @@ Built and tested so far — every layer, and the app runs:
 
 | Layer | What is in place |
 | --- | --- |
-| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `session.js` (split/merge/edit transforms, by id), `merge.js` (conflict rules), `text.js` (segmentation, language detection, vocab keys), `transcript.js` (re-segmenting a transcription), `lang.js` |
-| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize), `audio.js` (resample, normalise, WAV encode, decode, cut clips), `recorder.js` (+ its worklet), `player.js` (one clip at a time, owns object URLs), `settings.js` (credentials, SAS URL, preferences) |
+| `js/model/` | `content.js` (content-kind table), `schema.js` (entity definitions + derived representations), `geometry.js` (split/merge math), `session.js` (split/merge/edit transforms, by id), `merge.js` (conflict rules), `text.js` (segmentation, language and cut-position rules, vocab keys), `transcript.js` (re-segmenting a transcription, aligning a reading to its text), `voices.js` (the voices on offer), `lang.js` |
+| `js/platform/` | `hash.js` (content hashing, Blob rewrap/materialize), `audio.js` (resample, normalise, WAV encode, decode, cut clips), `recorder.js` (+ its worklet), `player.js` (one sound at a time, owns object URLs, reports playback position), `speech-synthesis.js` (the browser's own voice, used without a key), `settings.js` (credentials, SAS URL, preferences) |
 | `js/db/` | `open.js` (`transact()`), `entities.js` (CRUD, atomic delete+tombstone, `applyPlan`) |
 | `js/cloud/` | `blob.js` (`container(sasUrl)`), `speech.js` (`speechClient(credentials)`: synthesis, assessment, transcription), `sync/plan.js` (pure planner), `sync/run.js` (transfer, publish, orphan sweep), `sync/lock.js` (cross-device lock) |
 | `js/app/` | `store.js` (the session on screen), `persist.js`, `autosave.js`, and `commands/` — split, session, practice, vocab, sync, import-audio |

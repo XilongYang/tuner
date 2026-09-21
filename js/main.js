@@ -53,21 +53,9 @@ async function start() {
   const settings = createSettings();
   const store = createSessionStore();
   const browserSpeech = createBrowserSpeech(window);
-  const clipPlayer = createPlayer();
-
-  // One sound at a time is the player's invariant, and the browser's own voice
-  // is a second source of sound it knows nothing about -- it plays through the
-  // speech engine, not through an audio element. Starting or stopping playback
-  // silences it here, so the rule holds across both.
-  //
-  // Everything else is passed through by spreading rather than by listing the
-  // methods: a hand-written list silently dropped onTime when it was added, and
-  // the karaoke highlight simply never ran.
-  const player = {
-    ...clipPlayer,
-    play: (blob, token) => { browserSpeech.cancel(); return clipPlayer.play(blob, token); },
-    stop: () => { browserSpeech.cancel(); clipPlayer.stop(); },
-  };
+  // The player enforces one sound at a time, and is told how to silence the
+  // other source of it; see its own note.
+  const player = createPlayer({ silenceOthers: () => browserSpeech.cancel() });
 
   const statusLine = document.getElementById('app-status');
   const say = (message, kind = 'info') => {

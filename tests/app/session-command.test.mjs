@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptySession, startNew, splitTypedText, open, reopenLast, describe, remove, applyIncoming,
+  emptySession, startNew, splitTypedText, open, reopenLast, describe, remove, applyIncoming, startsHidden,
 } from '../../js/app/commands/session.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence } from '../../js/model/session.js';
@@ -233,4 +233,20 @@ test('applyIncoming: an older copy never overwrites newer local work', () => {
 test('applyIncoming: with nothing on screen there is nothing to update', () => {
   const h = harness();
   assert.equal(applyIncoming({ store: h.store, session: storedSession(), deps: h.deps }).ok, false);
+});
+
+test('startsHidden: new sentences follow the global switch, from one rule', () => {
+  assert.equal(startsHidden({ hideText: () => true }), true);
+  assert.equal(startsHidden({ hideText: () => false }), false);
+  assert.equal(startsHidden({}), false, 'settings without the preference at all');
+  assert.equal(startsHidden(undefined), false);
+});
+
+test('splitTypedText: text split while practising from memory arrives hidden', () => {
+  const h = harness();
+  h.deps.settings.hideText = () => true;
+
+  splitTypedText({ store: h.store, text: 'One. Two.', deps: h.deps });
+
+  assert.deepEqual(h.store.get().sentences.map((s) => s.hidden), [true, true]);
 });

@@ -210,3 +210,23 @@ test('onTime: a time listener is not told about starts and stops, and buttons ar
   assert.deepEqual(states, ['s1', null], 'one start, one stop -- no repaint per tick');
   assert.deepEqual(ticks, ['tick']);
 });
+
+test('silenceOthers: the other source of sound is silenced when playback starts and when it stops', async () => {
+  // The browser's built-in voice speaks through the speech engine, which the
+  // player cannot see. One sound at a time has to hold across both.
+  const env = fakeAudioEnvironment();
+  const silenced = [];
+  const player = createPlayer({ ...env.deps, silenceOthers: () => silenced.push('silenced') });
+
+  await player.play(new Blob(['a']), 's1');
+  assert.deepEqual(silenced, ['silenced']);
+
+  player.stop();
+  assert.deepEqual(silenced, ['silenced', 'silenced']);
+});
+
+test('silenceOthers: a player told nothing about others still plays', async () => {
+  const env = fakeAudioEnvironment();
+  const player = createPlayer(env.deps);
+  assert.equal(await player.play(new Blob(['a']), 's1'), true);
+});

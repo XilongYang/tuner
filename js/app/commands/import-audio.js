@@ -8,7 +8,7 @@
 import { resegment } from '../../model/transcript.js';
 import { blankSentence } from '../../model/session.js';
 import { langOfLocale } from '../../model/lang.js';
-import { emptySession } from './session.js';
+import { emptySession, startsHidden } from './session.js';
 
 const failure = (reason) => ({ ok: false, reason });
 
@@ -77,9 +77,7 @@ export async function importAudio({ store, file, deps, onProgress = () => {} }) 
       text: part.text,
       lang: part.lang,
       now,
-      // New sentences start the way the global switch says this person is
-      // practising; arriving visible would undo it every time.
-      hidden: settings.hideText?.() ?? false,
+      hidden: startsHidden(settings),
       words: part.words?.length ? part.words : null,
       // A sentence whose clip could not be cut keeps no reference and no source
       // markers, rather than claiming audio that does not exist.

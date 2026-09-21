@@ -50,6 +50,16 @@ export function startNew({ store, deps, splitMode = 'auto' }) {
 }
 
 /**
+ * Whether a sentence being created now should start hidden.
+ *
+ * The global switch says how this person is practising, and that has to hold
+ * for sentences made from here on -- otherwise the next Split quietly undoes
+ * it. Lives here, and is used by every command that creates sentences, because
+ * one rule in two places is how the previous implementation drifted.
+ */
+export const startsHidden = (settings) => settings?.hideText?.() ?? false;
+
+/**
  * Split typed text into sentences and make them the session on screen.
  *
  * The session keeps the text as typed: it is what the user will edit if they
@@ -68,10 +78,7 @@ export function splitTypedText({ store, text, lang = null, deps }) {
   if (!pieces.length) return { ok: false, reason: 'no-text' };
 
   const now = clock();
-  // New sentences start the way the global switch says this person is
-  // practising: splitting more text while practising from memory should not
-  // put the text back on screen.
-  const hidden = settings?.hideText?.() ?? false;
+  const hidden = startsHidden(settings);
   const sentences = pieces.map((piece) => blankSentence({
     id: ids(), text: piece, lang: lang ?? detectLang(piece), now, hidden,
   }));

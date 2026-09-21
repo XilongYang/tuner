@@ -17,12 +17,20 @@
  * @param {(url: string) => HTMLAudioElement} [deps.createAudio]
  * @param {(blob: Blob) => string} [deps.createObjectUrl]
  * @param {(url: string) => void} [deps.revokeObjectUrl]
+ * @param {() => void} [deps.silenceOthers] Called before playback starts and
+ *   when it stops. "One sound at a time" is this module's own rule, and the
+ *   browser's built-in voice is a second source of sound it cannot see -- it
+ *   speaks through the speech engine, not through an audio element. Handing
+ *   the player a way to silence that keeps the rule in one place instead of
+ *   wrapping the player at the composition root, where it was behaviour with
+ *   no test on it.
  */
 export function createPlayer(deps = {}) {
   const {
     createAudio = (url) => new Audio(url),
     createObjectUrl = (blob) => URL.createObjectURL(blob),
     revokeObjectUrl = (url) => URL.revokeObjectURL(url),
+    silenceOthers = () => {},
   } = deps;
 
   let audio = null;
@@ -86,6 +94,7 @@ export function createPlayer(deps = {}) {
      *   call stopped what was playing, or the clip could not be played.
      */
     async play(blob, nextToken = null) {
+      silenceOthers();
       if (nextToken !== null && token === nextToken) {
         this.stop();
         return false;
@@ -122,6 +131,7 @@ export function createPlayer(deps = {}) {
 
     /** Stop and release. Safe at any time. */
     stop() {
+      silenceOthers();
       if (!audio && token === null) return;
       release();
       token = null;

@@ -117,6 +117,29 @@ One row per blob-backed content kind, describing scope, blob path, encoding
 and MIME type. Sync, backup and cleanup iterate this table; none of them
 branch per kind. A seventh kind is one row plus one `f.content()` field.
 
+### Word timings belong to the clip they were measured against
+
+A sentence's `words` describe one recording of it and nothing else: a
+transcript's timings are on the source file's timeline, a synthesized clip's
+are on that clip's own. They therefore travel only onto a sentence that holds
+the clip they describe, and every operation that changes the audio says so
+explicitly:
+
+- a split gives a half its share of the timings only if it gave that half the
+  audio;
+- a merge keeps them only when the merged sentence keeps a clip -- the re-cut
+  source range, whose timeline they are already on;
+- speaking a sentence again replaces the clip, so the old timings go with it.
+
+Carried onto a sentence whose audio they no longer describe, they are worse
+than absent: the cut markers then offer exact-looking timestamps into audio
+that is not there, and the karaoke highlight follows the wrong words. Both
+happened, which is why the rule is written here rather than left implied.
+
+Where a join happened is a different kind of fact -- it is about the text --
+so a merge seam survives either way, and only its timestamp goes with the
+audio.
+
 ### geometry.js — split/merge math
 
 Pure. Takes explicit values, never global state. In particular a split point

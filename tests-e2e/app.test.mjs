@@ -324,7 +324,7 @@ test('Escape closes an open sidebar', async () => {
   await context.close();
 });
 
-test('the header controls sit on the column, and the panel beside it rather than over it', async () => {
+test('the header controls sit on the column, above the title, and the panel beside it', async () => {
   const { page, context } = await openApp();
   await page.setViewportSize({ width: 1440, height: 800 });
 
@@ -338,6 +338,10 @@ test('the header controls sit on the column, and the panel beside it rather than
     'the switch sits at the column, not at the edge of the screen');
   assert.ok(closed.nav.right <= closed.main.right && closed.nav.right > closed.main.right - 40);
 
+  const bar = await page.locator('.app-bar').boundingBox();
+  const title = await page.locator('.app-title').boundingBox();
+  assert.ok(bar.y + bar.height <= title.y, 'the controls are a row above the title, not beside it');
+
   await page.getByRole('button', { name: 'Library' }).click();
   await page.waitForSelector('#library:not([hidden])');
 
@@ -345,11 +349,11 @@ test('the header controls sit on the column, and the panel beside it rather than
   assert.ok(open.panel.left >= open.main.right, 'the panel is beside the column, not on top of it');
   assert.equal(open.main.right - open.main.left, closed.main.right - closed.main.left, 'the column is the same width');
   assert.ok(open.main.left < closed.main.left, 'and the pair re-centres, so it moved left');
-  assert.equal(open.toggle.left - open.main.left, closed.toggle.left - closed.main.left,
-    'the switch moved with the column it belongs to');
-  // The header spans everything on show, so its right-hand controls sit on the
-  // right edge of whatever that is: the column alone, or the panel beside it.
-  assert.equal(closed.nav.right - closed.main.right, open.nav.right - open.panel.right);
+  // The masthead is the column's own width and travels with it, whether or not
+  // a panel is beside it.
+  assert.equal(open.toggle.left - open.main.left, closed.toggle.left - closed.main.left);
+  assert.equal(open.nav.right - open.main.right, closed.nav.right - closed.main.right);
+  assert.ok(open.nav.right < open.panel.left, 'the panel links stay over the column, not over the panel');
 
   await context.close();
 });

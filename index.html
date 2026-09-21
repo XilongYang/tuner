@@ -18,15 +18,17 @@
        everything in it moves together. -->
   <div class="shell">
     <header class="app-header">
-      <label class="global-toggle" for="hide-all">
-        <input type="checkbox" id="hide-all">
-        <span>Hide text</span>
-      </label>
+      <div class="app-bar">
+        <label class="global-toggle" for="hide-all">
+          <input type="checkbox" id="hide-all">
+          <span>Hide text</span>
+        </label>
+        <nav class="app-nav">
+          <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
+          <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
+        </nav>
+      </div>
       <h1 class="app-title">Tuner</h1>
-      <nav class="app-nav">
-        <button type="button" class="btn" id="toggle-library" aria-expanded="false">Library</button>
-        <button type="button" class="btn" id="toggle-settings" aria-expanded="false">Settings</button>
-      </nav>
     </header>
 
     <div class="columns">

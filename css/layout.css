@@ -39,20 +39,27 @@ body {
   align-items: flex-start;
 }
 
-/* The masthead: title centred, actions in the corners of the shell, no rule
-   under it. */
+/* The masthead is the width of the reading column and sits above it, so its
+   controls line up with the text they act on -- not with the panel beside it,
+   and not with the edges of the screen. An open panel widens the shell and
+   re-centres it, and the masthead travels with the column it belongs to. */
 .app-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  width: var(--column-w);
+  max-width: 100%;
+  padding: 20px 24px 20px;
+}
+
+/* A row of its own above the title: the switch on the left, the panels on the
+   right, the column's own edges. */
+.app-bar {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-4);
-  padding: 24px 24px 22px;
 }
 
 .app-title {
-  grid-column: 2;
-  margin: 0;
-  padding: 0 var(--space-4);
+  margin: 14px 0 0;
   text-align: center;
   font-size: 32px;
   font-weight: 700;
@@ -60,11 +67,9 @@ body {
   line-height: 1.3;
 }
 
-/* Practising from memory is a mode, not an action, so it is a switch, and it
-   sits at the column's left edge opposite the panel links. */
+/* Practising from memory is a mode, not an action, so it is a switch rather
+   than a button, and it sits opposite the panel links. */
 .global-toggle {
-  grid-column: 1;
-  justify-self: start;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -81,8 +86,6 @@ body {
 }
 
 .app-nav {
-  grid-column: 3;
-  justify-self: end;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -186,17 +189,8 @@ body {
 }
 
 @media (max-width: 560px) {
-  .app-header {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    gap: var(--space-2);
-    padding: 22px 20px 18px;
-  }
-
-  .app-title { grid-column: 1; grid-row: 1; font-size: 27px; padding: 0; }
-  .global-toggle { grid-column: 1; grid-row: 2; justify-self: center; }
-  .app-nav { grid-column: 1; grid-row: 3; justify-self: center; }
-
+  .app-header { padding: 16px 20px; }
+  .app-title { font-size: 27px; }
   .app-main { padding: 0 20px 48px; }
   .sidebar { padding: 0 20px 24px; }
 }

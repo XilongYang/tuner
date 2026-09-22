@@ -14,11 +14,11 @@
 // can take them.
 
 import {
-  SESSIONS, FOLDERS, VOCAB, TOMBSTONES, CONTENT, ALL_STORES, transact, request,
+  SESSIONS, VOCAB, TOMBSTONES, CONTENT, ALL_STORES, transact, request,
 } from './open.js';
 import { putContentIn, deleteContentIn } from './content.js';
 import { tombstoneId } from '../model/merge.js';
-import { SESSION, FOLDER, VOCAB_ENTRY, walkContent, hashKey } from '../model/schema.js';
+import { SESSION, VOCAB_ENTRY, walkContent, hashKey } from '../model/schema.js';
 import { contentPath } from '../model/content.js';
 
 // The content store's own reads are part of this module's surface: the app asks
@@ -29,7 +29,6 @@ export { readOne as readContent, storedHashes as storedContentHashes, listConten
 /** Which store each collection lives in, its tombstone kind, and its shape. */
 const COLLECTIONS = {
   sessions: { store: SESSIONS, kind: 'session', def: SESSION },
-  folders: { store: FOLDERS, kind: 'folder', def: FOLDER },
   vocab: { store: VOCAB, kind: 'vocab', def: VOCAB_ENTRY },
 };
 
@@ -40,7 +39,7 @@ function collection(name) {
 }
 
 /** Every blob path a record references, whether or not the bytes are there. */
-export function contentPathsOf(name, record) {
+function contentPathsOf(name, record) {
   if (!record) return [];
   const { def } = collection(name);
   return [...walkContent(def, record)]
@@ -57,7 +56,7 @@ export function contentPathsOf(name, record) {
  * it was never given -- storing a record must not invent the parts of it the
  * caller did not mention.
  */
-export function stripped(def, record) {
+function stripped(def, record) {
   const out = { ...record };
   for (const [field, d] of def.entries) {
     if (!(field in out)) continue;
@@ -148,7 +147,6 @@ export async function listTombstones() {
 export async function snapshot() {
   return transact(ALL_STORES, 'readonly', async (s) => ({
     sessions: await request(s[SESSIONS].getAll(), 'Listing sessions'),
-    folders: await request(s[FOLDERS].getAll(), 'Listing folders'),
     vocab: await request(s[VOCAB].getAll(), 'Listing vocab'),
     tombstones: await request(s[TOMBSTONES].getAll(), 'Listing tombstones'),
   }));
@@ -240,13 +238,6 @@ export async function tombstoneSentences(sentenceIds, now = Date.now()) {
         `Recording the deletion of sentence ${id}`,
       );
     }
-  });
-}
-
-export async function putTombstones(tombstones) {
-  if (!tombstones?.length) return;
-  await transact([TOMBSTONES], 'readwrite', async (s) => {
-    for (const t of tombstones) await request(s[TOMBSTONES].put(t), `Recording tombstone ${t.id}`);
   });
 }
 

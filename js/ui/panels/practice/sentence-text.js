@@ -98,11 +98,3 @@ function splitMarker(pointer, onSplit) {
   });
   return el('span', { class: 'split-anchor' }, [marker]);
 }
-
-/** The positions a rendered sentence is offering, for a test or a caller that needs to know. */
-export function markersOf(element) {
-  return [...element.querySelectorAll('.split-marker')].map((marker) => ({
-    charIndex: Number(marker.dataset.charIndex),
-    ms: readNumber(marker, 'ms'),
-  }));
-}

@@ -91,20 +91,15 @@ test('deviceId: minted once, then stable', () => {
   assert.equal(minted, 1);
 });
 
-test('lastSessionId and historyOpen: round-trip, with sane defaults', () => {
+test('lastSessionId: round-trips, with a sane default', () => {
   const settings = createSettings(fakeStorage());
   assert.equal(settings.lastSessionId(), null);
-  assert.equal(settings.historyOpen(), false);
 
   settings.saveLastSessionId('sess1');
-  settings.saveHistoryOpen(true);
   assert.equal(settings.lastSessionId(), 'sess1');
-  assert.equal(settings.historyOpen(), true);
 
   settings.saveLastSessionId(null);
-  settings.saveHistoryOpen(false);
   assert.equal(settings.lastSessionId(), null);
-  assert.equal(settings.historyOpen(), false);
 });
 
 test('storage that throws on read behaves as empty rather than breaking the app', () => {
@@ -112,7 +107,6 @@ test('storage that throws on read behaves as empty rather than breaking the app'
   assert.equal(settings.credentials(), null);
   assert.equal(settings.sasUrl(), null);
   assert.equal(settings.lastSessionId(), null);
-  assert.equal(settings.historyOpen(), false);
   assert.ok(settings.voice('ja-JP'), 'still yields a default voice');
 });
 
@@ -122,7 +116,7 @@ test('storage that throws on write reports failure instead of throwing', () => {
   const settings = createSettings(fakeStorage({ failOn: 'set' }));
   assert.equal(settings.saveCredentials({ key: 'k', region: 'r' }), false);
   assert.equal(settings.saveSasUrl('https://x'), false);
-  assert.equal(settings.saveHistoryOpen(true), false);
+  assert.equal(settings.saveHideText(true), false);
 });
 
 test('a deviceId can still be produced when storage refuses writes', () => {
@@ -148,7 +142,7 @@ test('every setting lives under its own key, so nothing collides', () => {
   settings.saveSasUrl('https://x');
   settings.saveVoice('ja-JP', 'v');
   settings.saveLastSessionId('s');
-  settings.saveHistoryOpen(true);
+  settings.saveHideText(true);
   settings.saveHideText(true);
   settings.deviceId(() => 'd');
 

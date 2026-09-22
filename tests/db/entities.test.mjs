@@ -8,7 +8,7 @@ import {
 import { listContentPaths } from '../../js/db/content.js';
 import { transact, ALL_STORES, request, dbError } from '../../js/db/open.js';
 
-const CLOCKS = { sessions: 'updatedAt', folders: 'updatedAt', vocab: 'updatedAt' };
+const CLOCKS = { sessions: 'updatedAt', vocab: 'updatedAt' };
 
 beforeEach(async () => {
   await transact(ALL_STORES, 'readwrite', async (s) => {
@@ -110,22 +110,20 @@ test('tombstoneSentences records replacements for sentences that have no record 
 
 test('clearAll wipes every collection and tombstones every record first', async () => {
   await put('sessions', { id: 's1', updatedAt: 1 });
-  await put('folders', { id: 'f1', updatedAt: 1 });
   await put('vocab', { id: 'v1', updatedAt: 1 });
 
   await clearAll(777);
 
   assert.deepEqual(await listAll('sessions'), []);
-  assert.deepEqual(await listAll('folders'), []);
   assert.deepEqual(await listAll('vocab'), []);
-  assert.deepEqual((await listTombstones()).map((t) => t.id).sort(), ['folder:f1', 'session:s1', 'vocab:v1']);
+  assert.deepEqual((await listTombstones()).map((t) => t.id).sort(), ['session:s1', 'vocab:v1']);
 });
 
 test('snapshot reads every collection in one consistent view', async () => {
   await put('sessions', { id: 's1', updatedAt: 1 });
   await put('vocab', { id: 'v1', updatedAt: 1 });
   const snap = await snapshot();
-  assert.deepEqual(Object.keys(snap).sort(), ['folders', 'sessions', 'tombstones', 'vocab']);
+  assert.deepEqual(Object.keys(snap).sort(), ['sessions', 'tombstones', 'vocab']);
   assert.equal(snap.sessions.length, 1);
   assert.equal(snap.vocab.length, 1);
 });

@@ -8,7 +8,7 @@
 //
 // Nothing here is sent anywhere except to the service the credential belongs
 // to, and none of it is ever written into a session record, so an exported
-// backup or a synced manifest can never carry a key.
+// synced manifest can never carry a key.
 
 import { DEFAULT_LANG, LOCALES } from '../model/lang.js';
 import { DEFAULT_VOICES } from '../model/voices.js';
@@ -19,7 +19,6 @@ const KEYS = {
   voices: 'tuner.voices',
   deviceId: 'tuner.deviceId',
   lastSessionId: 'tuner.lastSessionId',
-  historyOpen: 'tuner.historyOpen',
   hideText: 'tuner.hideText',
 };
 
@@ -161,13 +160,6 @@ export function createSettings(storage = defaultStorage()) {
     },
     saveHideText(hidden) {
       return write(KEYS.hideText, hidden ? 'true' : 'false');
-    },
-
-    historyOpen() {
-      return read(KEYS.historyOpen) === 'true';
-    },
-    saveHistoryOpen(open) {
-      return write(KEYS.historyOpen, open ? 'true' : 'false');
     },
   };
 }

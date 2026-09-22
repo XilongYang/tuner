@@ -147,7 +147,7 @@ export async function forceRelease(container) {
  * The caller treats a failed read as "unlocked" and lets `acquire` surface any
  * real problem.
  */
-export async function status(container) {
+async function status(container) {
   try {
     return await container.downloadJson(LOCK_PATH);
   } catch {

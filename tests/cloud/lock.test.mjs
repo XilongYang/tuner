@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  acquire, release, forceRelease, status, isLockStale, lockAgeMs, LOCK_PATH, LOCK_STALE_MS,
+  acquire, release, forceRelease, isLockStale, lockAgeMs, LOCK_PATH, LOCK_STALE_MS,
 } from '../../js/cloud/sync/lock.js';
 import { fakeContainer } from './fake-container.mjs';
 
@@ -133,16 +133,17 @@ test('forceRelease: deletes unconditionally, which is the point of a manual over
   assert.equal(container.has(LOCK_PATH), false);
 });
 
-test('status: returns the lock, null when free, and null rather than throwing on failure', async () => {
-  const container = fakeContainer();
-  assert.equal(await status(container), null);
-
-  container.seed(LOCK_PATH, { deviceId: 'device-b', acquiredAt: 7 });
-  assert.deepEqual(await status(container), { deviceId: 'device-b', acquiredAt: 7 });
-
-  container.downloadJson = async () => { throw new Error('HTTP 403'); };
-  assert.equal(await status(container), null, 'a status read failing must not block a sync');
-});
+// What the container actually holds at the lock path. Read here rather than
+// through the module under test: this is the assertion's own business, and a
+// test that checks a write by calling the reader beside it can pass with both
+// of them broken.
+const lockIn = async (container) => {
+  try {
+    return await container.downloadJson(LOCK_PATH);
+  } catch {
+    return null;
+  }
+};
 
 test('release: without an etag, only a lock this device holds is deleted', async () => {
   // A CORS rule that does not expose ETag makes every acquire return none (see
@@ -153,15 +154,15 @@ test('release: without an etag, only a lock this device holds is deleted', async
 
   await release(container, null, 'this-device');
 
-  assert.deepEqual(await status(container), { deviceId: 'other-device', acquiredAt: 1000 },
+  assert.deepEqual(await lockIn(container), { deviceId: 'other-device', acquiredAt: 1000 },
     'someone else is mid-round; their lock stays');
 
   await release(container, null, 'other-device');
-  assert.equal(await status(container), null, 'and a device releases its own');
+  assert.equal(await lockIn(container), null, 'and a device releases its own');
 });
 
 test('release: without an etag and with no lock there, nothing happens', async () => {
   const container = fakeContainer();
   await release(container, null, 'this-device');
-  assert.equal(await status(container), null);
+  assert.equal(await lockIn(container), null);
 });

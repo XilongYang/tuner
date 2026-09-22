@@ -12,10 +12,10 @@
 // storage layout exists for (see db/content.js), and it lives here because
 // here is where bytes can be read before a transaction opens.
 
-import { SESSION, FOLDER, VOCAB_ENTRY, hashKey, walkContent } from '../model/schema.js';
+import { SESSION, VOCAB_ENTRY, hashKey, walkContent } from '../model/schema.js';
 import { contentKind, contentPath } from '../model/content.js';
 
-const DEFS = { sessions: SESSION, folders: FOLDER, vocab: VOCAB_ENTRY };
+const DEFS = { sessions: SESSION, vocab: VOCAB_ENTRY };
 
 /**
  * Hash one content value according to its kind: bytes are hashed as bytes, text
@@ -108,7 +108,7 @@ const selfContained = (value, hash) => (isBlob(value) ? hash.materializeBlob(val
  * of the same record -- a rename, a hidden toggle, a score, the twentieth
  * keystroke -- writes hashes and text, and leaves the audio where it is.
  *
- * @param {'sessions'|'folders'|'vocab'} entity
+ * @param {'sessions'|'vocab'} entity
  * @returns {Promise<object>} the record as stored, hashes included and content
  *   still attached, so the caller can put it back on screen without a re-read.
  */

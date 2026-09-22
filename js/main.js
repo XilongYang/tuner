@@ -7,12 +7,11 @@
 // enforceable (tests/arch.test.mjs) rather than aspirational, and what makes
 // every layer testable without the ones above it.
 
-import * as db from './db/entities.js';
-import { isSupported } from './db/open.js';
-import { migrateInlineContent, assignSortKeys } from './db/migrate.js';
+import * as db from './db/index.js';
+import { isSupported } from './db/index.js';
 import { container } from './cloud/blob.js';
 import { speechClient } from './cloud/speech.js';
-import { forceRelease } from './cloud/sync/lock.js';
+import { forceRelease } from './cloud/sync/index.js';
 
 import { createSettings } from './platform/settings.js';
 import { createPlayer } from './platform/player.js';
@@ -360,23 +359,6 @@ async function start() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') autosave.flush();
   });
-
-  // Before any record is read as a whole: a session stored by version 1 keeps
-  // its audio inside itself, and a reader now expects the bytes to be in the
-  // content store. This moves them, once; afterwards it finds nothing to do.
-  try {
-    const migration = await migrateInlineContent({ hash });
-    // Sessions stored before the list had an arrangement get one here, in the
-    // order they were last shown in, so the first look after this is not a
-    // reshuffle.
-    await assignSortKeys();
-    const lost = migration.unreadable.length;
-    if (lost) {
-      say(`${lost} stored clip${lost === 1 ? '' : 's'} could not be read, so ${lost === 1 ? 'its sentence still claims it' : 'their sentences still claim them'}; a sync brings ${lost === 1 ? 'it' : 'them'} back if the cloud copy has ${lost === 1 ? 'it' : 'them'}.`, 'error');
-    }
-  } catch (err) {
-    say(`Moving stored audio into its own store did not finish: ${err.message}`, 'error');
-  }
 
   await session.reopenLast({ store, deps: commandDeps });
 

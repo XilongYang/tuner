@@ -86,6 +86,14 @@ test('detectLang: any kana or CJK character means Japanese', () => {
   assert.equal(detectLang('漢字'), 'ja');
 });
 
+test('detectLang: halfwidth katakana is kana too', () => {
+  // It comes out of older systems and out of some Japanese keyboards, and a
+  // sentence of it read back in an English voice is the first thing anyone
+  // notices.
+  assert.equal(detectLang('ﾊﾝｶｸ'), 'ja');
+  assert.equal(detectLang('hello'), 'en', 'and Latin text is still English');
+});
+
 test('detectLang: text with none of those is English', () => {
   assert.equal(detectLang('The weather is lovely today.'), 'en');
   assert.equal(detectLang('3.5 dollars'), 'en');

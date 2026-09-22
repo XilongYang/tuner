@@ -21,7 +21,6 @@ export function emptySession({ id, now, splitMode = 'auto' }) {
   return {
     id,
     name: null,
-    folderId: null,
     splitMode,
     // No place in the library yet: it gets one when it is first stored, which
     // is the moment it becomes something the library shows (commands/order.js).
@@ -137,7 +136,7 @@ export async function reopenLast({ store, deps }) {
   return startNew({ store, deps });
 }
 
-/** Rename, or move to a folder. Both change the session's own fields. */
+/** Rename. Changes the session's own fields. */
 export function describe({ store, patch, deps }) {
   const { clock } = deps;
   const changed = store.apply((current) => (current ? updateSession(current, patch, clock()) : null), 'describe');

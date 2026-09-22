@@ -11,17 +11,16 @@
 // failure in between leaves the container ahead of this device, which the next
 // round simply pulls; the reverse would leave content referenced by nothing.
 
-import { planSync } from '../../cloud/sync/plan.js';
-import { transferContent, publishManifest, readManifest, sweepOrphans } from '../../cloud/sync/run.js';
-import { acquire, release } from '../../cloud/sync/lock.js';
-import { eraseContainer } from '../../cloud/sync/erase.js';
-import { SESSION, FOLDER, VOCAB_ENTRY, dropContent } from '../../model/schema.js';
+import {
+  planSync, transferContent, publishManifest, readManifest, sweepOrphans, acquire, release, eraseContainer,
+} from '../../cloud/sync/index.js';
+import { SESSION, VOCAB_ENTRY, dropContent } from '../../model/schema.js';
 import { contentPath } from '../../model/content.js';
 
-const DEFS = { sessions: SESSION, folders: FOLDER, vocab: VOCAB_ENTRY };
+const DEFS = { sessions: SESSION, vocab: VOCAB_ENTRY };
 
 /** The clock field each collection's staleness check compares. */
-const CLOCKS = { sessions: 'updatedAt', folders: 'updatedAt', vocab: 'updatedAt' };
+const CLOCKS = { sessions: 'updatedAt', vocab: 'updatedAt' };
 
 /**
  * The same snapshot with the content at `paths` given up: no value, no hash.

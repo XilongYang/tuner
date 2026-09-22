@@ -9,7 +9,16 @@ global.window = dom.window;
 global.document = dom.window.document;
 
 const { createPracticePanel } = await import('../../js/ui/panels/practice/panel.js');
-const { renderSentenceText, markersOf, setSpeaking } = await import('../../js/ui/panels/practice/sentence-text.js');
+const { renderSentenceText, setSpeaking } = await import('../../js/ui/panels/practice/sentence-text.js');
+
+// The split positions a rendered sentence is offering. This used to be exported
+// from the module under test purely so this file could call it -- which made a
+// test helper look like part of the app's surface. It is read straight off the
+// DOM here instead: the assertion's own business, kept in the assertion's file.
+const markersOf = (element) => [...element.querySelectorAll('.split-marker')].map((marker) => ({
+  charIndex: Number(marker.dataset.charIndex),
+  ms: marker.dataset.ms === '' || marker.dataset.ms === undefined ? null : Number(marker.dataset.ms),
+}));
 const { createSessionStore } = await import('../../js/app/store.js');
 const { blankSentence, updateSentence } = await import('../../js/model/session.js');
 

@@ -8,6 +8,10 @@ This document is the contract the code is held to. `tests/arch.test.mjs`
 machine-checks the parts of it that can be checked, so the rules below cannot
 quietly stop being true.
 
+`REVIEWS.md` beside this file is its companion: how the work is done, and what
+three reviews of this code actually found. What is there is deliberately not
+here -- a rule in two documents is a rule that will be true in one of them.
+
 ## Why this rewrite exists
 
 The first implementation worked, and grew to ~8.6k lines of JS. A strict
@@ -16,8 +20,9 @@ scattered mistakes:
 
 1. **One fact, four hand-written field lists.** A session/sentence/vocab
    record was enumerated separately in the IndexedDB record shape, the Azure
-   manifest, the backup ZIP and the merge function. A field added to one and
-   not the others silently dropped data, with no error anywhere. It happened.
+   manifest, the backup archive and the merge function. A field added to one
+   and not the others silently dropped data, with no error anywhere. It
+   happened.
 2. **Six content kinds × five copy-pasted code sites.** Recording, reference
    audio, assessment, input text, source audio and vocab audio each appeared
    in five near-identical blocks inside one 600-line sync function. Every new
@@ -70,6 +75,19 @@ violated both:
   `ui/panels/sidebar.js`, not something each panel implements by importing its
   sibling's close function.
 
+A layer may also declare a narrower surface than its modules' exports. `db/`
+and `cloud/sync/` each have an `index.js`, and nothing outside them imports
+anything else under them. The reason is that a module's export list is written
+for its own tests -- a helper is exported so one assertion can reach it -- and
+without a second list that first one becomes the public API by accident. Two
+lists, then: the module says what may be tested, the `index.js` says what may
+be used, and `tests/arch.test.mjs` holds the rest of `js/` to the second.
+Tests are exempt by construction: they live outside `js/`, which is the only
+tree the check walks.
+
+These are the boundaries the vertical split will be cut along, so the cheapest
+time to enforce them is before the cut, not after.
+
 ## model/ — the load-bearing layer
 
 Everything that can be a pure function of its inputs lives here, and is
@@ -105,7 +123,7 @@ bugs:
 
 - `f.plain()` vs `f.content(kind)` — a plain field travels inline; a content
   field never does. Only its hash travels, and the bytes live in their own
-  blob (cloud) or ZIP entry (backup). The manifest's `has*` booleans are
+  blob. The manifest's `has*` booleans are
   *derived* from the descriptors, not persisted locally, so the live record
   never carries a flag that can disagree with the bytes next to it.
 - `default: null` is applied with `??`, never `||`. `0` and `false` are legal
@@ -114,8 +132,8 @@ bugs:
 ### content.js — the content-kind table
 
 One row per blob-backed content kind, describing scope, blob path, encoding
-and MIME type. Sync, backup and cleanup iterate this table; none of them
-branch per kind. A seventh kind is one row plus one `f.content()` field.
+and MIME type. Sync and cleanup iterate this table; neither branches per
+kind. A seventh kind is one row plus one `f.content()` field.
 
 ### Word timings belong to the clip they were measured against
 
@@ -331,9 +349,15 @@ What follows from writing bytes once:
 - Deleting a record deletes its content in the same transaction, and
   `sweepContent()` collects what a split or a merge left behind — the same
   arithmetic as the container's orphan sweep, on the same paths.
-- `db/migrate.js` moves version 1's inline content out, once, record by record.
-  A slot whose bytes cannot be read is reported and keeps its hash: migration
-  is the wrong moment to decide a clip was worthless.
+- **There is no data migration, and there will not be one.** A schema change
+  adds or drops object stores in `onupgradeneeded` and nothing else; no pass
+  rewrites stored records into a newer shape. This is a deliberate limit on
+  what the app is: one person's practice data, replicated through a container
+  it can be re-pulled from, on devices that are all upgraded together. The
+  alternative is a permanent, growing body of one-time code that can only be
+  deleted on a condition nobody can verify -- every device having run it --
+  which means never. Reading tolerates absent fields (that is what the schema
+  defaults are for); anything beyond that is out of scope.
 
 ## app/ — live state as a store, mutations by id
 
@@ -485,12 +509,6 @@ Storage:
   collected. *(`db/entities`; browser test "splitting a sentence collects the
   clip nothing references any more".)*
 - Nothing but `db/entities.js` reaches the content store. *(`arch`.)*
-- Version 1's inline content is moved out before any reader expects it in the
-  content store, and a record whose bytes cannot be read is left exactly as it
-  is rather than rewritten without them -- that inline value is the only copy
-  on this device, and the read may succeed next time. *(`db/migrate` tests: the
-  bytes are still inline after a failed read, and the next run finishes the
-  record.)*
 - An upgrade blocked by an older tab is reported, and a connection here lets go
   when another tab needs one. *(`db/open`.)*
 
@@ -585,7 +603,8 @@ Four tiers, in descending order of how many tests belong in each:
    were in fact unguarded.
 
 `tests/arch.test.mjs` is not a unit test; it is the enforcement of this
-document.
+document. Every rule in it was added by breaking the code it guards and
+watching the check go red first.
 
 ## Comment policy
 

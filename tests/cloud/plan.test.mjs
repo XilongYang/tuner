@@ -4,10 +4,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { planSync, slotsFor, orphanPaths, emptyManifest, MANIFEST_VERSION } from '../../js/cloud/sync/plan.js';
 
-const emptyLocal = () => ({ folders: [], sessions: [], vocab: [], tombstones: [] });
+const emptyLocal = () => ({ sessions: [], vocab: [], tombstones: [] });
 
 const session = (over = {}) => ({
-  id: 'sess1', name: null, folderId: null, splitMode: 'auto',
+  id: 'sess1', name: null, splitMode: 'auto',
   createdAt: 1, updatedAt: 10, metaUpdatedAt: 10,
   inputText: null, inputTextHash: null, sourceAudio: null, sourceAudioHash: null,
   sentences: [], ...over,
@@ -225,20 +225,6 @@ test('every local write carries the clock it was planned against, so the runner 
   assert.deepEqual(p.localWrites.map((w) => [w.entity, w.id, w.baseClock]), [['sessions', 'sess1', 42]]);
 });
 
-test('a session pointing at a folder that was deleted is reparented to the root, not orphaned', () => {
-  const remote = {
-    ...emptyManifest(),
-    tombstones: [{ id: 'folder:7', kind: 'folder', targetId: '7', deletedAt: 900 }],
-  };
-  const p = plan({
-    folders: [{ id: '7', name: 'Gone', parentId: null, createdAt: 1, updatedAt: 1 }],
-    sessions: [session({ folderId: '7', updatedAt: 100 })],
-  }, remote);
-
-  assert.deepEqual(p.localDeletes, [{ entity: 'folders', id: '7' }]);
-  assert.equal(p.manifest.sessions[0].folderId, null);
-});
-
 test('referencedPaths covers every kind of content the merged result holds', () => {
   const p = plan({
     sessions: [session({
@@ -275,4 +261,26 @@ test('the plan is deterministic: the same inputs give byte-identical manifests',
     vocab: [{ id: 'w', text: 'w', audioPathKey: 'k', createdAt: 1, updatedAt: 1, sources: [{ occurrenceId: 'o', addedAt: 1 }] }],
   };
   assert.equal(JSON.stringify(plan(local).manifest), JSON.stringify(plan(local).manifest));
+});
+
+test('a manifest from a newer version of the app is refused rather than merged', () => {
+  // The version has been written on every round since the first one and read by
+  // nobody, which makes it decoration. What it is for: a container this code
+  // cannot fully understand must not be merged against, because the merge would
+  // drop the fields it cannot name and then publish the result as authoritative
+  // -- silently, and to every other device.
+  const newer = { ...emptyManifest(), version: MANIFEST_VERSION + 1 };
+
+  assert.throws(
+    () => planSync({ local: emptyLocal(), remote: newer }),
+    (err) => err.incompatible === true && /newer version/.test(err.message),
+  );
+});
+
+test('a manifest from an older version still plans normally', () => {
+  // Only newer is refused. Older is what every upgrade looks like from the
+  // other side, and refusing it would make an upgrade unable to sync at all.
+  const older = { ...emptyManifest(), version: MANIFEST_VERSION - 1 };
+  const plan = planSync({ local: emptyLocal(), remote: older });
+  assert.equal(plan.manifest.version, MANIFEST_VERSION);
 });

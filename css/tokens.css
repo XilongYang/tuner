@@ -15,11 +15,9 @@
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
-  --space-5: 24px;
   --space-6: 32px;
 
   --radius: 4px;
-  --radius-sm: 4px;
 
   /* The reading column, and the panel that sits beside it. */
   --column-w: 720px;
@@ -65,7 +63,6 @@
      middle one is the amber already used for work in progress, because "not
      wrong, not right yet" is the same idea. */
   --good: hsl(145, 32%, 38%);
-  --good-soft: hsl(145, 30%, 93%);
   --mid: hsl(38, 58%, 42%);
   --mid-soft: hsl(38, 62%, 94%);
 

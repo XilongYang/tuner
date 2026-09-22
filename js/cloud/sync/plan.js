@@ -20,7 +20,7 @@
 // or one it does not (download). Nothing needs to record which side "won".
 
 import {
-  SESSION, FOLDER, VOCAB_ENTRY, toNode, fromNode, walkContent,
+  SESSION, VOCAB_ENTRY, toNode, fromNode, walkContent,
 } from '../../model/schema.js';
 import { contentPath, CONTENT_KINDS } from '../../model/content.js';
 import { mergeCollection, mergeTombstones, tombstoneId } from '../../model/merge.js';
@@ -29,7 +29,6 @@ export const MANIFEST_VERSION = 6;
 
 /**
  * @typedef {object} Snapshot
- * @property {object[]} folders
  * @property {object[]} sessions
  * @property {object[]} vocab
  * @property {object[]} tombstones
@@ -48,7 +47,6 @@ export const MANIFEST_VERSION = 6;
  */
 
 const collections = [
-  { key: 'folders', def: FOLDER, kind: 'folder', childKind: null },
   { key: 'sessions', def: SESSION, kind: 'session', childKind: 'sentence' },
   { key: 'vocab', def: VOCAB_ENTRY, kind: 'vocab', childKind: null },
 ];
@@ -82,6 +80,19 @@ function slotsByPath(def, records) {
  * }}
  */
 export function planSync({ local, remote }) {
+  // A container written by a newer version of this app: its manifest may carry
+  // fields this code does not know, and merging against it would drop them on
+  // the way back up -- silently, since nothing here can miss what it cannot
+  // name. Refused instead. The number is written on every round, so it exists
+  // to be compared; one that is never read is not a version at all.
+  if (remote && Number(remote.version) > MANIFEST_VERSION) {
+    const err = new Error(
+      `this container was written by a newer version of Tuner (manifest v${remote.version}; this app reads v${MANIFEST_VERSION})`,
+    );
+    err.incompatible = true;
+    throw err;
+  }
+
   const remoteManifest = remote || emptyManifest();
   const tombstones = mergeTombstones(local.tombstones, remoteManifest.tombstones);
   const tombstoneMap = new Map(tombstones.map((t) => [t.id, t]));
@@ -140,17 +151,6 @@ export function planSync({ local, remote }) {
     }
   }
 
-  // Deletions this device learned about apply to folders/sessions/vocab that
-  // survived the merge but point at a folder that did not, which would leave
-  // the tree unable to place them. Reparent to the root instead of dropping.
-  const survivingFolderIds = new Set(merged.folders.map((f) => f.id));
-  for (const folder of merged.folders) {
-    if (folder.parentId != null && !survivingFolderIds.has(folder.parentId)) folder.parentId = null;
-  }
-  for (const session of merged.sessions) {
-    if (session.folderId != null && !survivingFolderIds.has(session.folderId)) session.folderId = null;
-  }
-
   const manifest = buildManifest(merged, tombstones);
   return {
     slots,
@@ -185,14 +185,13 @@ function contentAction(hash, localHash, remoteHash) {
 }
 
 export function emptyManifest() {
-  return buildManifest({ folders: [], sessions: [], vocab: [] }, []);
+  return buildManifest({ sessions: [], vocab: [] }, []);
 }
 
 /** Key order is fixed here and inside toNode, which is what makes manifests comparable. */
 function buildManifest(merged, tombstones) {
   return {
     version: MANIFEST_VERSION,
-    folders: (merged.folders || []).map((r) => toNode(FOLDER, r)),
     sessions: (merged.sessions || []).map((r) => toNode(SESSION, r)),
     vocab: (merged.vocab || []).map((r) => toNode(VOCAB_ENTRY, r)),
     tombstones: tombstones.map((t) => ({ id: t.id, kind: t.kind ?? tombstoneKind(t.id), targetId: t.targetId ?? tombstoneTarget(t.id), deletedAt: t.deletedAt })),

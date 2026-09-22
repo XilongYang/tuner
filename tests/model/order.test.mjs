@@ -2,7 +2,19 @@
 // that two devices agree on.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { between, keyBefore, keyAfter, byOrder, inOrder, keyForMove, initialKeys } from '../../js/model/order.js';
+import { between, keyBefore, keyAfter, byOrder, inOrder, keyForMove } from '../../js/model/order.js';
+
+// A run of keys, each below the last. Used here to build fixtures of a given
+// size; the app never mints a run -- it places one row at a time.
+const initialKeys = (count, { after = null } = {}) => {
+  const keys = [];
+  let previous = after;
+  for (let i = 0; i < count; i += 1) {
+    previous = between(previous, null);
+    keys.push(previous);
+  }
+  return keys;
+};
 
 const sorted = (keys) => keys.every((key, i) => i === 0 || keys[i - 1] < key);
 
@@ -114,18 +126,3 @@ test('byOrder: a row with no key yet sorts to the bottom, not the top', () => {
 
 // ---- the one-time stamping ----
 
-test('initialKeys: a run of keys in the order given', () => {
-  const keys = initialKeys(5);
-  assert.equal(keys.length, 5);
-  assert.ok(sorted(keys));
-});
-
-test('initialKeys: a run can start below keys that are already in use', () => {
-  const keys = initialKeys(4, { after: 'w' });
-  assert.ok(keys.every((key) => key > 'w'), 'so stamping the unplaced rows leaves the placed ones where they are');
-  assert.ok(sorted(keys));
-});
-
-test('initialKeys: nothing to place is not an error', () => {
-  assert.deepEqual(initialKeys(0), []);
-});

@@ -1,9 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  entity, f, hashKey, toNode, fromNode, walkContent, presentContent, mapContent, dropContent,
-  SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE, FOLDER,
+  entity, f, hashKey, toNode, fromNode, walkContent, mapContent, dropContent,
+  SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE,
 } from '../../js/model/schema.js';
+
+// The simplest entity there is: an id and flat fields, nothing nested, no
+// content. Declared here rather than borrowed from a production entity, so a
+// test about the generic machinery does not quietly depend on one of the real
+// definitions staying simple.
+const PLAIN = entity('plain', {
+  id: f.id(),
+  name: f.plain({ default: null }),
+  parentId: f.plain({ default: null }),
+  createdAt: f.plain({ default: 0 }),
+  updatedAt: f.plain({ default: 0 }),
+});
 import { contentPath } from '../../js/model/content.js';
 
 test('entity: refuses a definition with no id field', () => {
@@ -41,8 +53,8 @@ test('toNode: defaults apply with ?? -- 0 and false survive, only null/undefined
 });
 
 test('toNode: key order follows the declaration, so equal data serializes identically', () => {
-  const a = toNode(FOLDER, { id: 1, name: 'A', parentId: null, createdAt: 1, updatedAt: 2 });
-  const b = toNode(FOLDER, { updatedAt: 2, createdAt: 1, parentId: null, name: 'A', id: 1 });
+  const a = toNode(PLAIN, { id: 1, name: 'A', parentId: null, createdAt: 1, updatedAt: 2 });
+  const b = toNode(PLAIN, { updatedAt: 2, createdAt: 1, parentId: null, name: 'A', id: 1 });
   assert.equal(JSON.stringify(a), JSON.stringify(b));
 });
 
@@ -59,7 +71,7 @@ test('toNode: recurses into children', () => {
 
 test('fromNode: round-trips plain fields and hashes, leaving content values null to be filled', () => {
   const record = {
-    id: 'sess', name: 'S', folderId: null, splitMode: 'audio', createdAt: 1, updatedAt: 5, metaUpdatedAt: 4,
+    id: 'sess', name: 'S', splitMode: 'audio', createdAt: 1, updatedAt: 5, metaUpdatedAt: 4,
     inputText: 'text', inputTextHash: 'ih', sourceAudio: null, sourceAudioHash: null,
     sentences: [{
       id: 'a', text: 'one', lang: 'ja', hidden: true, sourceOffsetMs: 0, sourceDurationMs: 400,
@@ -99,14 +111,6 @@ test('walkContent: a vocab occurrence is keyed by the entry, not by the sentence
   const [slot] = [...walkContent(VOCAB_ENTRY, entry)];
   assert.equal(slot.kind, 'vocabAudio');
   assert.equal(contentPath(slot.kind, slot.ref), 'vocab-audio/k1/occ1.audio');
-});
-
-test('presentContent: keeps only slots that actually hold content', () => {
-  const session = {
-    id: 'sess1', inputTextHash: 'ih', sourceAudioHash: null,
-    sentences: [{ id: 'sent1', recordingHash: null, referenceHash: 'fh', assessmentHash: null }],
-  };
-  assert.deepEqual(presentContent(SESSION, session).map((s) => s.kind), ['inputText', 'reference']);
 });
 
 test('mapContent: fills every content slot in the tree, children included', () => {
@@ -220,13 +224,14 @@ test('dropContent: what it drops is exactly what stops being walked', () => {
 
   const out = dropContent(SESSION, session, (slot) => slot.kind === 'recording');
 
-  assert.deepEqual(presentContent(SESSION, out).map((s) => s.field), ['inputText']);
+  const held = [...walkContent(SESSION, out)].filter((slot) => slot.hash !== null);
+  assert.deepEqual(held.map((s) => s.field), ['inputText']);
 });
 
 // The discipline every entity is written to, checked over the definitions
 // themselves rather than trusted. Each of these was a convention with nothing
 // enforcing it, which is the state a rule is in just before it is broken.
-const ENTITIES = { SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE, FOLDER };
+const ENTITIES = { SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE };
 
 test('no entity carries a has<Something> flag', () => {
   // A hash is non-null exactly when content exists, so a boolean beside it is a
@@ -265,7 +270,6 @@ const REQUIRED = {
   SENTENCE: ['id'],
   VOCAB_ENTRY: ['id', 'audioPathKey'],
   OCCURRENCE: ['occurrenceId'],
-  FOLDER: ['id'],
 };
 
 // A descriptor built by f.plain({ default }) carries that default; one built by
@@ -305,4 +309,16 @@ test('a node carries no undefined either, so JSON cannot silently drop a field',
     assert.deepEqual(JSON.parse(JSON.stringify(node)), node,
       `${name} does not survive a JSON round-trip unchanged`);
   }
+});
+
+test('contentPath: a ref missing a part is refused, not addressed', () => {
+  // A path is an address. Interpolating an absent part gives "undefined",
+  // which is well-formed, wrong, and the same wrong answer on every device --
+  // content written under it is content nobody can find, and the sweep would
+  // collect the real bytes as orphans.
+  assert.throws(() => contentPath('vocabAudio', { audioPathKey: undefined, occurrenceId: 'o1' }),
+    /missing a part/);
+  assert.throws(() => contentPath('recording', { sessionId: 'sess1', sentenceId: null }),
+    /missing a part/);
+  assert.equal(contentPath('recording', { sessionId: 'sess1', sentenceId: 'sent1' }), 'recordings/sess1/sent1.wav');
 });

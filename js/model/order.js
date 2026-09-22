@@ -87,9 +87,10 @@ const max = (keys) => keys.reduce((high, key) => (high === null || key > high ? 
  * Falling back to the id means both devices then show those two rows in the
  * same order as each other, which matters more than which of them is first.
  *
- * A record with no key at all sorts last rather than first: an unplaced row is
- * one this device has not stamped yet (see db/migrate.js), and the bottom is
- * where it disturbs the least.
+ * A record with no key at all sorts last rather than first. Nothing stamps a
+ * key retroactively, so an unplaced row stays unplaced until it is moved --
+ * which gives it one. The bottom is where it disturbs the least in the
+ * meantime, and the id tiebreak keeps every device showing the same order.
  */
 export function byOrder(a, b) {
   const keyA = a.sortKey ?? null;
@@ -115,24 +116,3 @@ export function keyForMove({ before = null, after = null }) {
   return between(before, after);
 }
 
-/**
- * Keys for a list that has none, in the order given, each below the last.
- *
- * `after` starts the run below a key that is already in use, so a device that
- * has some rows placed and some not can stamp the rest without disturbing the
- * arrangement it already has.
- *
- * Used once, for sessions stored before the list had an arrangement. They are
- * stamped in the order they were being shown at the time, so the first look
- * after the upgrade is the same list in the same order -- an arrangement nobody
- * chose, but not a shuffle either.
- */
-export function initialKeys(count, { after = null } = {}) {
-  const keys = [];
-  let previous = after;
-  for (let i = 0; i < count; i += 1) {
-    previous = between(previous, null);
-    keys.push(previous);
-  }
-  return keys;
-}

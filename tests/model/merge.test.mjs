@@ -3,18 +3,30 @@ import assert from 'node:assert/strict';
 import {
   tombstoneId, mergeTombstones, survives, mergeEntity, mergeCollection,
 } from '../../js/model/merge.js';
-import { SESSION, SENTENCE, VOCAB_ENTRY, FOLDER, OCCURRENCE } from '../../js/model/schema.js';
+import { SESSION, SENTENCE, VOCAB_ENTRY, OCCURRENCE, entity, f } from '../../js/model/schema.js';
+
+// A deliberately plain entity -- an id and flat fields, no content, no children
+// -- so the generic merge can be exercised on its own. Defined here rather than
+// borrowed from a real one: a test that needs "the simplest possible entity"
+// should say so, not depend on some production entity happening to stay simple.
+const PLAIN = entity('plain', {
+  id: f.id(),
+  name: f.plain({ default: null }),
+  parentId: f.plain({ default: null }),
+  createdAt: f.plain({ default: 0 }),
+  updatedAt: f.plain({ default: 0 }),
+});
 
 const tombstones = (...entries) => new Map(entries.map(([kind, id, deletedAt]) => [tombstoneId(kind, id), { id: tombstoneId(kind, id), kind, targetId: id, deletedAt }]));
 
 test('mergeTombstones: unions both sides and keeps the earliest record of each deletion', () => {
   const merged = mergeTombstones(
     [{ id: 'session:a', deletedAt: 500 }],
-    [{ id: 'session:a', deletedAt: 900 }, { id: 'folder:b', deletedAt: 100 }],
+    [{ id: 'session:a', deletedAt: 900 }, { id: 'vocab:b', deletedAt: 100 }],
   );
   assert.deepEqual(merged, [
-    { id: 'folder:b', deletedAt: 100 },
     { id: 'session:a', deletedAt: 500 },
+    { id: 'vocab:b', deletedAt: 100 },
   ]);
 });
 
@@ -35,28 +47,28 @@ test('survives: no tombstone means it lives', () => {
 });
 
 test('mergeEntity: one side missing returns the present side, normalised', () => {
-  const merged = mergeEntity(FOLDER, { id: 3, name: 'Only local', updatedAt: 9 }, null);
+  const merged = mergeEntity(PLAIN, { id: 3, name: 'Only local', updatedAt: 9 }, null);
   assert.deepEqual(merged, { id: 3, name: 'Only local', parentId: null, createdAt: 0, updatedAt: 9 });
 });
 
 test('mergeEntity: refuses two nulls rather than inventing a record', () => {
-  assert.throws(() => mergeEntity(FOLDER, null, null), /both sides null/);
+  assert.throws(() => mergeEntity(PLAIN, null, null), /both sides null/);
 });
 
 test('mergeEntity: the newer meta clock supplies the record\'s own fields as one group', () => {
   const local = {
-    id: 's1', name: 'local name', folderId: 7, splitMode: 'auto',
+    id: 's1', name: 'local name', sortKey: 'a0', splitMode: 'auto',
     createdAt: 10, updatedAt: 900, metaUpdatedAt: 100,
   };
   const remote = {
-    id: 's1', name: 'remote name', folderId: null, splitMode: 'audio',
+    id: 's1', name: 'remote name', sortKey: null, splitMode: 'audio',
     createdAt: 10, updatedAt: 200, metaUpdatedAt: 300,
   };
   const merged = mergeEntity(SESSION, local, remote);
   // Remote's meta clock is newer, so ALL of its own fields win together --
-  // never a mix of local's name with remote's folder.
+  // never a mix of local's name with remote's position.
   assert.equal(merged.name, 'remote name');
-  assert.equal(merged.folderId, null);
+  assert.equal(merged.sortKey, null);
   assert.equal(merged.splitMode, 'audio');
 });
 

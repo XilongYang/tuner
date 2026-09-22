@@ -1,12 +1,12 @@
-// Each entity is defined exactly once, as field descriptors; every
-// representation of it -- the IndexedDB record, the cloud manifest node, the
-// backup-archive node -- is derived from that one definition by the generic
-// mappers below. Adding a field is one line and reaches all three at once.
+// Each entity is defined exactly once, as field descriptors; both
+// representations of it -- the IndexedDB record and the cloud manifest node --
+// are derived from that one definition by the generic mappers below. Adding a
+// field is one line and reaches both at once.
 //
-// This replaces four independently hand-written field lists (record shape,
-// manifest builder, backup builder, merge function). Keeping them in step was
-// manual, nothing failed loudly when they diverged, and a dropped field is
-// invisible: the data is simply gone after an export or a sync.
+// This replaces the independently hand-written field lists the previous
+// implementation had (record shape, manifest builder, merge function). Keeping
+// them in step was manual, nothing failed loudly when they diverged, and a
+// dropped field is invisible: the data is simply gone after a sync.
 //
 // Field roles:
 //   f.id()          the entity's own key.
@@ -15,8 +15,8 @@
 //                   and `hidden` all have legitimate falsy values.
 //   f.content(kind) bytes too large to travel inline; see ./content.js. The
 //                   record holds the value plus a `<field>Hash`; the manifest
-//                   and backup node hold ONLY the hash, and the bytes live at
-//                   the kind's own path.
+//                   node holds ONLY the hash, and the bytes live at the kind's
+//                   own path.
 //   f.children(def) a nested array of another entity.
 //
 // A content field deliberately has no `has<Field>` boolean anywhere. A hash
@@ -143,7 +143,6 @@ export const SENTENCE = entity('sentence', {
 export const SESSION = entity('session', {
   id: f.id(),
   name: f.plain({ default: null }),
-  folderId: f.plain({ default: null }),
   splitMode: f.plain({ default: 'auto' }),
   // Where this session sits in the library list; see model/order.js. A plain
   // field like any other, which is the point: moving a row is an edit to one
@@ -160,14 +159,6 @@ export const SESSION = entity('session', {
   metaClock: 'metaUpdatedAt',
 });
 
-export const FOLDER = entity('folder', {
-  id: f.id(),
-  name: f.plain({ default: null }),
-  parentId: f.plain({ default: null }),
-  createdAt: f.plain({ default: 0 }),
-  updatedAt: f.plain({ default: 0 }),
-});
-
 // ---- Generic mappers ----
 
 function plainValue(descriptor, record, field) {
@@ -176,7 +167,7 @@ function plainValue(descriptor, record, field) {
 }
 
 /**
- * The wire/archive form: plain fields inline, content as hash only, children
+ * The wire form: plain fields inline, content as hash only, children
  * mapped recursively. Key order follows the field declaration order, so two
  * runs over equal data produce byte-identical JSON -- which is what lets sync
  * skip an upload by comparing serialized manifests.
@@ -212,12 +203,12 @@ export function fromNode(def, node) {
 
 /**
  * Every content slot in `record` and its children, as a flat sequence. One
- * traversal serves sync (what to upload/download), backup (what to write into
- * the archive) and cleanup (which paths are still referenced) -- so those
- * three cannot disagree about what content an entity has.
+ * traversal serves sync (what to upload/download) and cleanup (which paths are
+ * still referenced) -- so the two cannot disagree about what content an entity
+ * has.
  *
  * `hash === null` means the slot is empty; callers that only care about
- * present content filter on it (`presentContent` below).
+ * present content filter on it.
  *
  * @returns {Generator<{kind: string, ref: object, field: string, hash: string|null, value: any, owner: object}>}
  */
@@ -268,11 +259,6 @@ export function dropContent(def, record, drop, parentRef = {}) {
     }
   }
   return out;
-}
-
-/** walkContent filtered to slots that actually hold content. */
-export function presentContent(def, record, parentRef = {}) {
-  return [...walkContent(def, record, parentRef)].filter((c) => c.hash !== null);
 }
 
 /**

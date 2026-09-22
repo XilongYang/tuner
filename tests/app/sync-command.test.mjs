@@ -45,7 +45,7 @@ async function seedSession({ id = 'sess1', text = 'hello', recording = null, inp
     sentence.recordingHash = await hashBlob(recording);
   }
   await seed('sessions', {
-    id, name: null, folderId: null, splitMode: 'auto',
+    id, name: null, splitMode: 'auto',
     createdAt: 1, updatedAt: 10, metaUpdatedAt: 10,
     inputText, inputTextHash: inputText ? await hashString(inputText) : null,
     sourceAudio: null, sourceAudioHash: null,
@@ -196,7 +196,7 @@ test('a record written locally while the round was in flight is not overwritten 
   container.downloadBytes = async (path) => {
     // Lands between the plan being computed and its writes being applied.
     await seed('sessions', {
-      id: 'sess1', name: 'created here while syncing', folderId: null, splitMode: 'auto',
+      id: 'sess1', name: 'created here while syncing', splitMode: 'auto',
       createdAt: 1, updatedAt: 9999, metaUpdatedAt: 9999,
       inputText: null, inputTextHash: null, sourceAudio: null, sourceAudioHash: null,
       sentences: [],

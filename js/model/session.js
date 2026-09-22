@@ -108,7 +108,7 @@ export function isWorthStoring(session) {
   return Boolean(session && ((session.sentences || []).length || session.sourceAudio));
 }
 
-/** Edit the session's own fields (its name, its folder). */
+/** Edit the session's own fields (its name). */
 export const updateSession = (session, patch, now) => withMeta(session, now, patch);
 
 /**

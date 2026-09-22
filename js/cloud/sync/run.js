@@ -13,7 +13,7 @@
 
 import { orphanPaths } from './plan.js';
 import { contentKind, contentPath } from '../../model/content.js';
-import { FOLDER, SESSION, VOCAB_ENTRY, fromNode, walkContent } from '../../model/schema.js';
+import { SESSION, VOCAB_ENTRY, fromNode, walkContent } from '../../model/schema.js';
 
 export const MANIFEST_PATH = 'manifest.json';
 
@@ -208,7 +208,7 @@ export async function sweepOrphans(plan, container, { onProgress = noop } = {}) 
  */
 export function manifestContentPaths(manifest) {
   const paths = [];
-  for (const [def, nodes] of [[FOLDER, manifest.folders], [SESSION, manifest.sessions], [VOCAB_ENTRY, manifest.vocab]]) {
+  for (const [def, nodes] of [[SESSION, manifest.sessions], [VOCAB_ENTRY, manifest.vocab]]) {
     for (const node of nodes || []) {
       for (const slot of walkContent(def, fromNode(def, node))) {
         if (slot.hash !== null) paths.push(contentPath(slot.kind, slot.ref));

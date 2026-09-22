@@ -6,7 +6,7 @@ import {
 import { planSync } from '../../js/cloud/sync/plan.js';
 import { fakeContainer } from './fake-container.mjs';
 
-const emptyLocal = () => ({ folders: [], sessions: [], vocab: [], tombstones: [] });
+const emptyLocal = () => ({ sessions: [], vocab: [], tombstones: [] });
 const plan = (local, remote = null) => planSync({ local: { ...emptyLocal(), ...local }, remote });
 
 const session = (over = {}) => ({

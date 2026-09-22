@@ -47,7 +47,13 @@ export function createSessionStore(initial = null) {
     // for nothing.
     if (next === session) return false;
     session = next;
-    version++;
+    // The version is "has this moved since you looked", which is what a command
+    // pins its slow work against. Storing the session and putting the stamped
+    // record back is not movement: it is the same session with its content
+    // hashes filled in, and counting it made a save landing mid-split cancel
+    // the split -- with nothing on screen having changed to explain it.
+    // Listeners are still told, because the object they hold is a new one.
+    if (reason !== 'saved') version += 1;
     notify(reason);
     return true;
   }

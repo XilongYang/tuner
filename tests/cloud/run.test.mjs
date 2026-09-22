@@ -297,3 +297,38 @@ test('manifestContentPaths: finds every kind of content a manifest references', 
     'vocab-audio/k/o.audio',
   ]);
 });
+
+test('transferContent: bytes that cannot be read as their kind are reported, not thrown', async () => {
+  // A truncated or half-written assessment in the container. Throwing here
+  // ends this round and every round after it, and the only way out for the
+  // person would be deleting everything they have in the cloud.
+  const container = fakeContainer();
+  const remote = plan({ sessions: [session({ sentences: [sentence({ assessmentHash: 'ah' })] })] }).manifest;
+  const p = plan({ sessions: [session({ sentences: [sentence()] })] }, remote);
+  await container.uploadBytes('assessments/sess1/sent1.json', new TextEncoder().encode('{not json'), 'application/json');
+
+  const result = await transferContent(p, container, { getValue: () => null });
+
+  assert.deepEqual(result.missing.map((m) => [m.path, m.direction]), [['assessments/sess1/sent1.json', 'down']]);
+  assert.match(result.missing[0].reason, /could not be read as assessment/);
+  assert.equal(result.downloaded.size, 0, 'and nothing half-parsed is handed to the writer');
+});
+
+test('transferContent: a download that fails for any other reason still ends the round', async () => {
+  const container = fakeContainer();
+  const remote = plan({ sessions: [session({ sentences: [sentence({ assessmentHash: 'ah' })] })] }).manifest;
+  const p = plan({ sessions: [session({ sentences: [sentence()] })] }, remote);
+  container.downloadBytes = async () => { throw new Error('network request failed'); };
+
+  await assert.rejects(transferContent(p, container, { getValue: () => null }), /network request failed/);
+});
+
+test('transferContent: a slot with no bytes to send still counts towards the progress total', async () => {
+  const container = fakeContainer();
+  const p = plan({ sessions: [session({ inputTextHash: 'ih', inputText: null })] });
+  const seen = [];
+
+  await transferContent(p, container, { getValue: () => null, onProgress: (progress) => seen.push(progress) });
+
+  assert.deepEqual(seen.map((s) => `${s.done}/${s.total}`), ['1/1'], 'a round that finished says so');
+});

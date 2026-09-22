@@ -135,13 +135,16 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
  * `groups` is what the picker chose: each group a contiguous run of that
  * sentence's word units, each becoming its own entry.
  *
- * Stops at the first failure and says how many went in. That number matters:
- * an occurrence is an append-only fact, so `addOccurrence` has nothing to
- * recognise a repeat by, and a retry that started over would record every
- * group that had already succeeded a second time. The caller retries with
- * `groups.slice(added)` -- see the picker, which keeps the count across
- * attempts and freezes the selection so the groups cannot change underneath
- * it.
+ * Stops at the first failure and says how many went in, and the caller retries
+ * with `groups.slice(added)` -- see the picker, which keeps the count across
+ * attempts and freezes the selection so the groups cannot change underneath it.
+ *
+ * Re-sending a group that already went in would not duplicate it: an
+ * occurrence is keyed by where it came from, so the same words from the same
+ * sentence are one use of it either way (see `addOccurrence`). Continuing from
+ * where it stopped is still what the caller should do -- it is the difference
+ * between one failed request and a dozen -- but a retry that starts over is a
+ * waste rather than a corruption.
  *
  * @returns {Promise<{ok: boolean, added: number, reason: string|null, ids: string[]}>}
  */

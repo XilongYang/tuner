@@ -271,3 +271,43 @@ test('a record gets its last look before storage, and what comes back is what is
   assert.equal(h.saves.at(-1).sortKey, 'i');
   assert.equal(h.store.get().sortKey, 'i', 'and the screen has it too, so the next save is not a second placement');
 });
+
+test('flush waits for a change that arrived while a save was running', async () => {
+  // Otherwise flush returns having written the state from before that change,
+  // and the caller -- switching sessions, or closing the page -- moves on. The
+  // edit is then written over, or not at all.
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  const saves = [];
+  const timers = fakeTimers();
+  const store = createSessionStore(session());
+  let first = true;
+
+  const autosave = createAutosave({
+    store,
+    db: { put: async () => {} },
+    hash: {},
+    saveRecord: async (entity, record) => {
+      saves.push(record.name);
+      if (first) { first = false; await slow; }
+      return record;
+    },
+    schedule: timers.schedule,
+    cancel: timers.cancel,
+  });
+
+  store.apply((s) => ({ ...s, name: 'first' }));
+  const running = timers.fire();          // the save starts and blocks
+  await Promise.resolve();
+
+  store.apply((s) => ({ ...s, name: 'second' }));  // arrives mid-save
+  const flushed = autosave.flush();
+
+  release();
+  await flushed;
+
+  // Asserted before awaiting the save loop itself: the point is that *flush*
+  // waited, not that everything eventually got written.
+  assert.deepEqual(saves, ['first', 'second'], 'both, and the second before flush resolved');
+  await running;
+});

@@ -113,9 +113,9 @@ export function vocabPicker({ sentence, addGroups }) {
         ? `Adding… (${added} of ${groups.length} already went in)`
         : 'Adding…';
 
-      // Only what has not gone in yet: an occurrence is append-only, so a
-      // retry that started from the beginning would record the successful
-      // groups twice.
+      // Only what has not gone in yet. Re-sending the successful groups would
+      // not duplicate them -- an occurrence is keyed by where it came from --
+      // but it would re-cut and re-upload their audio for nothing.
       const outcome = await addGroups(groups.slice(added));
       added += outcome.added;
       if (outcome.ok) {

@@ -100,10 +100,27 @@ export function contentKind(name) {
   return kind;
 }
 
+/**
+ * The path an interpolated ref component contributes, checked.
+ *
+ * A path is an address: every read, every upload, every sweep of orphaned
+ * bytes goes through one. A ref missing a component would interpolate as the
+ * string "undefined" and produce a path that is well-formed, wrong, and the
+ * same wrong path on every device -- content written under it is content
+ * nobody can find, and the sweep would collect the real bytes as orphans. So a
+ * missing component is refused where it is noticed rather than addressed.
+ */
+function checked(name, ref, path) {
+  if (path.includes('undefined') || path.includes('null')) {
+    throw new Error(`Cannot address ${name} content: ref is missing a part (${JSON.stringify(ref)})`);
+  }
+  return path;
+}
+
 export function contentPath(name, ref) {
-  return contentKind(name).path(ref);
+  return checked(name, ref, contentKind(name).path(ref));
 }
 
 export function backupContentPath(name, ref) {
-  return contentKind(name).backupPath(ref);
+  return checked(name, ref, contentKind(name).backupPath(ref));
 }

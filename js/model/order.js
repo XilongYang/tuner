@@ -35,6 +35,17 @@ export function between(lower, upper) {
   const a = lower ?? '';
   const b = upper ?? null;
   if (b !== null && a >= b) throw new Error(`Order keys out of sequence: ${JSON.stringify(a)} is not before ${JSON.stringify(b)}`);
+  // A key ending in the lowest digit has no room below it at that length, and
+  // the subdivision below quietly returns a key past the upper bound for one.
+  // Nothing here ever produces such a key -- the midpoint of a range never
+  // lands on the first digit -- so one can only arrive from outside, and a
+  // refusal is the right answer to a key this cannot reason about. Silently
+  // misplacing the row is not.
+  for (const key of [a, b]) {
+    if (typeof key === 'string' && key.endsWith(DIGITS[0])) {
+      throw new Error(`Order key cannot be subdivided: ${JSON.stringify(key)} ends in ${DIGITS[0]}`);
+    }
+  }
   return midpoint(a, b);
 }
 

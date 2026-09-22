@@ -293,6 +293,17 @@ export function createRow({
     element: row,
     update,
     say,
+    /**
+     * Let go of anything in flight without taking the row away.
+     *
+     * The workspace is being released -- a session opened, a new one started --
+     * and a row whose id survives that stays on screen and stays working. What
+     * must not survive it is a retest still holding the microphone.
+     */
+    release() {
+      score.dispose();
+    },
+
     /** Called when this row leaves the list, so nothing keeps calling into it. */
     dispose() {
       stopFollowing();

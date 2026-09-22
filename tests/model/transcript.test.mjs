@@ -274,3 +274,25 @@ test('alignWordsToText: a span never starts or ends on punctuation', () => {
 
   assert.deepEqual(words.map((w) => text.slice(w.charStart, w.charEnd)), ['Well', 'yes']);
 });
+
+test('alignWordsToText: positions are counted in characters, not in UTF-16 units', () => {
+  // A character outside the basic plane is one character everywhere else in the
+  // app (geometry.js counts code points), so a span that counted its halves
+  // separately would put every later cut marker a position out and cut audio
+  // from the wrong moment.
+  const words = alignWordsToText(spokenAs(['\u{20B9F}\u308B', 0, 500], ['\u3053\u3068', 500, 300]), '\u{20B9F}\u308B\u3053\u3068');
+
+  assert.deepEqual(words, [
+    { charStart: 0, charEnd: 2, offsetMs: 0, durationMs: 500 },
+    { charStart: 2, charEnd: 4, offsetMs: 500, durationMs: 300 },
+  ]);
+});
+
+test('alignWordsToText: a character that lowercases to two is still one position', () => {
+  // \u0130 lowercases to two code points. Counting them as two positions in the
+  // text desynchronised the projection from its way back, and the span that
+  // followed came out with no end at all.
+  const words = alignWordsToText(spokenAs(['okay', 10, 20]), '\u0130stanbul okay');
+
+  assert.deepEqual(words, [{ charStart: 9, charEnd: 13, offsetMs: 10, durationMs: 20 }]);
+});

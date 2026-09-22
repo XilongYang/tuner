@@ -66,7 +66,10 @@ export function segmentText(text) {
  * @returns {'ja'|'en'}
  */
 export function detectLang(text) {
-  return /[぀-ヿ㐀-䶿一-鿿豈-﫿]|[\u{20000}-\u{2ffff}]/u.test(text || '') ? 'ja' : 'en';
+  // Halfwidth katakana is in the list because it is kana: it comes out of
+  // older systems and out of some Japanese keyboards, and a sentence of it
+  // read back in an English voice is the first thing anyone notices.
+  return /[぀-ヿ㐀-䶿一-鿿豈-﫿ｦ-ﾟ]|[\u{20000}-\u{2ffff}]/u.test(text || '') ? 'ja' : 'en';
 }
 
 // A character that belongs inside a written word: Latin letters and digits.

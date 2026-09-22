@@ -230,3 +230,60 @@ test('silenceOthers: a player told nothing about others still plays', async () =
   const player = createPlayer(env.deps);
   assert.equal(await player.play(new Blob(['a']), 's1'), true);
 });
+
+test('play: a clip started while another was still starting is not killed by it', async () => {
+  // A browser rejects a pending play() when the element is paused, which is
+  // exactly what starting the next clip does to this one. The older call's
+  // failure path used to release whatever was playing by then -- the newer
+  // clip -- revoking its URL and pausing it a moment after it started.
+  const env = fakeAudioEnvironment();
+  let releaseFirst;
+  const elements = [];
+  env.deps.createAudio = (url) => {
+    const element = {
+      url,
+      paused: false,
+      onended: null,
+      onerror: null,
+      pause() {
+        this.paused = true;
+        // A paused element rejects the play() promise still waiting on it.
+        this.rejectPlay?.(Object.assign(new Error('interrupted by pause'), { name: 'AbortError' }));
+      },
+      play() {
+        return new Promise((resolve, reject) => {
+          this.rejectPlay = reject;
+          if (elements.length === 1) releaseFirst = resolve;
+          else resolve();
+        });
+      },
+    };
+    elements.push(element);
+    env.elements.push(element);
+    return element;
+  };
+
+  const player = createPlayer(env.deps);
+  const first = player.play(clip(), 'a');   // still starting
+  const second = await player.play(clip(), 'b');
+
+  assert.equal(second, true, 'the second clip started');
+  assert.equal(player.current(), 'b');
+  assert.equal(elements[1].paused, false, 'and is still playing');
+  assert.deepEqual(env.live(), [elements[1].url], 'its URL is still held; only the first was released');
+
+  releaseFirst?.();
+  assert.equal(await first, false, 'the first call reports that it did not end up playing');
+  assert.equal(player.current(), 'b');
+});
+
+test('play: a clip that cannot be built releases its URL', async () => {
+  const env = fakeAudioEnvironment();
+  env.deps.createAudio = () => { throw new Error('no audio element'); };
+
+  const player = createPlayer(env.deps);
+
+  assert.equal(await player.play(clip(), 'a'), false);
+  assert.deepEqual(env.live(), [], 'the Blob behind it is not pinned for the life of the tab');
+  assert.equal(player.current(), null);
+});

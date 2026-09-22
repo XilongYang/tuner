@@ -13,14 +13,19 @@ export const FAIR_FROM = 60;
 /**
  * Which band a 0-100 score falls in.
  *
+ * The rounded score, because the rounded score is what is printed beside the
+ * colour: the service returns fractions, and 79.5 shown as "80" in the band
+ * for 60-79 is a chip that argues with the legend three lines below it.
+ *
  * Absent or unreadable counts as the lowest band rather than throwing: a
  * missing score is not a reason to lose the whole result, and drawing it as
  * poor is honest about knowing nothing good.
  */
 export function accuracyLevel(score) {
   if (typeof score !== 'number' || Number.isNaN(score)) return 'bad';
-  if (score >= GOOD_FROM) return 'good';
-  if (score >= FAIR_FROM) return 'mid';
+  const shown = Math.round(score);
+  if (shown >= GOOD_FROM) return 'good';
+  if (shown >= FAIR_FROM) return 'mid';
   return 'bad';
 }
 

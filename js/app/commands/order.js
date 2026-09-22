@@ -45,9 +45,15 @@ export async function placeNew({ db, record }) {
  * neighbours' keys here rather than taking them from the caller keeps a stale
  * list from writing a position that was true a sync ago.
  *
+ * `store` is how the move reaches the session that is open, if it is this one.
+ * Without it the copy on screen keeps the old position, and the next autosave
+ * writes that copy back over this one: the row springs back after the next
+ * keystroke, and because that write is the newer one, the springing back is
+ * what reaches the other devices.
+ *
  * @returns {Promise<{ok: boolean, reason?: string, sortKey?: string}>}
  */
-export async function moveSession({ db, clock, sessionId, beforeId = null, afterId = null }) {
+export async function moveSession({ db, clock, store = null, sessionId, beforeId = null, afterId = null }) {
   const sessions = await db.listAll('sessions', { content: false });
   const moving = sessions.find((session) => session.id === sessionId);
   if (!moving) return { ok: false, reason: 'not-found' };
@@ -73,12 +79,27 @@ export async function moveSession({ db, clock, sessionId, beforeId = null, after
     return { ok: true, sortKey: here };
   }
 
-  const sortKey = between(before, after);
+  let sortKey;
+  try {
+    sortKey = between(before, after);
+  } catch {
+    // A key this cannot subdivide (see model/order.js). Refused like any other
+    // stale neighbour: the caller re-reads rather than putting the row
+    // somewhere nobody pointed at.
+    return { ok: false, reason: 'stale' };
+  }
 
   const now = clock();
   // metaUpdatedAt, because a position is one of the session's own fields: a
   // move made here has to outrank the position another device is holding, and
   // has no business outranking an edit to a sentence.
   await db.put('sessions', { ...moving, sortKey, updatedAt: now, metaUpdatedAt: now });
+
+  // The same values, not a second set from a second clock read: two copies of
+  // one session disagreeing about when it moved is how the older one wins later.
+  store?.apply((current) => (current?.id === sessionId
+    ? { ...current, sortKey, updatedAt: now, metaUpdatedAt: now }
+    : null), 'moved');
+
   return { ok: true, sortKey };
 }

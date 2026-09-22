@@ -9,10 +9,21 @@ import {
 test('accuracyLevel: three bands, at their stated edges', () => {
   assert.equal(accuracyLevel(100), 'good');
   assert.equal(accuracyLevel(GOOD_FROM), 'good');
-  assert.equal(accuracyLevel(GOOD_FROM - 0.1), 'mid');
+  assert.equal(accuracyLevel(GOOD_FROM - 1), 'mid');
   assert.equal(accuracyLevel(FAIR_FROM), 'mid');
-  assert.equal(accuracyLevel(FAIR_FROM - 0.1), 'bad');
+  assert.equal(accuracyLevel(FAIR_FROM - 1), 'bad');
   assert.equal(accuracyLevel(0), 'bad');
+});
+
+test('accuracyLevel: the band is the band of the number that is shown', () => {
+  // The service returns fractions. 79.5 is printed as "80" beside its colour,
+  // and a chip reading 80 in the 60-79 band argues with the legend three lines
+  // below it.
+  assert.equal(accuracyLevel(79.5), 'good');
+  assert.equal(accuracyLevel(59.5), 'mid');
+  assert.deepEqual(overallScores({ overall: { pronunciation: 79.5 } })[0], { label: 'Overall', value: 80, level: 'good' });
+  assert.equal(wordMark({ accuracy: 79.6, errorType: 'None' }).level, 'good');
+  assert.match(wordHeadline({ word: 'fox', accuracy: 79.6, errorType: 'None' }), /accuracy 80/);
 });
 
 test('accuracyLevel: a missing score is the lowest band, not an error', () => {

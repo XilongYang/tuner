@@ -95,6 +95,12 @@ export const OCCURRENCE = entity('occurrence', {
   // stay addressable after the session and sentence it was recorded from are
   // edited or deleted, so its path is keyed by the entry, not by them.
   ref: (record, parentRef) => ({ ...parentRef, occurrenceId: record.occurrenceId }),
+  // When it was last recorded. Named explicitly because the default clock is
+  // `updatedAt`, which an occurrence does not have: without this every field of
+  // it would compare 0 against 0, and a merge would keep whichever copy was
+  // passed first -- so re-picking a word would produce a snapshot and an audio
+  // hash that each device keeps to itself, and the two would never converge.
+  clock: 'addedAt',
 });
 
 export const VOCAB_ENTRY = entity('vocabEntry', {

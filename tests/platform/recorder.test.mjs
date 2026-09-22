@@ -254,3 +254,40 @@ test('dispose: is safe to call twice, and while idle', () => {
   recorder.dispose();
   assert.equal(recorder.state, 'disposed');
 });
+
+test('dispose while the permission prompt is open does not leave the microphone on', async () => {
+  // The screen that asked can be gone before the prompt is answered. A
+  // continuation that carried on regardless would set the recorder recording
+  // after it had been disposed, with nothing left holding a reference to the
+  // stream -- the browser's recording indicator stays on until the tab closes.
+  let answer;
+  const env = fakeEnvironment();
+  env.deps.getUserMedia = () => new Promise((resolve) => { answer = resolve; });
+
+  const recorder = createRecorder(env.deps);
+  const starting = recorder.start();
+  recorder.dispose();
+
+  answer({ getTracks: () => env.tracks, _track: null });
+  assert.equal(await starting, false, 'the start reports that it did not happen');
+  assert.equal(recorder.state, 'disposed');
+  assert.equal(recorder.isRecording, false);
+  assert.equal(env.micIsLive(), false, 'and the stream it was handed is stopped');
+});
+
+test('cancel while the worklet module is loading leaves nothing running', async () => {
+  let finishModule;
+  const env = fakeEnvironment();
+  env.context.audioWorklet = { addModule: () => new Promise((resolve) => { finishModule = resolve; }) };
+
+  const recorder = createRecorder(env.deps);
+  const starting = recorder.start();
+  await Promise.resolve();
+  await recorder.cancel();
+
+  finishModule();
+  assert.equal(await starting, false);
+  assert.equal(recorder.state, 'idle', 'and it can be started again');
+  assert.equal(env.micIsLive(), false);
+  assert.equal(env.context.closed, true);
+});

@@ -226,6 +226,10 @@ export function createPracticePanel({ container, store, actions, player, createR
     release() {
       for (const recorder of recorders.values()) recorder.dispose();
       recorders.clear();
+      // A row that survives this (the same session reopened keeps its sentence
+      // ids) keeps its place on screen, but not a retest that was recording
+      // into it.
+      for (const row of rows.values()) row.release?.();
       // Rows are deliberately left alone: release() runs when the session on
       // screen is replaced, and reopening the same session keeps the same
       // sentence ids -- those rows stay on screen and must stay working.

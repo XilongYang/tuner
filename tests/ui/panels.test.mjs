@@ -100,6 +100,9 @@ const vocabEntry = (id, over = {}) => ({
 });
 
 function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('difficult')], hidden = false, moveOutcome = { ok: true } } = {}) {
+  // Lets a test hold one listSessions call open, to land it after the tab has
+  // moved on.
+  let hold = null;
   // Covered or not is a field on the entry, exactly as it is on a sentence.
   vocab = vocab.map((entry) => ({ ...entry, hidden: entry.hidden ?? hidden }));
   const dispatched = [];
@@ -110,7 +113,7 @@ function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('di
     container,
     player: { play: (audio, token) => dispatched.push(['play', token]) },
     actions: {
-      listSessions: async () => sessions,
+      listSessions: async () => { if (hold) { await hold; hold = null; } return sessions; },
       listVocab: async () => vocab,
       openSession: (id) => dispatched.push(['openSession', id]),
       renameSession: async (id, name) => dispatched.push(['renameSession', id, name]),
@@ -126,7 +129,7 @@ function libraryHarness({ sessions = [session('sess1')], vocab = [vocabEntry('di
     },
   });
 
-  return { container, panel, dispatched };
+  return { container, panel, dispatched, holdSessions: (promise) => { hold = promise; } };
 }
 
 test('library: opening it lists the saved sessions', async () => {
@@ -251,6 +254,29 @@ test('library: a move the store refuses is not left on screen', async () => {
   assert.match(h.container.querySelector('.panel-status').textContent, /had changed/);
   assert.deepEqual([...h.container.querySelectorAll('.library-row')].map((row) => row.dataset.sessionId),
     ['a', 'b'], 'the list is re-read rather than left claiming an arrangement nothing has');
+});
+
+test('library: a list that arrives after the tab changed is not drawn', async () => {
+  // Both lists are read asynchronously into the same element. Without a guard,
+  // the sessions read started by the first open lands after the switch to
+  // vocabulary and reconciles session rows into the vocabulary tab.
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  const h = libraryHarness({ sessions: [session('a')] });
+  h.panel.setOpen(true, 'sessions');
+
+  // The sessions read is in flight; make it land after the tab has changed.
+  h.holdSessions(slow);
+  h.panel.setOpen(true, 'sessions');
+  h.panel.setOpen(true, 'vocab');
+  await tick();
+  release();
+  await tick();
+  await tick();
+
+  assert.equal(h.container.querySelector('.library-row[data-session-id]'), null,
+    'the vocabulary tab shows vocabulary');
+  assert.ok(h.container.querySelector('.vocab-row'));
 });
 
 test('library: the vocabulary list is not rearrangeable', async () => {

@@ -43,6 +43,27 @@ test('between: neighbours in the wrong order are a bug, and say so', () => {
   assert.throws(() => between('a', 'a'), /out of sequence/);
 });
 
+test('between: a key it cannot subdivide is refused rather than answered wrongly', () => {
+  // A key ending in the lowest digit has no room below it at that length, and
+  // the subdivision would return a key past the upper bound. Nothing here
+  // produces such a key, so one can only arrive from another device or a
+  // hand-edited record -- and a refusal is recoverable where a silently
+  // misplaced row is not.
+  assert.throws(() => between('a', 'a0'), /cannot be subdivided/);
+  assert.throws(() => between('a0', 'b'), /cannot be subdivided/);
+  assert.throws(() => between('a0', null), /cannot be subdivided/);
+});
+
+test('between: every key it generates can itself be subdivided', () => {
+  // Which is what makes the refusal above unreachable in normal use.
+  const keys = initialKeys(40);
+  for (let i = 0; i < 2000; i += 1) {
+    const at = Math.floor(Math.random() * (keys.length + 1));
+    keys.splice(at, 0, between(keys[at - 1] ?? null, keys[at] ?? null));
+  }
+  assert.ok(keys.every((key) => !key.endsWith('0')));
+});
+
 test('keyBefore and keyAfter place a row at the ends of a list', () => {
   const keys = ['b', 'i', 'w'];
   assert.ok(keyBefore(keys) < 'b');

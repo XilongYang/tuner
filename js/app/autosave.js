@@ -68,24 +68,38 @@ export function createAutosave({
     }
   }
 
-  async function run() {
-    handle = null;
-    if (inFlight) {
-      // A save is already running; let it finish and go again, rather than
-      // interleaving two writes of the same record.
-      pendingAgain = true;
-      return;
-    }
-    inFlight = writeNow();
+  /**
+   * Write, and keep writing while changes arrive during a write.
+   *
+   * The loop is what makes the returned promise mean "everything asked for so
+   * far is written". `inFlight` is cleared in the same synchronous step that
+   * leaves the loop, so there is no moment where a caller can see a save in
+   * flight that will never run again.
+   */
+  async function cycle() {
     try {
-      await inFlight;
+      do {
+        pendingAgain = false;
+        await writeNow();
+      } while (pendingAgain);
     } finally {
       inFlight = null;
-      if (pendingAgain) {
-        pendingAgain = false;
-        run();
-      }
     }
+  }
+
+  function run() {
+    handle = null;
+    // A save is already running: let it finish and go again, rather than
+    // interleaving two writes of the same record. The caller gets that whole
+    // chain, not just the write that happens to be running now -- flush()
+    // waiting on the older write would return before the newest state was
+    // stored, which is exactly what flush exists to prevent.
+    if (inFlight) {
+      pendingAgain = true;
+      return inFlight;
+    }
+    inFlight = cycle();
+    return inFlight;
   }
 
   const unsubscribe = store.subscribe((_session, { reason }) => {
@@ -104,7 +118,6 @@ export function createAutosave({
         handle = null;
       }
       await run();
-      await inFlight;
     },
 
     /** Forget what was last saved, so the next save re-hashes everything. Used when the session on screen is replaced by a different one. */

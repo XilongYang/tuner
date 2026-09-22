@@ -30,6 +30,7 @@ import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
 import * as order from './app/commands/order.js';
+import { serialize } from './app/serialize.js';
 import { importAudio } from './app/commands/import-audio.js';
 import { syncNow, eraseCloud } from './app/commands/sync.js';
 
@@ -125,7 +126,7 @@ async function start() {
   // only place the header's indicator is driven from.
   const syncIndicator = createSyncIndicator(document.getElementById('sync-indicator'));
 
-  const runSync = async (onProgress) => {
+  const runRound = async (onProgress) => {
     syncIndicator.set({ state: 'syncing', detail: syncProgress(null) });
     const result = await syncNow({
       deps: {
@@ -150,6 +151,16 @@ async function start() {
     }
     return result;
   };
+
+  // One round at a time in this tab, and at most one waiting behind it.
+  //
+  // The container lock stops two *devices* running a round at once; it says
+  // nothing about two rounds in one tab (see cloud/sync/lock.js, which says so
+  // and leaves it to whatever schedules rounds -- this). A second round started
+  // here would be refused by this device's own lock and reported as "another
+  // device is syncing", which is a lie told to the person who just pressed
+  // Sync now while the automatic round was running.
+  const runSync = serialize(runRound);
 
   /**
    * A container has just been set or forgotten in Settings.
@@ -250,7 +261,7 @@ async function start() {
     actions: {
       // In the order the user arranged, and in no other: see model/order.js.
       listSessions: () => order.listOrdered({ db }),
-      moveSession: (move) => order.moveSession({ db, clock, ...move }),
+      moveSession: (move) => order.moveSession({ db, clock, store, ...move }),
       listVocab: () => vocab.list({ deps: commandDeps }),
       // The library stays open: picking a session is often one of several --
       // comparing, or working through a few -- and closing it would make the
@@ -395,9 +406,17 @@ async function start() {
   // A session arriving from storage or a sync decides how the switch reads: it
   // shows the state of what is on screen, and only a session hidden right
   // through counts as hidden.
+  //
+  // What it reads is also what it means, so the stored preference moves with
+  // it. Otherwise the switch says "on" while `startsHidden` still reads the
+  // old value, and the next sentence split -- or the next word collected --
+  // arrives uncovered, in plain sight, next to a page of covered ones.
   store.subscribe((current) => {
     const sentences = current?.sentences ?? [];
-    if (sentences.length) hideAll.checked = sentences.every((sentence) => sentence.hidden);
+    if (!sentences.length) return;
+    const allHidden = sentences.every((sentence) => sentence.hidden);
+    hideAll.checked = allHidden;
+    if (allHidden !== settings.hideText()) settings.saveHideText(allHidden);
   });
 
   // Exposed for the end-to-end tests, which drive the app the way a person

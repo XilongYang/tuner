@@ -194,9 +194,10 @@ export function mergeRanges(ranges) {
 /**
  * Words of a run of merged sentences, re-based onto the concatenated text.
  *
- * `texts[i]` must be the text the words of `wordLists[i]` are indexed against,
- * because merge concatenates with no separator: each list shifts by the total
- * length of everything before it. A run where any sentence has no words yields
+ * `texts[i]` must be the piece of the merged text that `wordLists[i]`'s words
+ * are indexed against, including whatever separator the merge put after it:
+ * each list shifts by the total length of everything before it, so a separator
+ * left out of the count would put every later word one character early. A run where any sentence has no words yields
  * null -- partial timings would put later words at wrong positions, which is
  * worse than having none.
  * @returns {Word[]|null}

@@ -22,7 +22,7 @@
 // branch on that marker -- two internal fields that then had to be stripped
 // before persisting, in two hand-written places.
 
-import { hashKey } from './schema.js';
+import { hashKey, toNode } from './schema.js';
 
 const clockOf = (record, field) => (record ? (record[field] ?? 0) : -1);
 
@@ -73,7 +73,7 @@ export function survives(def, record, kind, tombstones) {
 export function mergeEntity(def, local, remote, ctx = {}) {
   if (!local && !remote) throw new Error(`mergeEntity(${def.name}): both sides null`);
   const base = local || remote;
-  const metaWinner = clockOf(remote, def.metaClock) > clockOf(local, def.metaClock) ? (remote || base) : base;
+  const metaWinner = pickWinner(def, local, remote) || base;
 
   const out = {};
   for (const [field, d] of def.entries) {
@@ -102,6 +102,26 @@ export function mergeEntity(def, local, remote, ctx = {}) {
     }
   }
   return out;
+}
+
+/**
+ * Which copy's fields win: the one with the newer clock, and on a tie the same
+ * one on both devices.
+ *
+ * A tie is not hypothetical -- two edits in the same millisecond, or a clock
+ * that was never set -- and "whichever was passed as local" means each device
+ * keeps its own value, republishes it, and the two never converge: every round
+ * from then on sees the manifest as changed. Comparing the serialized nodes is
+ * arbitrary but identical everywhere, which is the only property that matters
+ * here. (model/order.js breaks its own ties the same way, on the id.)
+ */
+function pickWinner(def, local, remote) {
+  if (!local || !remote) return remote || local;
+  const localClock = clockOf(local, def.metaClock);
+  const remoteClock = clockOf(remote, def.metaClock);
+  if (remoteClock > localClock) return remote;
+  if (localClock > remoteClock) return local;
+  return JSON.stringify(toNode(def, local)) <= JSON.stringify(toNode(def, remote)) ? local : remote;
 }
 
 /**

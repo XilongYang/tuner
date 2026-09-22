@@ -31,6 +31,12 @@ let generation = 0;
 export function openDb() {
   if (dbPromise) return dbPromise;
   const mine = ++generation;
+  // Set once this open has given up. A blocked open reports failure straight
+  // away, but the request behind it can still succeed later -- when the tab in
+  // the way closes -- and that connection must be closed rather than left open
+  // with nothing referencing it.
+  let abandoned = false;
+
   dbPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
@@ -51,6 +57,10 @@ export function openDb() {
     };
     request.onsuccess = () => {
       const db = request.result;
+      if (abandoned) {
+        db.close();
+        return;
+      }
       // Another tab wants to upgrade the schema, and it cannot while this
       // connection is open. Holding on would hang that tab for as long as this
       // one lives, so this one lets go -- and forgets the connection, so the
@@ -61,13 +71,26 @@ export function openDb() {
       };
       resolve(db);
     };
-    request.onerror = () => reject(dbError(request.error, `Opening the ${DB_NAME} database`));
+    request.onerror = () => {
+      abandoned = true;
+      reject(dbError(request.error, `Opening the ${DB_NAME} database`));
+    };
     // The mirror image: this tab needs an upgrade and an older one is in the
     // way. Without this the open never settles at all -- no success, no error
     // -- and the app waits forever with nothing on screen to say why.
-    request.onblocked = () => reject(new Error(
-      `Opening the ${DB_NAME} database is blocked: another tab is still using an older version of this app. Close it and reload.`,
-    ));
+    request.onblocked = () => {
+      abandoned = true;
+      reject(new Error(
+        `Opening the ${DB_NAME} database is blocked: another tab is still using an older version of this app. Close it and reload.`,
+      ));
+    };
+  }).catch((err) => {
+    // A failed open is not cached. Otherwise one blocked or refused attempt is
+    // handed to every later call for the life of the page: the tab in the way
+    // closes, the user reloads nothing, and storage stays dead with no way
+    // back except a reload they were never told to do.
+    if (generation === mine) dbPromise = null;
+    throw err;
   });
   return dbPromise;
 }

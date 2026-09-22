@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   tombstoneId, mergeTombstones, survives, mergeEntity, mergeCollection,
 } from '../../js/model/merge.js';
-import { SESSION, SENTENCE, VOCAB_ENTRY, FOLDER } from '../../js/model/schema.js';
+import { SESSION, SENTENCE, VOCAB_ENTRY, FOLDER, OCCURRENCE } from '../../js/model/schema.js';
 
 const tombstones = (...entries) => new Map(entries.map(([kind, id, deletedAt]) => [tombstoneId(kind, id), { id: tombstoneId(kind, id), kind, targetId: id, deletedAt }]));
 
@@ -173,4 +173,44 @@ test('mergeCollection: with no tombstones nothing is deleted', () => {
   const { survivors, deleted } = mergeCollection(SENTENCE, [{ id: 'a', updatedAt: 1 }], [{ id: 'b', updatedAt: 1 }], {});
   assert.deepEqual(survivors.map((s) => s.id), ['a', 'b']);
   assert.deepEqual(deleted, []);
+});
+
+// ---- two devices have to reach the same answer ----
+
+const occurrence = (over = {}) => ({
+  occurrenceId: 'o1', sessionId: 's1', sentenceId: 'x',
+  sentenceTextSnapshot: 'OLD', addedAt: 1000, audio: null, audioHash: 'hA', ...over,
+});
+
+test('mergeEntity: an occurrence is merged by when it was recorded', () => {
+  // It has no `updatedAt`, so without a clock of its own every field compared 0
+  // against 0 and the copy that happened to be passed first won -- which for a
+  // re-picked word meant each device kept its own snapshot and audio hash, and
+  // the two never converged.
+  const older = occurrence();
+  const newer = occurrence({ sentenceTextSnapshot: 'NEW', addedAt: 5000, audioHash: 'hB' });
+
+  for (const [local, remote] of [[older, newer], [newer, older]]) {
+    const merged = mergeEntity(OCCURRENCE, local, remote);
+    assert.equal(merged.sentenceTextSnapshot, 'NEW');
+    assert.equal(merged.audioHash, 'hB');
+  }
+});
+
+test('mergeEntity: a tie is broken the same way on both devices', () => {
+  // Two edits in the same millisecond. "Whichever was passed as local" means
+  // each device keeps its own value and republishes it, and every round from
+  // then on sees the manifest as changed.
+  const one = { id: 'v', name: 'Alpha', createdAt: 1, updatedAt: 5, metaUpdatedAt: 5, sentences: [] };
+  const other = { ...one, name: 'Beta' };
+
+  assert.equal(mergeEntity(SESSION, one, other).name, mergeEntity(SESSION, other, one).name);
+});
+
+test('mergeEntity: a real difference in clocks still decides', () => {
+  const one = { id: 'v', name: 'Alpha', createdAt: 1, updatedAt: 5, metaUpdatedAt: 5, sentences: [] };
+  const newer = { ...one, name: 'Beta', metaUpdatedAt: 9 };
+
+  assert.equal(mergeEntity(SESSION, one, newer).name, 'Beta');
+  assert.equal(mergeEntity(SESSION, newer, one).name, 'Beta');
 });

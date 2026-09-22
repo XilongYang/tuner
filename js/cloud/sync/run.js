@@ -52,7 +52,11 @@ const noop = () => {};
  *
  * A download that 404s is reported in `missing` too, and does not abort the
  * round: one unreachable clip should not stop a sync that is otherwise fine,
- * and the manifest still names it, so the next round tries again.
+ * and the manifest still names it, so the next round tries again. Bytes that
+ * arrive but cannot be read as what their kind says they are (a truncated
+ * upload, a half-written assessment) are reported the same way, and for the
+ * same reason -- throwing there would end every round from then on, and the
+ * only way out for the user would be deleting everything in the container.
  *
  * @param {object} plan from planSync()
  * @param {import('../blob.js').Container} container
@@ -75,6 +79,10 @@ export async function transferContent(plan, container, { getValue, onProgress = 
     const value = await getValue(slot);
     if (value == null) {
       missing.push({ path: slot.path, direction: 'up', reason: 'no local content for a hash that claims it exists' });
+      // Counted anyway: a slot that could not be sent is still a slot dealt
+      // with, and a progress line that never reaches its total reads as a
+      // round that never finished.
+      onProgress({ done: ++done, total, kind: slot.kind, direction: 'up' });
       continue;
     }
     await container.uploadBytes(slot.path, encode(slot.kind, value), contentKind(slot.kind).mime);
@@ -83,12 +91,26 @@ export async function transferContent(plan, container, { getValue, onProgress = 
   }
 
   for (const slot of downloads) {
+    let blob = null;
     try {
-      const blob = await container.downloadBytes(slot.path);
-      downloadedValues.set(slot.path, await decode(slot.kind, blob));
+      blob = await container.downloadBytes(slot.path);
     } catch (err) {
+      // A transport failure is a real fault and ends the round; only "it is not
+      // there" is a slot to note and move past.
       if (!err.notFound) throw err;
       missing.push({ path: slot.path, direction: 'down', reason: 'referenced by the manifest but not in the container' });
+    }
+
+    if (blob) {
+      try {
+        downloadedValues.set(slot.path, await decode(slot.kind, blob));
+      } catch (err) {
+        missing.push({
+          path: slot.path,
+          direction: 'down',
+          reason: `downloaded, but the bytes could not be read as ${slot.kind}: ${err.message}`,
+        });
+      }
     }
     onProgress({ done: ++done, total, kind: slot.kind, direction: 'down' });
   }

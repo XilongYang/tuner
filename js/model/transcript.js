@@ -226,14 +226,33 @@ const LETTER_OR_DIGIT = /[\p{L}\p{N}]/u;
  *
  * `index[i]` is where the i-th kept character sits in the original, which is
  * what turns a match back into a span of the text.
+ *
+ * Positions are counted in characters as the rest of the app counts them --
+ * code points, not UTF-16 units (see geometry.js's `chars`). A sentence with a
+ * character outside the basic plane is not exotic in Japanese, and counting
+ * its halves separately would put every later span one position out, which
+ * means cut markers in the wrong gaps and clips cut from the wrong moment.
+ *
+ * One character can lowercase to more than one (İ -> i̇). Each piece it
+ * contributes maps back to the same position, so a match landing anywhere in
+ * it spans the character it came from, and `flat` and `index` stay the same
+ * length -- which everything downstream assumes.
  */
 function project(text) {
   let flat = '';
   const index = [];
-  for (let i = 0; i < text.length; i += 1) {
-    if (!LETTER_OR_DIGIT.test(text[i])) continue;
-    flat += text[i].toLowerCase();
-    index.push(i);
+  const characters = [...text];
+  for (let i = 0; i < characters.length; i += 1) {
+    const character = characters[i];
+    if (!LETTER_OR_DIGIT.test(character)) continue;
+    for (const piece of character.toLowerCase()) {
+      flat += piece;
+      // One entry per UTF-16 unit, not per character: the search below is
+      // `indexOf` on a string, and its answers are in those units. An index
+      // kept per character would be read with a position counted in units, and
+      // every span after the first astral character would come back wrong.
+      for (let unit = 0; unit < piece.length; unit += 1) index.push(i);
+    }
   }
   return { flat, index };
 }

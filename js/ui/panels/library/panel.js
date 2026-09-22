@@ -67,15 +67,23 @@ export function createLibraryPanel({ container, actions, player }) {
   // panel a row.
   container.append(status.node, empty, list);
 
+  // Which repaint is the current one. Both lists are read asynchronously into
+  // the same element, so a read that lands after the tab changed -- or after a
+  // later refresh started -- would draw sessions into the vocabulary tab.
+  let generation = 0;
+
   async function refresh() {
     // Whatever is about to be drawn, it is not the list the drag started on.
     reorder.cancel();
-    if (tab === 'sessions') await renderSessions();
-    else await renderVocab();
+    const mine = ++generation;
+    const stale = () => mine !== generation;
+    if (tab === 'sessions') await renderSessions(stale);
+    else await renderVocab(stale);
   }
 
-  async function renderSessions() {
+  async function renderSessions(stale = () => false) {
     const sessions = await actions.listSessions();
+    if (stale()) return;
     empty.hidden = sessions.length > 0;
     empty.textContent = 'Nothing saved yet. Split some text to start a session.';
 
@@ -150,8 +158,9 @@ export function createLibraryPanel({ container, actions, player }) {
     return row;
   }
 
-  async function renderVocab() {
+  async function renderVocab(stale = () => false) {
     const entries = await actions.listVocab();
+    if (stale()) return;
     empty.hidden = entries.length > 0;
     empty.textContent = 'No vocabulary yet. Use "Add vocab" on a sentence to collect a word.';
 

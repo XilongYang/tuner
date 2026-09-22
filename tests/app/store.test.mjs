@@ -201,3 +201,32 @@ test('listeners see the new value, not the one being replaced', () => {
   assert.equal(seen.name, 'after');
   assert.equal(seen, store.get());
 });
+
+test('storing the session is not movement: a save does not cancel work in flight', () => {
+  // A command pins the version before its slow work and drops its result if
+  // anything moved. Autosave putting the stamped record back is the same
+  // session with its hashes filled in -- counting it made a save landing
+  // mid-split cancel the split, with nothing on screen to explain it.
+  const store = createSessionStore({ id: 's', sentences: [] });
+  const pinned = store.version();
+  const seen = [];
+  store.subscribe((session, { reason }) => seen.push(reason));
+
+  store.apply((current) => ({ ...current, inputTextHash: 'stamped' }), 'saved');
+
+  assert.equal(store.version(), pinned, 'the version did not move');
+  assert.deepEqual(seen, ['saved'], 'but the listeners were told, because the object is a new one');
+  assert.equal(store.get().inputTextHash, 'stamped');
+  assert.equal(store.applyIfUnchanged(pinned, (current) => ({ ...current, name: 'later' }), 'apply'), true,
+    'so work pinned before the save still lands');
+});
+
+test('a real change still moves the version', () => {
+  const store = createSessionStore({ id: 's', sentences: [] });
+  const pinned = store.version();
+
+  store.apply((current) => ({ ...current, name: 'edited' }));
+
+  assert.notEqual(store.version(), pinned);
+  assert.equal(store.applyIfUnchanged(pinned, (current) => ({ ...current, name: 'stale' })), false);
+});

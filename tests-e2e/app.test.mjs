@@ -65,7 +65,12 @@ after(async () => {
 async function openPanel(page, tab) {
   const sidebar = page.locator('#sidebar');
   if (!(await sidebar.isVisible())) await page.getByRole('button', { name: 'Panel' }).click();
-  await page.locator('#sidebar-tabs .panel-tab', { hasText: tab }).click();
+  // Only if it is not already showing: clicking the tab that is open repaints
+  // the list, and a second repaint arriving under a locator that has already
+  // resolved is a row measured after it was replaced.
+  const target = page.locator('#sidebar-tabs .panel-tab', { hasText: tab });
+  if (!(await target.evaluate((btn) => btn.classList.contains('is-active')))) await target.click();
+  await page.waitForTimeout(20);
 }
 
 /** Put the sidebar away, however it was opened. */
@@ -1032,6 +1037,7 @@ test('the library list is arranged by hand, and stays arranged', async () => {
   const grip = rows.nth(2).locator('.library-grip');
   const from = await grip.boundingBox();
   const to = await rows.nth(0).boundingBox();
+  assert.ok(from && to, 'the rows are on screen and laid out before the drag starts');
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   // In steps, because a drag is a run of pointermoves: one jump would be a

@@ -194,8 +194,6 @@ export function createScoreBlock({
 
       try {
         const take = await taking.stop();
-        taking.dispose?.();
-        onBusy(false);
         if (!take?.blob) {
           say('Nothing was recorded.', 'error');
           return;
@@ -217,6 +215,10 @@ export function createScoreBlock({
       } catch (err) {
         say(`Retest failed: ${err.message}`, 'error');
       } finally {
+        // Here rather than after the stop: a stop that throws leaves this
+        // recorder unreachable -- `stop()` below has already been given up on
+        // it -- and it would hold the microphone for the life of the page.
+        taking.dispose?.();
         onBusy(false);
         retestBtn.disabled = false;
       }

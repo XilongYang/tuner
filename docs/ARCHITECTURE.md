@@ -267,6 +267,17 @@ The cross-device lock and orphan cleanup stay, unchanged in behaviour: they
 are separate concerns with their own modules, and neither needs to be inside
 the planner.
 
+### Nothing that holds a device stays held
+
+A microphone, an audio element, a database connection: each is taken by one
+function and released by another, and the release can arrive while the take is
+still in the air. So each start checks, after every await, that it is still the
+start anybody wants -- `platform/recorder` tears down a stream it was handed
+after being disposed, and `platform/player` lets a newer clip own playback
+rather than letting the older call's failure release it. A failed `openDb` is
+not cached: one blocked open otherwise leaves storage dead for the life of the
+page.
+
 ## db/ — bytes are written once
 
 A record carries hashes. The bytes those hashes name live in their own store,
@@ -352,11 +363,13 @@ cut against. A sentence with none is not offered the picker at all, and words
 the reading failed to place are named in the picker rather than silently
 missing.
 
-An occurrence is an append-only fact, so `addOccurrences` has nothing to
-recognise a repeat by. It therefore stops at the first failure and reports how
-many went in, and the picker freezes the selection once Add has been pressed
-and retries with the rest: a retry that started over would record everything
-that had already succeeded a second time.
+`addOccurrences` stops at the first failure and reports how many went in, and
+the picker freezes the selection once Add has been pressed and retries with the
+rest. Re-sending a group that already went in would not duplicate it -- an
+occurrence is keyed by where it came from, so the same words from the same
+sentence are one use of it however many times they are picked -- but it would
+re-cut and re-upload its audio for nothing, and a frozen selection is what
+makes the count mean anything.
 
 A score is four numbers, the sentence again with every word marked, and a
 popover per word (`ui/panels/practice/score.js`). The words are the part worth
@@ -383,6 +396,17 @@ arrangement can also be set with the arrow keys, which is the difference between
 an order some people cannot change and one they can. It reports where a row
 landed as the ids of the rows above and below it, and knows nothing else about
 what it is moving.
+
+Storing the session is not movement. A command pins the store's version before
+its slow work and drops its result if anything moved; autosave putting the
+stamped record back is the same session with its hashes filled in, so it does
+not bump that version -- counting it made a save landing mid-split cancel the
+split, with nothing on screen to explain it. Listeners are still told, because
+the object they hold is a new one.
+
+`flush()` resolves only when everything asked for so far is stored, a change
+that arrived mid-save included. It is called before switching sessions and on
+the way out of the page, so returning early there is losing the last edit.
 
 Sync is the one thing the app does without being asked, so it has a permanent
 place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
@@ -447,8 +471,11 @@ Storage:
   clip nothing references any more".)*
 - Nothing but `db/entities.js` reaches the content store. *(`arch`.)*
 - Version 1's inline content is moved out before any reader expects it in the
-  content store. *(`db/migrate` tests; browser test that starts the app on a
-  real version 1 database.)*
+  content store, and a record whose bytes cannot be read is left exactly as it
+  is rather than rewritten without them -- that inline value is the only copy
+  on this device, and the read may succeed next time. *(`db/migrate` tests: the
+  bytes are still inline after a failed read, and the next run finishes the
+  record.)*
 - An upgrade blocked by an older tab is reported, and a connection here lets go
   when another tab needs one. *(`db/open`.)*
 
@@ -465,9 +492,26 @@ Sync:
   release. *(`app/sync-command`: the order is asserted as a sequence.)*
 - A local write whose record changed under the plan is skipped, and the bytes
   it downloaded are skipped with it. *(`app/sync-command`.)*
+- One bad blob in the container costs its own slot and nothing else: bytes that
+  arrive but cannot be read as their kind are reported like a missing download.
+  Throwing there would end every round from then on, and the only way out would
+  be deleting everything in the container. *(`cloud/run` tests.)*
+- One round at a time in this tab, and at most one waiting behind it. The
+  container lock is between devices; two rounds in one tab would have the second
+  refused by this device's own lock and reported as another device syncing.
+  *(`app/serialize`; `cloud/sync/lock` says this is the scheduler's job.)*
 
 Model:
 
+- Two devices merging the same pair of records reach the same answer, including
+  when their clocks tie: the tie is broken on the serialized node, not on which
+  copy happened to be local. Otherwise each device keeps its own value and
+  republishes it forever. *(`model/merge` tests.)*
+- Every entity names a clock it actually has. An occurrence's is `addedAt`.
+  *(`model/merge`: an occurrence merges to the newer of the two.)*
+- Positions in a sentence are counted in characters, not UTF-16 units, in every
+  layer that produces or consumes them. *(`model/transcript`: a word after an
+  astral character; `model/geometry` counts the same way.)*
 - The library's order changes only when the user changes it: a session is
   placed once, at the top, when it is first stored, and moved only by a drag or
   the handle's arrow keys. Nothing derives position from a field that changes on
@@ -483,6 +527,9 @@ Model:
   the order they were last written: an edit -- covering a word, meeting it in a
   second sentence -- must not move the row the user is looking at. *(`app/vocab-command`:
   covering an entry leaves the list order alone.)*
+- Moving one row writes one record, and the copy on screen is moved with it --
+  the store's copy is what autosave writes next, so leaving it behind undoes the
+  move at the next keystroke. *(`app/order-command`.)*
 - Moving one row writes one record. *(`app/order-command`: the neighbours are
   asserted to be the same objects afterwards.)*
 - Word timings belong to the clip they were measured against. *(`model/session`
@@ -490,10 +537,15 @@ Model:
 - A blob path is a function of kind and ref, and the same one locally and
   remotely. *(`model/schema`: a content field added reaches the manifest and
   the content walk with nothing else touched.)*
-- Only identity has no default; every other field defaults, and no field
-  serializes as `undefined` -- the one value JSON drops. *(`model/schema`: the
-  required set is pinned, so adding a field without a default is a deliberate
-  edit to that list.)*
+- A field has a default unless it addresses something: the id of a record, and
+  `audioPathKey`, which is the folder every one of an entry's occurrence clips
+  lives under. Those two cannot have a stand-in value, because a record without
+  one is not a record and a path built from a placeholder is a path nobody can
+  find. Everything else defaults, so nothing serializes as `undefined` -- the
+  one value JSON drops. *(`model/schema`: the required set is pinned, so adding
+  a field without a default is a deliberate edit to that list.
+  `model/content`: a path built from a ref missing a part is refused rather
+  than addressed.)*
 - No `has<Field>` flag anywhere: a hash is the fact. *(`model/schema`.)*
 
 App and UI:

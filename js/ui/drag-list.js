@@ -137,6 +137,10 @@ export function dragReorder({ list, rowSelector, handleSelector, idOf, onMove })
     event.preventDefault();
     if (event.key === 'ArrowUp') list.insertBefore(row, all[to]);
     else list.insertBefore(row, all[to].nextElementSibling);
+    // Moving a node in the DOM can take the focus off it, and a handle that
+    // loses focus after one press turns "walk this row up" into "press, find
+    // the row again, press".
+    handle.focus();
     onMove({ id: idOf(row), ...neighbours(row) });
   });
 

@@ -110,6 +110,14 @@ export function createRecorder(deps = {}) {
      *
      * Refuses unless idle, so a double click cannot start a second capture over
      * the first. Any failure leaves the recorder idle with nothing held open.
+     *
+     * Starting takes several awaits -- a permission prompt, a context, a
+     * worklet module -- and the screen that asked for it can be gone before
+     * they finish. After each one, this checks that it is still the start
+     * anybody wants: `cancel` and `dispose` take the recorder out of
+     * 'starting', and a continuation that carried on regardless would hand a
+     * disposed recorder a live microphone with nothing left holding a
+     * reference to it.
      */
     async start() {
       if (state === 'disposed') throw new Error('This recorder has been disposed');
@@ -117,19 +125,25 @@ export function createRecorder(deps = {}) {
       state = 'starting';
       chunks = [];
 
+      /** True when this start was abandoned while it was waiting. */
+      const abandoned = () => state !== 'starting';
+
       try {
         stream = await getUserMedia(MIC_CONSTRAINTS);
+        if (abandoned()) { teardown(); return false; }
 
         context = createAudioContext();
         // The autoplay policy can hand back a suspended context; without this
         // the graph is never pulled and the recording is silent.
         if (context.state === 'suspended') {
           try { await context.resume(); } catch { /* proceeds; a silent take is caught by the caller */ }
+          if (abandoned()) { teardown(); return false; }
         }
         sampleRate = context.sampleRate;
 
         if (!context.audioWorklet) throw new Error('This browser does not support AudioWorklet, which recording requires');
         await context.audioWorklet.addModule(workletModuleUrl());
+        if (abandoned()) { teardown(); return false; }
 
         source = context.createMediaStreamSource(stream);
         workletNode = createWorkletNode(context, 'recorder-processor');

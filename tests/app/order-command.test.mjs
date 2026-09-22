@@ -3,6 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { listOrdered, placeNew, moveSession } from '../../js/app/commands/order.js';
+import { createSessionStore } from '../../js/app/store.js';
 
 function fakeDb(sessions = []) {
   const rows = new Map(sessions.map((session) => [session.id, session]));
@@ -125,6 +126,40 @@ test('moveSession: neighbours that have swapped places since the list was drawn 
   const outcome = await moveSession({ db, clock, sessionId: 'c', beforeId: 'a', afterId: 'b' });
 
   assert.deepEqual(outcome, { ok: false, reason: 'stale' });
+});
+
+test('moveSession: a neighbour whose key cannot be subdivided is refused, not guessed at', async () => {
+  // Such a key cannot come from this device (see model/order.js), so it means
+  // the list is not the one this move was aimed at.
+  const db = fakeDb([session('a', 'b0'), session('b', 'i')]);
+  const outcome = await moveSession({ db, clock, sessionId: 'b', beforeId: null, afterId: 'a' });
+
+  assert.deepEqual(outcome, { ok: false, reason: 'stale' });
+  assert.equal(db.rows.get('b').sortKey, 'i', 'and nothing moved');
+});
+
+test('moveSession: the session on screen is moved too, or the next save undoes it', async () => {
+  // The copy in the store is what autosave writes. Left with the old position,
+  // it goes back over this one at the next keystroke -- and since that write is
+  // the newer of the two, the other devices learn the move never happened.
+  const db = fakeDb([session('a', 'b'), session('b', 'i')]);
+  const store = createSessionStore({ ...db.rows.get('b') });
+
+  await moveSession({ db, clock, store, sessionId: 'b', beforeId: null, afterId: 'a' });
+
+  assert.equal(store.get().sortKey, db.rows.get('b').sortKey, 'the same key on screen as in storage');
+  assert.equal(store.get().metaUpdatedAt, db.rows.get('b').metaUpdatedAt,
+    'and the same moment, so neither copy can outrank the other later');
+});
+
+test('moveSession: a session other than the one on screen leaves the screen alone', async () => {
+  const db = fakeDb([session('a', 'b'), session('b', 'i')]);
+  const store = createSessionStore({ ...db.rows.get('a') });
+  const before = store.get();
+
+  await moveSession({ db, clock, store, sessionId: 'b', beforeId: null, afterId: 'a' });
+
+  assert.equal(store.get(), before);
 });
 
 test('moveSession: a session that is gone is refused', async () => {

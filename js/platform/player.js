@@ -102,8 +102,18 @@ export function createPlayer(deps = {}) {
       release();
 
       token = nextToken;
-      url = createObjectUrl(blob);
-      audio = createAudio(url);
+      // Inside the try: if building the element throws, the URL it was built
+      // from has to be let go, or the Blob behind it is pinned for the life of
+      // the tab -- which is the leak this module exists to prevent.
+      try {
+        url = createObjectUrl(blob);
+        audio = createAudio(url);
+      } catch {
+        release();
+        token = null;
+        announce();
+        return false;
+      }
 
       // Both endings release: without the error path, a clip the browser cannot
       // decode would leave its URL -- and its Blob -- held forever.
@@ -114,14 +124,21 @@ export function createPlayer(deps = {}) {
       // for it. Nothing here polls.
       audio.ontimeupdate = () => announceTime((audio?.currentTime ?? 0) * 1000);
 
+      // Which element this call owns. A later play() pauses this one, and a
+      // paused element rejects the play() promise it is still waiting on -- so
+      // without this check the older call's failure path would release the
+      // newer call's clip, revoke its URL, and stop it a moment after it
+      // started.
+      const mine = audio;
       announce();
       try {
         await audio.play?.();
-        return true;
+        return audio === mine;
       } catch {
         // Autoplay refusal, or an unplayable clip. Reported by returning false
         // rather than thrown: the caller shows its own message, and nothing is
         // left holding a URL either way.
+        if (audio !== mine) return false;
         release();
         token = null;
         announce();

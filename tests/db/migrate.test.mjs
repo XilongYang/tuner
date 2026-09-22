@@ -15,6 +15,9 @@ const clip = (bytes) => new Blob([new Uint8Array(bytes)], { type: 'audio/wav' })
 /** A write of the kind version 1 made: the bytes live inside the record. */
 const storeInline = (store, record) => transact([store], 'readwrite', (s) => request(s[store].put(record)));
 
+/** The record exactly as it is stored, without the content store filled in over it. */
+const raw = (store, id) => transact([store], 'readonly', (s) => request(s[store].get(id)));
+
 const oldSession = (over = {}) => ({
   id: 'sess1', name: null, folderId: null, splitMode: 'auto',
   createdAt: 1, updatedAt: 10, metaUpdatedAt: 10,
@@ -100,10 +103,12 @@ test('vocab occurrences come too, keyed by the entry rather than the sentence', 
   assert.equal(entry.hash, 'h-vocab');
 });
 
-test('a clip whose bytes cannot be read is reported, and its sentence still claims it', async () => {
+test('a record with a clip that cannot be read is left alone, bytes and all, and reported', async () => {
   // The state this whole change exists because of: the record says there is a
-  // clip, and the bytes behind it are gone. Migration is not the moment to
-  // decide that means the clip never existed.
+  // clip, and the read of it fails. Rewriting the record without it would take
+  // the only copy of those bytes on this device with it -- and the read that
+  // failed may well succeed on a fresh connection, which is the whole
+  // behaviour of the defect (see db/content.js).
   await storeInline(SESSIONS, oldSession());
   const dead = {
     materializeBlob: async (blob) => {
@@ -116,12 +121,35 @@ test('a clip whose bytes cannot be read is reported, and its sentence still clai
 
   assert.deepEqual(result.unreadable.map((u) => u.path), ['references/sess1/s1.audio']);
   assert.match(result.unreadable[0].message, /The object can not be found here/);
+  assert.deepEqual(result.moved, [], 'and nothing of that record was moved');
 
+  const stored = await raw(SESSIONS, 'sess1');
+  assert.equal(stored.sentences[0].referenceHash, 'h-ref', 'still claimed');
+  assert.deepEqual([...new Uint8Array(await stored.sentences[0].reference.arrayBuffer())], [3, 4, 5],
+    'and the bytes are still where version 1 put them, for the next attempt');
+});
+
+test('a record skipped for one bad clip is migrated whole once the read succeeds', async () => {
+  // Which is what "safe to run again" has to mean: the next run finds the
+  // record exactly as version 1 left it and finishes the job.
+  await storeInline(SESSIONS, oldSession());
+  let failures = 1;
+  const flaky = {
+    materializeBlob: async (blob) => {
+      if (blob.size === 3 && failures-- > 0) throw new Error('The object can not be found here');
+      return materializeBlob(blob);
+    },
+  };
+
+  await migrateInlineContent({ hash: flaky });
+  const second = await migrateInlineContent({ hash: flaky });
+
+  assert.deepEqual(second.unreadable, []);
+  assert.deepEqual(second.moved.sort(), ['inputtext/sess1.txt', 'recordings/sess1/s1.wav', 'references/sess1/s1.audio']);
   const session = await getOne('sessions', 'sess1');
-  assert.equal(session.sentences[0].referenceHash, 'h-ref', 'still claimed');
-  assert.equal(session.sentences[0].reference, null, 'and unplayable, which is the truth');
-  assert.deepEqual([...new Uint8Array(await session.sentences[0].recording.arrayBuffer())], [1, 2],
-    'the rest of the session came through');
+  assert.deepEqual([...new Uint8Array(await session.sentences[0].reference.arrayBuffer())], [3, 4, 5],
+    'read back through the content store this time');
+  assert.equal((await raw(SESSIONS, 'sess1')).sentences[0].reference, null, 'and nothing is left inline');
 });
 
 test('an empty database is not a special case', async () => {

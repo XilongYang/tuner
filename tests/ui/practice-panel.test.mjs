@@ -475,6 +475,30 @@ test('a retest holds the microphone, so the row cannot record over it', async ()
   assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false);
 });
 
+test('a retest whose stop fails still lets go of the microphone', async () => {
+  // The recorder has already been given up on by then -- `stop()` on the
+  // popover cannot reach it -- so if this path does not dispose it, nothing
+  // ever will and it holds the microphone for the life of the page.
+  const h = harness();
+  scored(h);
+  const word = wordsOf(h.container)[0];
+  word.click();
+  await settle();
+
+  tipButton(word, 'Retest').click();
+  await settle();
+  const recorder = h.recorders.at(-1);
+  recorder.stop = async () => { throw new Error('the device went away'); };
+
+  tipButton(word, 'Stop').click();
+  await settle();
+  await settle();
+
+  assert.equal(recorder.disposed, true);
+  assert.match(tipStatus(word), /the device went away/);
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false);
+});
+
 test('closing a word stops a retest that was still recording', async () => {
   const h = harness();
   scored(h);
@@ -490,6 +514,26 @@ test('closing a word stops a retest that was still recording', async () => {
   assert.ok(h.recorders.some((recorder) => recorder.disposed),
     'a popover nobody is looking at must not be left holding the microphone');
   assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false);
+});
+
+test('releasing the workspace stops a retest, even when the row survives it', async () => {
+  // Reopening the same session keeps its sentence ids, so its rows stay on
+  // screen and keep working -- but a retest recording into one of them belongs
+  // to the workspace that was just released.
+  const h = harness();
+  scored(h);
+  const word = wordsOf(h.container)[0];
+  word.click();
+  await settle();
+  tipButton(word, 'Retest').click();
+  await settle();
+
+  const retesting = h.recorders.at(-1);
+  h.panel.release();
+
+  assert.equal(retesting.disposed, true, 'the retest lets go of the microphone');
+  assert.equal(rowsOf(h.container).length, 1, 'and the row is still there');
+  assert.equal(buttonIn(rowsOf(h.container)[0], 'Record').disabled, false, 'ready to be used again');
 });
 
 test('a new score replaces the old one, popovers and all', async () => {

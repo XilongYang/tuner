@@ -13,10 +13,17 @@
 // inline is left alone, which is what every record looks like once this has
 // been through.
 //
-// A slot whose bytes cannot be read is reported, not dropped: the record keeps
-// the hash, so the clip is still claimed, a sync can still bring it back from
-// the container, and the person is told which ones they are. Migration is the
-// wrong moment to decide something is worthless.
+// A record with a slot whose bytes cannot be read is left exactly as it is --
+// still version 1, bytes still inline -- and reported. It is not rewritten
+// without them: `stripped` would take the inline value out of the record, and
+// that value is the only copy of those bytes on this device. An unreadable
+// Blob is sometimes readable again on a fresh connection, so the next run gets
+// another chance at it; a record rewritten without it would have none.
+//
+// That costs the readable slots of that one record their move as well, which
+// is the cheaper mistake: they are still inline, still readable, and still
+// claimed by the same hashes, so the only consequence is that this record is
+// tried again next time.
 
 import { SESSION, FOLDER, VOCAB_ENTRY, walkContent } from '../model/schema.js';
 import { contentPath } from '../model/content.js';
@@ -56,6 +63,7 @@ export async function migrateInlineContent({ hash, onProgress = noop } = {}) {
 
   for (const { entity, def, record, slots } of pending) {
     const entries = [];
+    let failed = false;
     for (const slot of slots) {
       const path = contentPath(slot.kind, slot.ref);
       try {
@@ -67,7 +75,16 @@ export async function migrateInlineContent({ hash, onProgress = noop } = {}) {
         });
       } catch (err) {
         unreadable.push({ path, message: err.message });
+        failed = true;
       }
+    }
+
+    // Left alone rather than rewritten without the bytes that could not be
+    // read: see the header. Skipped, not aborted -- the rest of the library
+    // still moves.
+    if (failed) {
+      onProgress({ done: ++done, total: pending.length, entity, id: record.id, skipped: true });
+      continue;
     }
 
     // One transaction per record: a library half moved is still half moved

@@ -29,7 +29,10 @@ export function maskedText(text, { hidden = false, class: className = '', onReve
     // The text is deliberately not in the accessible name either: a screen
     // reader announcing it would be the same as printing it.
     'aria-label': `${[...text].length} hidden characters`,
-    role: 'button',
+    // A button only when there is something to press. Announcing one that does
+    // nothing is worse than announcing nothing: it is an invitation to press a
+    // thing that will not answer.
+    role: onReveal ? 'button' : null,
     tabIndex: onReveal ? 0 : -1,
     title: onReveal ? 'Click to reveal' : null,
   });

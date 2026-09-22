@@ -207,3 +207,10 @@ test('nothing is said when the reading placed everything', () => {
   vocabPicker({ sentence: sentence(), addGroups: async () => ({ ok: true, added: 1 }) });
   assert.equal(document.querySelector('.vocab-unplaced'), null);
 });
+
+test('unplaced: counts in characters, so a surrogate pair is one position', () => {
+  // A word span comes from model/transcript.js, which counts code points; an
+  // array sized in UTF-16 units and read with those indices is two different
+  // rulers laid against the same text.
+  assert.deepEqual(unplaced('\u{20B9F}る こと', [{ charStart: 0, charEnd: 2 }]), ['こと']);
+});

@@ -36,6 +36,8 @@ function fakeRecorder() {
 
 function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverrides = {}) {
   const dispatched = [];
+  // What the player says is playing, so a button can read as pressed.
+  let playingToken = null;
   const recorders = [];
   const timeListeners = [];
   const playbackListeners = [];
@@ -71,6 +73,7 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
     actions,
     player: {
       play: async (...args) => dispatched.push(['play', args[1]]),
+      isPlaying: (token) => playingToken === token,
       stop: () => {},
       subscribe: (listener) => { playbackListeners.push(listener); return () => {}; },
       onTime: (listener) => { timeListeners.push(listener); return () => { timeListeners.splice(timeListeners.indexOf(listener), 1); }; },
@@ -86,7 +89,10 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
     recorders,
     /** Pretend a reference clip is playing, `elapsedMs` into it. */
     tickPlayback: (token, elapsedMs) => { for (const listener of [...timeListeners]) listener(token, elapsedMs); },
-    playbackChanged: (token) => { for (const listener of [...playbackListeners]) listener(token); },
+    playbackChanged: (token) => {
+      playingToken = token;
+      for (const listener of [...playbackListeners]) listener(token);
+    },
     timeListeners,
   };
 }
@@ -835,4 +841,19 @@ test('a row that leaves the list stops listening for playback', () => {
 
   h.store.replace(session([sentence('s9', 'Something else')]));
   assert.equal(h.timeListeners.length, 1, 'the departed row unsubscribed, the new one subscribed');
+});
+
+test('the playback button reads as pressed while it is playing', () => {
+  // The same button stops it, so it has to look like something that is on.
+  // The stylesheet had the rule; nothing set the class.
+  const h = harness(session([sentence('s1', 'One.', { recording: new Blob(['x']) })]));
+  const playback = () => buttonIn(rowsOf(h.container)[0], 'Playback');
+  assert.equal(playback().classList.contains('is-playing'), false);
+
+  h.playbackChanged('s1:playback');
+  assert.equal(playback().classList.contains('is-playing'), true);
+  assert.equal(playback().title, 'Stop');
+
+  h.playbackChanged(null);
+  assert.equal(playback().classList.contains('is-playing'), false);
 });

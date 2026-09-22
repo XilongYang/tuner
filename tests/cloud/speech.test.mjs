@@ -219,3 +219,25 @@ test('a network failure points at the connection and the region', async () => {
   globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
   await assert.rejects(() => speechClient(CREDS).assess(new Blob(), 'x', 'en-US'), /could not be sent.*region/s);
 });
+
+test('every request carries a deadline, so a stalled connection cannot hang forever', () => {
+  // fetch() has no deadline of its own: without one, a connection that goes
+  // away without closing leaves the row saying "Preparing the reading…" for
+  // the life of the page, with its buttons disabled. What a deadline does when
+  // it runs out is cloud/http.js's test; this is that one is set at all.
+  const seen = [];
+  globalThis.fetch = async (url, opts) => {
+    seen.push(opts.signal);
+    return new Response(JSON.stringify({ RecognitionStatus: 'Success', NBest: [{ Display: 'hello' }] }), { status: 200 });
+  };
+
+  const client = speechClient({ key: 'k', region: 'r', resourceName: 'res' });
+  return Promise.all([
+    client.synthesize('hello', 'en-US', 'voice'),
+    client.assess(new Blob(['x']), 'hello', 'en-US'),
+    client.transcribe(new Blob(['x'])),
+  ]).then(() => {
+    assert.equal(seen.length, 3, 'all three endpoints');
+    for (const signal of seen) assert.ok(signal && typeof signal.aborted === 'boolean', 'a cancellable request');
+  });
+});

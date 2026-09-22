@@ -187,7 +187,7 @@ export async function syncNow({ deps }) {
     // device's staleness check, which is a delay rather than a fault, and must
     // never replace the outcome being reported.
     try {
-      await release(container, lock.etag);
+      await release(container, lock.etag, settings.deviceId());
     } catch {
       outcome.warnings.push('the sync lock could not be released; it will expire on its own');
     }
@@ -233,7 +233,7 @@ export async function eraseCloud({ deps }) {
       : { ok: true, reason: null, deleted: result.deleted.length };
   } finally {
     try {
-      await release(container, lock.etag);
+      await release(container, lock.etag, settings.deviceId());
     } catch {
       // The lock expires on its own; the erase itself is already reported.
     }

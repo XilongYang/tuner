@@ -389,7 +389,7 @@ test('library: an empty list explains what to do instead of showing nothing', as
 
 // ---- Settings panel ----
 
-function settingsHarness({ storage = new Map() } = {}) {
+function settingsHarness({ storage = new Map(), actionOverrides = {} } = {}) {
   const dispatched = [];
   const container = document.createElement('div');
   document.body.append(container);
@@ -407,6 +407,7 @@ function settingsHarness({ storage = new Map() } = {}) {
       sync: async () => { dispatched.push(['sync']); return { ok: true, uploaded: 2, downloaded: 1, written: 1, skipped: 0, deleted: 0, swept: 0, warnings: [] }; },
       clearSyncLock: async () => { dispatched.push(['clearSyncLock']); return { ok: true }; },
       eraseCloud: async () => { dispatched.push(['eraseCloud']); return { ok: true, reason: null, deleted: 3 }; },
+      ...actionOverrides,
     },
   });
 
@@ -763,4 +764,24 @@ test('vocab: a revealed word is hidden again next time the list is built', async
   h.panel.setOpen(true);
   await tick();
   assert.ok(maskOf(h.container, '.vocab-text').classList.contains('is-masked'));
+});
+
+test('settings: a round that breaks outside itself still stops the line saying "Syncing…"', async () => {
+  // A round reports its own failures as an outcome, so a rejection means
+  // something around it broke -- and a busy line waits for its own result,
+  // which would otherwise never come.
+  const h = settingsHarness({
+    storage: new Map([['tuner.blobSasUrl', 'https://example.test/c?sig=x']]),
+    actionOverrides: { sync: async () => { throw new Error('the database went away'); } },
+  });
+  h.panel.setOpen(true);
+
+  clickLabelled(h.container, 'Sync now');
+  await tick();
+  await tick();
+
+  const line = h.container.querySelector('.panel-status');
+  assert.match(line.textContent, /the database went away/);
+  assert.equal(line.dataset.kind, 'error');
+  assert.equal(buttonNamed(h.container, 'Sync now').disabled, false, 'and the button is usable again');
 });

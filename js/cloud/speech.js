@@ -14,8 +14,17 @@
 // have every producer agree.
 
 import { langOfLocale, ALL_LOCALES } from '../model/lang.js';
+import { fetchWithTimeout, deadlineFor } from './http.js';
 
 const TRANSCRIPTION_API_VERSION = '2025-10-15';
+
+// Synthesis and scoring send a sentence and a few seconds of audio; a stall
+// there is a stall. Transcription sends a whole file and the service reads all
+// of it before answering, so its deadline allows for the size of what is being
+// sent (see cloud/http.js) -- the same arithmetic the container's uploads use.
+const REQUEST_TIMEOUT_MS = 60_000;
+const TRANSCRIBE_TIMEOUT_MS = 180_000;
+const SLOW_BYTES_PER_MS = 25;
 
 /** Assessment audio must be exactly this, per the endpoint's own contract. */
 const ASSESSMENT_CONTENT_TYPE = 'audio/wav; codecs=audio/pcm; samplerate=16000';
@@ -162,15 +171,18 @@ export function normalizeTranscript(json) {
 export function speechClient(credentials) {
   const { key, region, resourceName } = credentials || {};
 
-  const post = async (action, url, { headers = {}, body }) => {
+  const post = async (action, url, { headers = {}, body, timeoutMs = REQUEST_TIMEOUT_MS }) => {
     let response;
     try {
-      response = await fetch(url, {
+      response = await fetchWithTimeout(url, {
         method: 'POST',
         headers: { 'Ocp-Apim-Subscription-Key': key, ...headers },
         body,
-      });
-    } catch {
+      }, timeoutMs);
+    } catch (err) {
+      // A deadline that ran out is not the same news as a request that could
+      // not be sent, and the person can act on the difference.
+      if (err?.timedOut) throw new Error(`${action} failed: ${err.message}. Check your connection.`);
       throw networkFailure(action);
     }
     if (!response.ok) throw await failure(action, response);
@@ -231,7 +243,10 @@ export function speechClient(credentials) {
 
       // No Content-Type header: fetch sets it, including the multipart boundary,
       // which cannot be written by hand.
-      const response = await post('Transcription', url, { body: form });
+      const response = await post('Transcription', url, {
+        body: form,
+        timeoutMs: deadlineFor(TRANSCRIBE_TIMEOUT_MS, file?.size ?? 0, SLOW_BYTES_PER_MS),
+      });
       return normalizeTranscript(await response.json());
     },
   };

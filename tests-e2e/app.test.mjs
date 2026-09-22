@@ -1163,3 +1163,30 @@ test('a score shows its numbers and its words, and one word can be said again', 
   assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
   await context.close();
 });
+
+test('the hide switch reads the session that is on screen, from the first moment', async () => {
+  // "A session arriving from storage decides how the switch reads" was not
+  // true of the one reopened at startup: it arrived before anything was
+  // listening, so the switch showed the stored preference instead -- and the
+  // next sentence split arrived uncovered next to a page of covered ones.
+  const { page, context } = await openApp();
+
+  await page.fill('.practice-input', 'One. Two.');
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await page.waitForSelector('.sentence-row');
+  await page.locator('#hide-all').check();
+  await page.waitForFunction(() => window.tuner.store.get().sentences.every((s) => s.hidden));
+  await page.evaluate(() => window.tuner.autosave.flush());
+
+  // Turn the stored preference off behind the switch's back, then reload: the
+  // session that comes back is still hidden right through.
+  await page.evaluate(() => window.tuner.settings.saveHideText(false));
+  await page.reload();
+  await page.waitForFunction(() => document.querySelectorAll('.sentence-row').length === 2);
+
+  assert.equal(await page.locator('#hide-all').isChecked(), true, 'the switch says what the sentences say');
+  assert.equal(await page.evaluate(() => window.tuner.settings.hideText()), true,
+    'and what it says is what the next split will do');
+
+  await context.close();
+});

@@ -267,6 +267,21 @@ The cross-device lock and orphan cleanup stay, unchanged in behaviour: they
 are separate concerns with their own modules, and neither needs to be inside
 the planner.
 
+### Every request has a deadline
+
+`fetch()` has none of its own, so a connection that goes away without closing
+never settles: a row stuck on "Preparing the reading…" for the life of the
+page, a sync round that never finishes and blocks the next one. `cloud/http.js`
+holds the one copy of that rule, used by both the container and the speech
+endpoints; a body large enough to take a while buys proportionally more time,
+so the deadline stays a stall detector rather than a speed limit.
+
+A JSON body that will not parse is named as that, rather than surfacing as a
+syntax error from somewhere inside a sync round. The manifest is the one file
+every record and every clip is listed in, so a corrupt one fails the round
+loudly: a device that treated it as absent would publish its own over the top
+and sweep everything the others had.
+
 ### Nothing that holds a device stays held
 
 A microphone, an audio element, a database connection: each is taken by one

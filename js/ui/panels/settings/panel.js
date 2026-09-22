@@ -136,6 +136,11 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
       try {
         const outcome = await actions.sync((progress) => say(syncProgress(progress), 'busy'));
         say(describeSync(outcome), outcome.ok ? 'info' : 'error');
+      } catch (err) {
+        // A round reports its own failures as an outcome, so reaching here
+        // means something outside it broke. The line must still stop saying
+        // "Syncing…": a busy message waits for its own result, and this is it.
+        say(`Sync failed: ${err.message}`, 'error');
       } finally {
         syncBtn.disabled = false;
       }
@@ -158,6 +163,8 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
       try {
         const outcome = await actions.eraseCloud((progress) => say(erasing(progress), 'busy'));
         say(describeErase(outcome), outcome.ok ? 'info' : 'error');
+      } catch (err) {
+        say(`Could not clear the container: ${err.message}`, 'error');
       } finally {
         eraseCloudBtn.disabled = false;
         refresh();
@@ -175,8 +182,14 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
         confirmLabel: 'Clear it',
         danger: true,
       })) return;
-      const outcome = await actions.clearSyncLock();
-      say(outcome.ok ? 'Sync lock cleared.' : `Could not clear it: ${outcome.reason}`, outcome.ok ? 'info' : 'error');
+      try {
+        const outcome = await actions.clearSyncLock();
+        say(outcome.ok ? 'Sync lock cleared.' : `Could not clear it: ${outcome.reason}`, outcome.ok ? 'info' : 'error');
+      } catch (err) {
+        // Silence here would read as success, and the next round would be
+        // refused by a lock the person believes they cleared.
+        say(`Could not clear it: ${err.message}`, 'error');
+      }
     },
   });
 

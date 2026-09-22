@@ -11,44 +11,24 @@
 // in-memory object implementing the same six methods. That is the entire reason
 // the new test suite needs no module mocking and no experimental Node flag.
 
+import { fetchWithTimeout, deadlineFor } from './http.js';
+
 const API_VERSION = '2021-08-06';
 
 // A recording on a slow connection can legitimately take a while; list and
-// delete calls are small and should fail fast. fetch() has no default timeout
-// at all, so without these a stalled connection hangs with no error ever.
+// delete calls are small and should fail fast. Why there are deadlines at all
+// is ./http.js's comment, not a second copy of it here.
 const TRANSFER_TIMEOUT_MS = 60_000;
 const METADATA_TIMEOUT_MS = 20_000;
 
 // An upload's fetch() does not settle until the whole body has gone out, so its
-// deadline has to allow for the body's size -- a download's does not, since it
-// settles on the response headers and the body is read afterwards. At a fixed
-// 60s the cap was effectively a bandwidth floor: a few megabytes of source
-// audio on a slow uplink timed out every time, which is invisible until a round
-// has to upload everything at once -- the first sync after the container is
-// emptied. 25 bytes/ms is 25 KB/s: slower than any link worth waiting for, so
-// the timeout stays what it is meant to be, a stall detector rather than a
-// speed limit.
+// deadline allows for the body's size -- a download's does not, since it settles
+// on the response headers and the body is read afterwards. 25 bytes/ms is
+// 25 KB/s (see deadlineFor).
 const SLOW_BYTES_PER_MS = 25;
 
 const sizeOf = (data) => data?.byteLength ?? data?.size ?? 0;
-const uploadTimeout = (bytes) => TRANSFER_TIMEOUT_MS + Math.ceil(bytes / SLOW_BYTES_PER_MS);
-
-async function fetchWithTimeout(url, opts, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...opts, signal: controller.signal });
-  } catch (err) {
-    if (err.name === 'AbortError') {
-      const timedOut = new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`);
-      timedOut.timedOut = true;
-      throw timedOut;
-    }
-    throw err;
-  } finally {
-    clearTimeout(timer);
-  }
-}
+const uploadTimeout = (bytes) => deadlineFor(TRANSFER_TIMEOUT_MS, bytes, SLOW_BYTES_PER_MS);
 
 /**
  * Send a request, with one retry when repeating it is safe.
@@ -115,6 +95,24 @@ async function check(response, action) {
   let detail = '';
   try { detail = (await response.text()).trim(); } catch { /* body is optional context */ }
   throw new Error(`${action} failed: HTTP ${response.status}${detail ? ` — ${detail.slice(0, 300)}` : ''}`);
+}
+
+/**
+ * Parse a JSON body, saying what it was when it is not one.
+ *
+ * A half-written manifest is unreadable by every device, and the round that
+ * hits it fails on every attempt from then on. Guessing past it is not on the
+ * table -- the manifest is what every record and every clip is listed in, and a
+ * device that treated it as absent would publish its own over the top and sweep
+ * everything the others had. So this fails, but it fails saying which file and
+ * what is wrong with it, because the fix is the person's to make.
+ */
+function parseJson(text, action) {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`${action} failed: the file is not valid JSON (${err.message}). It was written by something other than this app, or an upload was cut short.`);
+  }
 }
 
 function splitSasUrl(sasUrl) {
@@ -238,7 +236,7 @@ export function container(sasUrl) {
     );
     if (response.status === 304) return { notModified: true };
     await check(response, action);
-    return { notModified: false, value: JSON.parse(await response.text()), etag: response.headers.get('ETag') || null };
+    return { notModified: false, value: parseJson(await response.text(), action), etag: response.headers.get('ETag') || null };
   }
 
   /** Every blob name under `prefix`, following pagination to the end. */
@@ -283,7 +281,7 @@ export function container(sasUrl) {
     uploadBytes,
     uploadJson: (path, value, opts) => uploadBytes(path, new TextEncoder().encode(JSON.stringify(value)), 'application/json', opts),
     downloadBytes,
-    downloadJson: async (path) => JSON.parse(await (await downloadBytes(path)).text()),
+    downloadJson: async (path) => parseJson(await (await downloadBytes(path)).text(), `Download of "${path}"`),
     downloadJsonConditional,
     listBlobs,
     deleteBlob,

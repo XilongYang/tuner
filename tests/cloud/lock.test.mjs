@@ -143,3 +143,25 @@ test('status: returns the lock, null when free, and null rather than throwing on
   container.downloadJson = async () => { throw new Error('HTTP 403'); };
   assert.equal(await status(container), null, 'a status read failing must not block a sync');
 });
+
+test('release: without an etag, only a lock this device holds is deleted', async () => {
+  // A CORS rule that does not expose ETag makes every acquire return none (see
+  // cloud/blob.js). An unconditional delete there would be exactly what the
+  // precondition exists to prevent, on every release rather than never.
+  const container = fakeContainer();
+  await container.uploadJson(LOCK_PATH, { deviceId: 'other-device', acquiredAt: 1000 });
+
+  await release(container, null, 'this-device');
+
+  assert.deepEqual(await status(container), { deviceId: 'other-device', acquiredAt: 1000 },
+    'someone else is mid-round; their lock stays');
+
+  await release(container, null, 'other-device');
+  assert.equal(await status(container), null, 'and a device releases its own');
+});
+
+test('release: without an etag and with no lock there, nothing happens', async () => {
+  const container = fakeContainer();
+  await release(container, null, 'this-device');
+  assert.equal(await status(container), null);
+});

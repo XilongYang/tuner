@@ -244,6 +244,11 @@ export function createRow({
     }
     playbackBtn.disabled = busy || recording || !sentence.recording;
     playbackBtn.hidden = !sentence.recording;
+    // Pressed while it is playing, because pressing it again is what stops it.
+    // The rule was in the stylesheet with nothing setting the class.
+    const playingBack = player.isPlaying?.(`${sentenceId}:playback`) ?? false;
+    playbackBtn.classList.toggle('is-playing', playingBack);
+    playbackBtn.title = playingBack ? 'Stop' : 'Hear your own take';
     scoreBtn.hidden = !sentence.recording;
     // A word joins the vocabulary library with a recording of itself, cut from
     // the reading of the sentence it came from. A sentence that has never been

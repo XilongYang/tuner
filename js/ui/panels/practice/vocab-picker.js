@@ -26,7 +26,8 @@ const phrase = (text, units) => text.slice(units[0].charStart, units[units.lengt
  * like a bug in the sentence rather than a gap in the reading.
  */
 export function unplaced(text, units) {
-  const covered = new Array(text.length).fill(false);
+  // Characters, because a word span is in characters (see model/transcript.js).
+  const covered = new Array([...text].length).fill(false);
   for (const unit of units) {
     for (let i = unit.charStart; i < unit.charEnd; i += 1) covered[i] = true;
   }

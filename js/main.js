@@ -397,10 +397,16 @@ async function start() {
   hideAll.checked = settings.hideText();
   hideAll.addEventListener('change', async () => {
     practice.setAllHidden({ store, hidden: hideAll.checked, deps: commandDeps });
-    // The vocabulary list carries the same fact per entry, and is not driven by
-    // the session store, so it is set here and told to repaint -- and a word
-    // peeked at while hiding was off has to go back under cover.
-    await vocab.setAllHidden({ hidden: hideAll.checked, deps: commandDeps });
+    try {
+      // The vocabulary list carries the same fact per entry, and is not driven
+      // by the session store, so it is set here and told to repaint -- and a
+      // word peeked at while hiding was off has to go back under cover.
+      await vocab.setAllHidden({ hidden: hideAll.checked, deps: commandDeps });
+    } catch (err) {
+      // The sentences did change, so the switch is not wrong about them; it is
+      // the word list that is now out of step, and only saying so explains why.
+      say(`The sentences changed, but the word list did not: ${err.message}`, 'error');
+    }
     library.refreshIfOpen({ rehide: true });
   });
   // A session arriving from storage or a sync decides how the switch reads: it
@@ -411,13 +417,18 @@ async function start() {
   // it. Otherwise the switch says "on" while `startsHidden` still reads the
   // old value, and the next sentence split -- or the next word collected --
   // arrives uncovered, in plain sight, next to a page of covered ones.
-  store.subscribe((current) => {
+  const readHideSwitchFrom = (current) => {
     const sentences = current?.sentences ?? [];
     if (!sentences.length) return;
     const allHidden = sentences.every((sentence) => sentence.hidden);
     hideAll.checked = allHidden;
     if (allHidden !== settings.hideText()) settings.saveHideText(allHidden);
-  });
+  };
+  store.subscribe(readHideSwitchFrom);
+  // Including the session reopened a moment ago, which arrived before this was
+  // listening: "a session arriving from storage decides how the switch reads"
+  // is not true of the first one otherwise, and it is the one on screen.
+  readHideSwitchFrom(store.get());
 
   // Exposed for the end-to-end tests, which drive the app the way a person
   // does and need to seed and inspect stored data to do it.

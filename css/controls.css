@@ -117,7 +117,6 @@ textarea {
 /* Credentials and URLs are strings to be compared character by character, so
    they are set in mono where they are typed as well as where they are shown. */
 input[type="password"],
-input[type="text"].is-key { font-family: var(--mono); font-size: 14px; }
 
 select {
   cursor: pointer;

@@ -107,9 +107,26 @@ export async function acquire(container, deviceId, clock = Date.now) {
  * window cannot delete the new owner's lock when it finally finishes. A failure
  * here is not worth surfacing: the lock simply sits until the next round finds
  * it stale, or someone clears it by hand.
+ *
+ * The etag can be absent -- a CORS rule that does not expose ETag reads back as
+ * none (see ../blob.js) -- and an unconditional delete there would be exactly
+ * the thing this is conditional to prevent, every single time. So without one
+ * it checks whose lock it is first: a narrower window than a precondition, but
+ * a window rather than no check at all. A lock that turns out to belong to
+ * someone else is left alone and expires on its own.
  */
-export async function release(container, etag) {
-  await container.deleteBlob(LOCK_PATH, etag ? { ifMatch: etag } : {});
+export async function release(container, etag, deviceId = null) {
+  if (etag) {
+    await container.deleteBlob(LOCK_PATH, { ifMatch: etag });
+    return;
+  }
+
+  const held = await status(container);
+  // No lock to release, or not ours: either way this device has nothing to
+  // delete. `null` from status is also how a read failure arrives, and
+  // deleting on the strength of a read that failed is the same mistake.
+  if (!held || (deviceId !== null && held.deviceId !== deviceId)) return;
+  await container.deleteBlob(LOCK_PATH);
 }
 
 /**

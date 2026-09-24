@@ -172,16 +172,20 @@ export async function put(name, record) {
 /**
  * Store a record together with content it has brought with it.
  *
- * One transaction, so a record never lands claiming bytes that did not: the
- * hash and what it names become true at the same moment. `entries` carries
+ * One transaction, so a record never lands claiming bytes that did not, and so
+ * a child this version has dropped is recorded as deleted at the same moment
+ * the record stops listing it (see app/persist.js). The hash and what it names,
+ * the deletion and the record it is a deletion from: each pair becomes true
+ * together or not at all. `entries` carries
  * only what is new -- see app/persist.js, which decides that, and which has
  * already read the bytes into self-contained values, because a transaction
  * cannot wait for a Blob to be read.
  */
-export async function putRecord(name, record, entries = []) {
+export async function putRecord(name, record, entries = [], tombstones = []) {
   const { store, def } = collection(name);
-  await transact([store, CONTENT], 'readwrite', async (s) => {
+  await transact([store, CONTENT, TOMBSTONES], 'readwrite', async (s) => {
     await putContentIn(s, entries);
+    for (const t of tombstones) await request(s[TOMBSTONES].put(t), `Recording tombstone ${t.id}`);
     await request(s[store].put(stripped(def, record)), `Storing ${name} ${record.id}`);
   });
 }
@@ -225,19 +229,6 @@ export async function removeRecord(name, id) {
     const record = await request(s[store].get(id), `Reading ${name} ${id}`);
     await deleteContentIn(s, contentPathsOf(name, record));
     await request(s[store].delete(id), `Deleting ${name} ${id}`);
-  });
-}
-
-/** Tombstones for sentences replaced by a split or merge; they have no records of their own. */
-export async function tombstoneSentences(sentenceIds, now = Date.now()) {
-  if (!sentenceIds?.length) return;
-  await transact([TOMBSTONES], 'readwrite', async (s) => {
-    for (const id of sentenceIds) {
-      await request(
-        s[TOMBSTONES].put({ id: tombstoneId('sentence', id), kind: 'sentence', targetId: id, deletedAt: now }),
-        `Recording the deletion of sentence ${id}`,
-      );
-    }
   });
 }
 

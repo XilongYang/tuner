@@ -127,9 +127,9 @@ function fakeDb(held = new Map()) {
     writes,
     held,
     storedContentHashes: async (paths) => new Map(paths.filter((p) => held.has(p)).map((p) => [p, held.get(p)])),
-    putRecord: async (entity, record, entries) => {
+    putRecord: async (entity, record, entries, tombstones = []) => {
       for (const entry of entries) held.set(entry.path, entry.hash);
-      writes.push({ entity, record, entries });
+      writes.push({ entity, record, entries, tombstones });
     },
   };
 }
@@ -237,4 +237,63 @@ test('saveRecord: a claim with no bytes writes no content entry', async () => {
 
   assert.deepEqual(db.writes[0].entries, [], 'nothing to store, and nothing claimed away');
   assert.equal(db.writes[0].record.sentences[0].recordingHash, 'gone');
+});
+
+test('saveRecord: a child this save dropped is tombstoned by this save', async () => {
+  // A split replaces one sentence with two. The replaced sentence has to be
+  // tombstoned or a device that has not seen the split brings it back -- and
+  // the tombstone has to land in the same transaction as the record that no
+  // longer lists it. Written separately, as it was, there is a moment where
+  // one of the two has happened: tombstones for sentences the stored session
+  // still contains, which the next sync applies, deleting a sentence whose
+  // replacement was never saved.
+  const db = fakeDb();
+  const before = await saveRecord('sessions', session({
+    sentences: [
+      blankSentence({ id: 's1', text: 'one', lang: 'en', now: 1 }),
+      blankSentence({ id: 's2', text: 'two', lang: 'en', now: 1 }),
+    ],
+  }), { db, hash });
+
+  await saveRecord('sessions', { ...before, sentences: [before.sentences[0]] },
+    { db, hash, previous: before, now: 500 });
+
+  assert.deepEqual(db.writes[0].tombstones, [], 'a first save has nothing to compare against');
+  assert.deepEqual(db.writes[1].tombstones,
+    [{ id: 'sentence:s2', kind: 'sentence', targetId: 's2', deletedAt: 500 }]);
+});
+
+test('saveRecord: a previous belonging to another record tombstones nothing', async () => {
+  // `previous` is the last thing this saver wrote, and after a session switch
+  // that is a different session entirely. Diffing across the two would
+  // tombstone every sentence of the one just left.
+  const db = fakeDb();
+  const other = await saveRecord('sessions', session({
+    id: 'other', sentences: [blankSentence({ id: 'x1', text: 'x', lang: 'en', now: 1 })],
+  }), { db, hash });
+
+  await saveRecord('sessions', session({
+    sentences: [blankSentence({ id: 's1', text: 'one', lang: 'en', now: 1 })],
+  }), { db, hash, previous: other, now: 500 });
+
+  assert.deepEqual(db.writes[1].tombstones, []);
+});
+
+test('saveRecord: an occurrence that went away is not tombstoned', async () => {
+  // Occurrences merge as a union, so a device that has not seen the removal
+  // legitimately still holds it; a tombstone would delete it there too. Only
+  // last-write-wins children carry deletions.
+  const db = fakeDb();
+  const entry = {
+    id: 'w1', text: 'word', lang: 'ja', hidden: false, audioPathKey: 'k1',
+    createdAt: 1, updatedAt: 1,
+    sources: [
+      { occurrenceId: 'o1', sessionId: 'sess1', sentenceId: 's1', sentenceTextSnapshot: null, addedAt: 1, audio: null, audioHash: null },
+      { occurrenceId: 'o2', sessionId: 'sess1', sentenceId: 's2', sentenceTextSnapshot: null, addedAt: 1, audio: null, audioHash: null },
+    ],
+  };
+  const first = await saveRecord('vocab', entry, { db, hash });
+  await saveRecord('vocab', { ...first, sources: [first.sources[0]] }, { db, hash, previous: first, now: 500 });
+
+  assert.deepEqual(db.writes[1].tombstones, []);
 });

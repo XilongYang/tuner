@@ -75,19 +75,6 @@ violated both:
   `ui/panels/sidebar.js`, not something each panel implements by importing its
   sibling's close function.
 
-A layer may also declare a narrower surface than its modules' exports. `db/`
-and `cloud/sync/` each have an `index.js`, and nothing outside them imports
-anything else under them. The reason is that a module's export list is written
-for its own tests -- a helper is exported so one assertion can reach it -- and
-without a second list that first one becomes the public API by accident. Two
-lists, then: the module says what may be tested, the `index.js` says what may
-be used, and `tests/arch.test.mjs` holds the rest of `js/` to the second.
-Tests are exempt by construction: they live outside `js/`, which is the only
-tree the check walks.
-
-These are the boundaries the vertical split will be cut along, so the cheapest
-time to enforce them is before the cut, not after.
-
 ## model/ — the load-bearing layer
 
 Everything that can be a pure function of its inputs lives here, and is

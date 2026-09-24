@@ -48,7 +48,7 @@ async function cutReferences(session, ranges, { audio, hash }) {
  * outcome reported as `audioFollowed: false`, not an error.
  */
 export async function splitAtPointer({ store, sentenceId, charIndex, ms, deps }) {
-  const { audio, hash, ids, clock, tombstone } = deps;
+  const { audio, hash, ids, clock, settle } = deps;
 
   const startedAt = store.version();
   const session = store.get();
@@ -85,9 +85,10 @@ export async function splitAtPointer({ store, sentenceId, charIndex, ms, deps })
     return result(false, { reason: store.version() === startedAt ? 'refused' : 'superseded' });
   }
 
-  // The sentence this replaced must be tombstoned, or a device that has not
-  // seen the split yet brings it back alongside its own replacements.
-  await tombstone([sentenceId]);
+  // Persist now rather than on the debounce: the save is what records the
+  // replaced sentence as deleted, and what lets the sweep collect the clip it
+  // left behind.
+  await settle();
 
   return result(true, {
     audioFollowed: sentence.referenceSource === 'import' ? Boolean(clips) : null,
@@ -103,7 +104,7 @@ export async function splitAtPointer({ store, sentenceId, charIndex, ms, deps })
  * normalisation error.
  */
 export async function mergeSelected({ store, sentenceIds, deps }) {
-  const { audio, hash, ids, clock, tombstone } = deps;
+  const { audio, hash, ids, clock, settle } = deps;
 
   const startedAt = store.version();
   const session = store.get();
@@ -138,7 +139,7 @@ export async function mergeSelected({ store, sentenceIds, deps }) {
     return result(false, { reason: store.version() === startedAt ? 'refused' : 'superseded' });
   }
 
-  await tombstone(sentenceIds);
+  await settle();
 
   return result(true, {
     audioFollowed: run.every((s) => s.referenceSource === 'import') ? Boolean(clips) : null,

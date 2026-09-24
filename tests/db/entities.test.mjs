@@ -3,7 +3,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   getOne, listAll, listTombstones, snapshot, put, putMany, putRecord,
-  remove, removeRecord, tombstoneSentences, clearAll, applyPlan, sweepContent,
+  remove, removeRecord, clearAll, applyPlan, sweepContent,
 } from '../../js/db/entities.js';
 import { listContentPaths } from '../../js/db/content.js';
 import { transact, ALL_STORES, request, dbError } from '../../js/db/open.js';
@@ -103,9 +103,17 @@ test('removeRecord applies someone else\'s deletion without re-dating it', async
   assert.deepEqual(await listTombstones(), [], 'no new tombstone: the deletion is already recorded elsewhere');
 });
 
-test('tombstoneSentences records replacements for sentences that have no record of their own', async () => {
-  await tombstoneSentences(['a', 'b'], 100);
-  assert.deepEqual((await listTombstones()).map((t) => t.id).sort(), ['sentence:a', 'sentence:b']);
+test('putRecord lands a record and the deletions it carries in one transaction', async () => {
+  // Sentences have no record of their own, so a split's replaced sentence is
+  // only ever a tombstone. It rides with the save that dropped it (see
+  // app/persist.js): the two cannot be observed apart, which is the whole
+  // reason this parameter exists rather than a call of its own.
+  await putRecord('sessions', { id: 's1', updatedAt: 2, sentences: [{ id: 'kept' }] }, [], [
+    { id: 'sentence:gone', kind: 'sentence', targetId: 'gone', deletedAt: 100 },
+  ]);
+
+  assert.deepEqual((await getOne('sessions', 's1')).sentences.map((x) => x.id), ['kept']);
+  assert.deepEqual((await listTombstones()).map((t) => t.id), ['sentence:gone']);
 });
 
 test('clearAll wipes every collection and tombstones every record first', async () => {

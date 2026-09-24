@@ -21,14 +21,19 @@ const imported = (id, text, offsetMs, durationMs) => sentence(id, text, {
 
 function deps(over = {}) {
   let n = 0;
-  const tombstoned = [];
+  // What used to be counted here was which sentence ids the command asked to
+  // tombstone. It no longer asks: a save records the deletion of the children
+  // it dropped, in the same transaction (app/persist.js, and its tests). What
+  // is left to check here is that the command persists the edit at all --
+  // without that, neither the tombstone nor the sweep happens.
+  let settled = 0;
   return {
-    tombstoned,
+    settleCount: () => settled,
     decodeCalls: () => decoded,
     deps: {
       ids: () => `new-${++n}`,
       clock: () => 1000,
-      tombstone: async (idsToKill) => { tombstoned.push(...idsToKill); },
+      settle: async () => { settled += 1; },
       hash: { hashBlob: async (blob) => `hash(${blob})`, materializeBlob: async (blob) => blob },
       audio: {
         decode: async () => { decoded++; return { channelData: new Float32Array(16_000), sampleRate: 16_000 }; },
@@ -48,7 +53,9 @@ test('split: divides the text and records what replaced what', async () => {
 
   assert.equal(outcome.ok, true);
   assert.deepEqual(store.get().sentences.map((s) => s.text), ['Alpha ', 'beta']);
-  assert.deepEqual(d.tombstoned, ['a'], 'the replaced sentence is tombstoned so it cannot come back');
+  assert.equal(store.get().sentences.some((s) => s.id === 'a'), false,
+    'the replaced sentence is gone, which is what the save turns into a tombstone');
+  assert.equal(d.settleCount(), 1, 'and the edit is persisted rather than left to the debounce');
 });
 
 test('split: cuts both halves of the reference audio from the source file', async () => {
@@ -144,7 +151,7 @@ test('split: a change landing during the audio cut supersedes the split, which i
   assert.equal(outcome.reason, 'superseded');
   assert.deepEqual(store.get().sentences.map((s) => s.id), ['a', 'b'], 'the list is untouched');
   assert.equal(store.get().sentences[1].hidden, true, 'and the change that won survived');
-  assert.deepEqual(d.tombstoned, [], 'nothing was tombstoned for a split that did not happen');
+  assert.equal(d.settleCount(), 0, 'nothing was persisted for a split that did not happen');
 });
 
 test('split: a refused cut is distinguished from being superseded', async () => {
@@ -166,7 +173,7 @@ test('split: with no session at all it refuses cleanly', async () => {
   assert.equal(outcome.reason, 'no-session');
 });
 
-test('merge: joins adjacent sentences and tombstones every part', async () => {
+test('merge: joins adjacent sentences, leaving one in place of the run', async () => {
   const store = createSessionStore(session([sentence('a', 'Alpha '), sentence('b', 'beta'), sentence('c', 'rest')]));
   const d = deps();
 
@@ -174,7 +181,9 @@ test('merge: joins adjacent sentences and tombstones every part', async () => {
 
   assert.equal(outcome.ok, true);
   assert.deepEqual(store.get().sentences.map((s) => s.text), ['Alpha beta', 'rest']);
-  assert.deepEqual(d.tombstoned.sort(), ['a', 'b']);
+  assert.deepEqual(store.get().sentences.map((s) => s.id), ['new-1', 'c'],
+    'both parts are gone, replaced by one -- the save tombstones them');
+  assert.equal(d.settleCount(), 1);
 });
 
 test('merge: the clip is cut fresh from the source over the whole span', async () => {
@@ -238,7 +247,7 @@ test('merge: a change landing during the cut supersedes it', async () => {
   assert.equal(outcome.ok, false);
   assert.equal(outcome.reason, 'superseded');
   assert.deepEqual(store.get().sentences.map((s) => s.id), ['x']);
-  assert.deepEqual(d.tombstoned, []);
+  assert.equal(d.settleCount(), 0);
 });
 
 test('split then merge restores the original text and range exactly', async () => {

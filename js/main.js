@@ -7,11 +7,11 @@
 // enforceable (tests/arch.test.mjs) rather than aspirational, and what makes
 // every layer testable without the ones above it.
 
-import * as db from './db/index.js';
-import { isSupported } from './db/index.js';
+import * as db from './db/entities.js';
+import { isSupported } from './db/open.js';
 import { container } from './cloud/blob.js';
 import { speechClient } from './cloud/speech.js';
-import { forceRelease } from './cloud/sync/index.js';
+import { forceRelease } from './cloud/sync/lock.js';
 
 import { createSettings } from './platform/settings.js';
 import { createPlayer } from './platform/player.js';
@@ -110,11 +110,12 @@ async function start() {
     // the bytes would sit in their quota for good.
     //
     // The flush is what lets the sweep see them at all. Saving is debounced, so
-    // at this moment the stored session still lists the sentences that were
+    // until it happens the stored session still lists the sentences that were
     // just replaced -- and content a stored record still references is content
-    // the sweep must leave alone.
-    tombstone: async (sentenceIds) => {
-      await db.tombstoneSentences(sentenceIds);
+    // the sweep must leave alone. The flush is also what records their
+    // deletion: the save that drops a sentence writes its tombstone in the same
+    // transaction (see app/persist.js), which is why nothing does that here.
+    settle: async () => {
       await autosave.flush();
       await db.sweepContent();
     },

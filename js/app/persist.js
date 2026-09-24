@@ -14,6 +14,7 @@
 
 import { SESSION, VOCAB_ENTRY, hashKey, walkContent } from '../model/schema.js';
 import { contentKind, contentPath } from '../model/content.js';
+import { tombstoneId } from '../model/merge.js';
 
 const DEFS = { sessions: SESSION, vocab: VOCAB_ENTRY };
 
@@ -90,6 +91,51 @@ function mapContentHashes(def, record, computed, parentRef = {}) {
 }
 
 /**
+ * Tombstones for children this version of the record no longer lists.
+ *
+ * A split replaces one sentence with two; the replaced one has to be recorded
+ * as deleted, or a device that has not seen the split yet brings it back
+ * alongside the replacements. That much was always true. What is new is where
+ * it happens: here, so the deletion and the record that no longer mentions it
+ * land in one transaction.
+ *
+ * Written separately -- as it was, by the composition root, just before the
+ * save -- there is a moment when one of the two has happened and the other has
+ * not. A device that stops there has tombstones for sentences its stored
+ * session still contains, and the next sync applies them: the original
+ * sentence is deleted everywhere, while the halves that replaced it were never
+ * stored at all.
+ *
+ * Only `lww` children get one. An occurrence merges as a union, so a device
+ * that still holds one legitimately holds it, and a tombstone would reach over
+ * and delete it there.
+ */
+function vanishedChildren(def, previous, record, now) {
+  const out = [];
+  for (const [field, d] of def.entries) {
+    if (d.role !== 'children') continue;
+    const before = previous[field] || [];
+    const after = record[field] || [];
+    if (d.merge === 'lww') {
+      const kept = new Set(after.map((child) => child[d.def.idKey]));
+      for (const child of before) {
+        const id = child[d.def.idKey];
+        if (id != null && !kept.has(id)) {
+          out.push({ id: tombstoneId(d.def.name, id), kind: d.def.name, targetId: id, deletedAt: now });
+        }
+      }
+    }
+    // Children that survived may have lost children of their own.
+    const byId = new Map(after.map((child) => [child[d.def.idKey], child]));
+    for (const child of before) {
+      const still = byId.get(child[d.def.idKey]);
+      if (still) out.push(...vanishedChildren(d.def, child, still, now));
+    }
+  }
+  return out;
+}
+
+/**
  * A value that owns its bytes.
  *
  * A Blob is a reference to bytes that live somewhere the page does not control
@@ -112,9 +158,16 @@ const selfContained = (value, hash) => (isBlob(value) ? hash.materializeBlob(val
  * @returns {Promise<object>} the record as stored, hashes included and content
  *   still attached, so the caller can put it back on screen without a re-read.
  */
-export async function saveRecord(entity, record, { db, hash, previous = null }) {
+export async function saveRecord(entity, record, { db, hash, previous = null, now = Date.now() }) {
   const def = DEFS[entity];
   const stamped = await stampContentHashes(def, record, { hash, previous });
+
+  // Only against the same record: `previous` is the last thing this saver
+  // wrote, and after a session switch that is a different session entirely --
+  // diffing the two would tombstone every sentence of the one just left.
+  const tombstones = previous && previous[def.idKey] === record[def.idKey]
+    ? vanishedChildren(def, previous, stamped, now)
+    : [];
 
   const slots = [...walkContent(def, stamped)].filter((slot) => slot.hash !== null && slot.value != null);
   const held = await db.storedContentHashes(slots.map((slot) => contentPath(slot.kind, slot.ref)));
@@ -126,6 +179,6 @@ export async function saveRecord(entity, record, { db, hash, previous = null }) 
     entries.push({ path, kind: slot.kind, hash: slot.hash, value: await selfContained(slot.value, hash) });
   }
 
-  await db.putRecord(entity, stamped, entries);
+  await db.putRecord(entity, stamped, entries, tombstones);
   return stamped;
 }

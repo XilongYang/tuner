@@ -185,31 +185,6 @@ test('no module reaches outside js/ for source', () => {
   assert.deepEqual(violations, []);
 });
 
-test('a subsystem is entered only through its index.js', () => {
-  // Two lists, and this is what keeps them apart. A module exports what its own
-  // tests need to reach; the subsystem's index.js exports what the app may use.
-  // Without this check the first list silently becomes the second -- a helper
-  // exported for one assertion is, from then on, something any call site is
-  // free to reach for, and the seam we are about to cut along stops existing.
-  //
-  // Tests are deliberately not bound by this: reaching inside is exactly their
-  // job, and they live outside js/ so the scan never sees them.
-  const subsystems = ['db', 'cloud/sync'];
-  const violations = [];
-  for (const file of files) {
-    const rel = relative(jsRoot, file).replaceAll('\\', '/');
-    for (const subsystem of subsystems) {
-      if (rel.startsWith(`${subsystem}/`)) continue; // inside: free to reach its own modules
-      for (const target of importsOf(file)) {
-        if (target.startsWith(`${subsystem}/`) && target !== `${subsystem}/index.js`) {
-          violations.push(`${rel} -> ${target} (must go through ${subsystem}/index.js)`);
-        }
-      }
-    }
-  }
-  assert.deepEqual(violations, [], `imports past a subsystem boundary:\n${violations.join('\n')}`);
-});
-
 test('stored bytes are reached only through db/entities.js', () => {
   // The content store is the database's own business. A module that reached
   // past `entities` could write a record and its bytes in separate

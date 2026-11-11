@@ -9,6 +9,7 @@
 
 import { segmentText, detectLang } from '../../model/text.js';
 import { blankSentence, derivedInputText, updateSession } from '../../model/session.js';
+import { SESSION, toNode } from '../../model/schema.js';
 
 /**
  * A session with nothing in it.
@@ -171,12 +172,25 @@ export async function remove({ store, sessionId, deps }) {
  * the user has since left is not worth interrupting them for -- and refuses
  * when the local copy is newer, since a sync's own staleness check already
  * declined to write it.
+ *
+ * Refuses, too, when the copy says nothing the screen does not already say.
+ * Every successful round offers the stored copy back, and most rounds change
+ * nothing about the session on screen -- but the offered copy is a fresh read,
+ * so its Blobs are new objects and putting it in place moves the store's
+ * version. A score in flight then finds a recording that is "not the one it
+ * scored", a split finds a session that "changed", and an open word popover is
+ * closed -- all for a replacement that showed the user nothing new. The
+ * manifest node is the comparison because it is what a sync compares: plain
+ * fields and content hashes, with the bytes themselves left out.
  */
 export function applyIncoming({ store, session, deps }) {
   const { autosave } = deps;
   const current = store.get();
   if (!current || current.id !== session.id) return { ok: false, reason: 'not-on-screen' };
   if ((current.updatedAt ?? 0) > (session.updatedAt ?? 0)) return { ok: false, reason: 'local-is-newer' };
+  if (JSON.stringify(toNode(SESSION, current)) === JSON.stringify(toNode(SESSION, session))) {
+    return { ok: false, reason: 'unchanged' };
+  }
 
   autosave?.reset(session);
   store.replace(session, 'incoming');

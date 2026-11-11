@@ -14,7 +14,9 @@ import { openModal } from '../../modal.js';
 import { el, button } from '../../dom.js';
 import { chars, groupAdjacent } from '../../../model/geometry.js';
 
-const phrase = (text, units) => text.slice(units[0].charStart, units[units.length - 1].charEnd);
+// Characters, not UTF-16 units: the spans are counted the way the chips below
+// are cut, and the two have to name the same word.
+const phrase = (text, units) => chars(text).slice(units[0].charStart, units[units.length - 1].charEnd).join('');
 
 /**
  * The words of the sentence that no unit covers.

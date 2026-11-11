@@ -10,6 +10,7 @@
 
 import { vocabKey, occurrenceKey } from '../../model/text.js';
 import { sentenceById } from '../../model/session.js';
+import { chars } from '../../model/geometry.js';
 import { localeOf } from '../../model/lang.js';
 import { startsHidden } from './session.js';
 
@@ -76,7 +77,10 @@ export async function addOccurrence({ store, sentenceId, words, deps }) {
   if (!sentence) return failure('gone');
   if (!words?.length) return failure('no-selection');
 
-  const text = sentence.text.slice(words[0].charStart, words[words.length - 1].charEnd);
+  // In characters, as every word position is (see model/geometry.js): a
+  // UTF-16 slice is one position out for every astral character before the
+  // word, and stores a different word from the one the picker showed.
+  const text = chars(sentence.text).slice(words[0].charStart, words[words.length - 1].charEnd).join('');
   const id = vocabKey(text);
   if (!id) return failure('not-a-word');
 

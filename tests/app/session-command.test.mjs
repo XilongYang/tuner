@@ -230,6 +230,43 @@ test('applyIncoming: an older copy never overwrites newer local work', () => {
   assert.equal(h.store.get().name, 'local edit');
 });
 
+test('applyIncoming: a copy that says nothing new leaves the screen alone', () => {
+  // Every successful sync round offers the stored copy back. It is a fresh
+  // read, so its Blobs are new objects -- and putting it in place would move
+  // the version, which is what a score or a split in flight is pinned to.
+  const h = harness();
+  const take = new Blob([new Uint8Array([1, 2])], { type: 'audio/wav' });
+  const onScreen = storedSession({ updatedAt: 10 });
+  onScreen.sentences[0].recording = take;
+  onScreen.sentences[0].recordingHash = 'h1';
+  h.store.replace(onScreen);
+  const version = h.store.version();
+
+  const reread = storedSession({ updatedAt: 10 });
+  reread.sentences[0].recording = new Blob([new Uint8Array([1, 2])], { type: 'audio/wav' });
+  reread.sentences[0].recordingHash = 'h1';
+
+  const result = applyIncoming({ store: h.store, session: reread, deps: h.deps });
+
+  assert.deepEqual(result, { ok: false, reason: 'unchanged' });
+  assert.equal(h.store.get(), onScreen, 'the same object, so the recording is still the one a score compares against');
+  assert.equal(h.store.version(), version, 'and nothing in flight is superseded by it');
+  assert.deepEqual(h.resets, [], 'autosave keeps what it last wrote');
+});
+
+test('applyIncoming: a copy whose content changed under the same clock still lands', () => {
+  // The clock alone cannot tell: a round can merge in a child whose own clock
+  // is newer without the session's moving past the local one. The hashes can.
+  const h = harness();
+  h.store.replace(storedSession({ updatedAt: 10 }));
+
+  const incoming = storedSession({ updatedAt: 10 });
+  incoming.sentences[0].recordingHash = 'from-another-device';
+
+  assert.equal(applyIncoming({ store: h.store, session: incoming, deps: h.deps }).ok, true);
+  assert.equal(h.store.get().sentences[0].recordingHash, 'from-another-device');
+});
+
 test('applyIncoming: with nothing on screen there is nothing to update', () => {
   const h = harness();
   assert.equal(applyIncoming({ store: h.store, session: storedSession(), deps: h.deps }).ok, false);

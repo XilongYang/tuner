@@ -93,6 +93,21 @@ test('adds an entry keyed by the normalised text', async () => {
   assert.equal(entry.id, 'difficult', 'punctuation and case do not make a second entry');
 });
 
+test('the text is cut in characters, so a word after an astral character is the word that was picked', async () => {
+  // Word positions are counted in code points everywhere else (see
+  // model/geometry.js). A UTF-16 slice here is one position out for every
+  // astral character before the word, and stores a word the picker never showed.
+  const h = harness({ sentences: [sentence('s1', '𠮷野家で 食べた', { lang: 'ja' })] });
+  const result = await addOccurrence({
+    store: h.store, sentenceId: 's1', words: [word(5, 8, 600, 400)], deps: h.deps,
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.id, '食べた');
+  const [entry] = await db.listAll('vocab');
+  assert.equal(entry.text, '食べた');
+});
+
 test('a second sighting appends an occurrence rather than making another entry', async () => {
   const h = harness();
   await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(8, 18, null, null)], deps: h.deps });

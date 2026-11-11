@@ -100,6 +100,8 @@ export async function syncNow({ deps }) {
 
     // Bytes this device claims to hold and turned out not to be able to read.
     const unreadable = new Map();
+    // Paths whose bytes were replaced after the plan read their hash.
+    const replaced = new Set();
     const transfer = await transferContent(plan, container, {
       // One slot's bytes, read when that slot is uploaded and not before: a
       // round that has to send a whole library should not hold the whole
@@ -109,6 +111,17 @@ export async function syncNow({ deps }) {
       getValue: async (slot) => {
         const entry = await db.readContent(slot.path);
         if (!entry || entry.value == null) return null;
+        // The store is keyed by path, and a path can be rewritten while a
+        // round is in flight -- a sentence recorded again lands its new take
+        // under the same path the plan read the old one from. Sending what is
+        // there now would publish the new bytes under the old hash: a claim
+        // every other device would download and store as something it is not.
+        // Withheld instead; the next round plans against the new hash and
+        // sends the bytes under the name they actually have.
+        if (entry.hash !== slot.hash) {
+          replaced.add(slot.path);
+          return null;
+        }
         if (!isBlob(entry.value)) return entry.value;
         try {
           // Read now rather than handing fetch() a Blob to read later: a Blob
@@ -126,7 +139,10 @@ export async function syncNow({ deps }) {
     outcome.uploaded = transfer.uploaded.length;
     outcome.downloaded = transfer.downloaded.size;
     for (const missing of transfer.missing) {
-      if (!unreadable.has(missing.path)) outcome.warnings.push(`${missing.path}: ${missing.reason}`);
+      if (!unreadable.has(missing.path) && !replaced.has(missing.path)) outcome.warnings.push(`${missing.path}: ${missing.reason}`);
+    }
+    for (const path of replaced) {
+      outcome.warnings.push(`${path}: replaced while the round was running; the new bytes go up next round`);
     }
 
     // Content that was due to go up and did not. The manifest must not claim

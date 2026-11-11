@@ -38,7 +38,7 @@ async function wipe() {
   });
 }
 
-async function seedSession({ id = 'sess1', text = 'hello', recording = null, inputText = null } = {}) {
+async function seedSession({ id = 'sess1', text = 'hello', recording = null, inputText = null, updatedAt = 10 } = {}) {
   const sentence = blankSentence({ id: `${id}-s1`, text, lang: 'en', now: 10 });
   if (recording) {
     sentence.recording = recording;
@@ -46,7 +46,7 @@ async function seedSession({ id = 'sess1', text = 'hello', recording = null, inp
   }
   await seed('sessions', {
     id, name: null, splitMode: 'auto',
-    createdAt: 1, updatedAt: 10, metaUpdatedAt: 10,
+    createdAt: 1, updatedAt, metaUpdatedAt: 10,
     inputText, inputTextHash: inputText ? await hashString(inputText) : null,
     sourceAudio: null, sourceAudioHash: null,
     sentences: [sentence],
@@ -357,6 +357,51 @@ test('content is read at the moment it is uploaded, not when the snapshot was ta
   // back, because it already holds it -- the record is rewritten, the bytes
   // are not.
   assert.deepEqual(seen, [2]);
+});
+
+test('a clip recorded again while the round was running is not sent under the old hash', async () => {
+  // The content store is keyed by path, so a new take lands where the plan
+  // read the old one. Sending what is there now would publish the new bytes
+  // under the old hash -- a claim every other device would download and store
+  // as something it is not.
+  await wipe();
+  await seedSession({ recording: clip([5, 6]) });
+  const container = fakeContainer();
+  const cache = makeCache();
+  let rerecorded = false;
+
+  const first = await syncNow({
+    deps: deps(container, {
+      manifestCache: cache,
+      db: {
+        ...db,
+        readContent: async (path) => {
+          if (!rerecorded) {
+            rerecorded = true;
+            await seedSession({ recording: clip([9, 9, 9]), updatedAt: 20 }); // the user stopped a new take
+          }
+          return db.readContent(path);
+        },
+      },
+    }),
+  });
+
+  assert.equal(first.ok, true, first.reason);
+  assert.equal(first.uploaded, 0, 'the bytes in hand are not the bytes the plan named');
+  assert.equal(first.skipped, 1, 'and the record, which moved on, is left as the user left it');
+  assert.equal(container.has('recordings/sess1/sess1-s1.wav'), false);
+  assert.equal((await container.downloadJson(MANIFEST_PATH)).sessions[0].sentences[0].recordingHash, null,
+    'the manifest claims nothing it cannot back');
+  assert.match(first.warnings.join('\n'), /recordings\/sess1\/sess1-s1\.wav: replaced while the round was running/);
+  assert.equal(first.warnings.length, 1);
+
+  // The next round plans against the new hash and sends the bytes under it.
+  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  assert.equal(second.ok, true, second.reason);
+  assert.equal(second.uploaded, 1);
+  assert.deepEqual([...new Uint8Array(container.bytesOf('recordings/sess1/sess1-s1.wav'))], [9, 9, 9]);
+  assert.equal((await container.downloadJson(MANIFEST_PATH)).sessions[0].sentences[0].recordingHash, await hashBlob(clip([9, 9, 9])));
+  assert.deepEqual(second.warnings, []);
 });
 
 const dead = (message = 'The object can not be found here') => ({

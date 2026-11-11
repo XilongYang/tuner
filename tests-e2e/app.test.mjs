@@ -78,9 +78,15 @@ async function closePanel(page) {
   if (await page.locator('#sidebar').isVisible()) await page.getByRole('button', { name: 'Panel' }).click();
 }
 
-/** A fresh page with a clean database, and no real network calls. */
-async function openApp() {
+/**
+ * A fresh page with a clean database, and no real network calls.
+ *
+ * `init` runs in the page before the app does, for a test that needs the
+ * browser to lack something it normally has.
+ */
+async function openApp({ init = null } = {}) {
   const context = await browser.newContext();
+  if (init) await context.addInitScript(init);
   const page = await context.newPage();
 
   const errors = [];
@@ -570,14 +576,20 @@ test('a failed service call is reported on the sentence, not swallowed', async (
 });
 
 test('without credentials, speaking says what to do rather than failing obscurely', async () => {
-  const { page, context } = await openApp();
+  // With no key the app falls back to the browser's own voice when there is
+  // one, and this Chromium has one. The message under test is the one for
+  // having neither, so the voice is taken away before the app loads.
+  const { page, context } = await openApp({
+    init: () => { Object.defineProperty(window, 'speechSynthesis', { value: undefined, configurable: true }); },
+  });
 
   await page.fill('.practice-input', 'No credentials here.');
   await page.getByRole('button', { name: 'Split', exact: true }).click();
   await page.waitForSelector('.sentence-row');
   await page.getByRole('button', { name: 'Speak' }).click();
 
-  await page.waitForSelector('.sentence-status:not([hidden])');
+  // The line says "Preparing the reading…" first; the answer is what replaces it.
+  await page.waitForSelector('.sentence-status:not([hidden]):not([data-kind="busy"])');
   assert.match(await page.locator('.sentence-status').textContent(), /Azure key and region/);
 
   await context.close();

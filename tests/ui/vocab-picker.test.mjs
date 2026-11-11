@@ -70,6 +70,14 @@ test('words that touch are one entry; words that do not are separate ones', () =
   assert.match(describeSelection(text, units, []), /Click the words you want to keep/);
 });
 
+test('the account names the same word the chip shows, after an astral character too', () => {
+  // Spans are in characters; the chip is cut in characters; the account must
+  // be cut the same way or it names a different word from the one picked.
+  const text = '𠮷野家で 食べた';
+  const units = [{ charStart: 0, charEnd: 4 }, { charStart: 5, charEnd: 8 }];
+  assert.match(describeSelection(text, units, [1]), /One entry: “食べた”/);
+});
+
 test('the picker shows that account as the selection changes', () => {
   vocabPicker({ sentence: sentence(), addGroups: async () => ({ ok: true, added: 1 }) });
 

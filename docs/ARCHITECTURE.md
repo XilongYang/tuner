@@ -508,6 +508,17 @@ Sync:
   upload is offered again next round.)*
 - A failed read never discards a claim, here or upstream. *(`app/persist`,
   `app/sync-command`.)*
+- Bytes go up only under the hash the plan named for them. The content store is
+  keyed by path, and a path can be rewritten while a round is in flight; what is
+  found there is checked against the slot's hash before it is sent, and withheld
+  like a failed read when it differs. *(`app/sync-command`: a clip recorded
+  again mid-round is not sent under the old hash.)*
+- A sync round that changed nothing about the session on screen leaves it
+  alone: the stored copy is offered back after every successful round, and it
+  is compared as a manifest node before it replaces anything. Replacing it
+  anyway would move the store's version and swap every Blob for a fresh read,
+  which is what a score or a split in flight is pinned against.
+  *(`app/session-command`: an unchanged copy is refused.)*
 - The round's order is lock, read, plan, upload, publish, write locally, sweep,
   release. *(`app/sync-command`: the order is asserted as a sequence.)*
 - A local write whose record changed under the plan is skipped, and the bytes

@@ -19,14 +19,15 @@
 // Speech-service field names are mapped to these at the cloud boundary, so no
 // vendor naming leaks past it.
 
-import { canCutBetween } from './text.js';
+import { canCutBetween, chars } from './text.js';
 
 /** @typedef {{ charStart: number, charEnd: number, offsetMs: number, durationMs: number }} Word */
 /** @typedef {{ charIndex: number, ms: number|null, kind: 'word'|'text' }} SplitPoint */
 /** @typedef {{ offsetMs: number, durationMs: number }} Range */
 
-/** Code points, so a split index never lands inside a surrogate pair. */
-export const chars = (text) => Array.from(text || '');
+// The unit every position here is counted in. Defined beside the other text
+// rules; re-exported because geometry is where callers have always found it.
+export { chars };
 
 /**
  * Whether the practice text box is locked: always for an audio-imported

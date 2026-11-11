@@ -393,17 +393,19 @@ test('an occurrence is keyed by where it came from, so two devices agree on it',
   assert.equal(entry.sources[0].occurrenceId, occurrenceKey('sess1', 's1'));
 });
 
-test('picking the same word again keeps its audio at the same path', async () => {
-  // The clip lives at vocab-audio/<entry>/<occurrence>.audio. A derived
-  // occurrence id means a re-pick overwrites that clip rather than leaving the
-  // old one behind with nothing referencing it.
+test('picking the same word again leaves one clip stored, not two', async () => {
+  // The clip is addressed at vocab-audio/<entry>/<occurrence>.audio in the
+  // container. A derived occurrence id means a re-pick replaces that
+  // occurrence rather than adding one, and the bytes a replaced occurrence
+  // claimed are collected with the save that dropped them.
   const h = harness({ sentences: [sentence('s1', 'one two', { words: [word(0, 3, 0, 100)] })] });
 
   await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
-  const before = await db.listContentPaths();
+  const before = await db.listContentHashes();
   await addOccurrence({ store: h.store, sentenceId: 's1', words: [word(0, 3, 0, 100)], deps: h.deps });
 
-  assert.deepEqual(await db.listContentPaths(), before, 'the same one path, before and after');
+  assert.equal(before.length, 1);
+  assert.equal((await db.listContentHashes()).length, 1, 'one clip, before and after');
 });
 
 // ---- practising from memory, per entry ----

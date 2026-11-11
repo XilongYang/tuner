@@ -10,8 +10,7 @@
 // is plain data. Nothing here decodes or cuts audio; platform/audio.js does that
 // with the ranges computed here.
 
-import { segmentText } from './text.js';
-import { chars } from './geometry.js';
+import { segmentText, chars } from './text.js';
 
 /**
  * Margin restored to each side of a re-segmented sentence's range.
@@ -147,10 +146,11 @@ export function resegment(phrases, totalDurationMs = null) {
       // Each word's position within THIS sentence, so the split UI can offer a
       // cut at every real word boundary instead of guessing from character
       // ratios. Clamped, since a word can straddle the punctuation that ended
-      // the sentence by a character.
+      // the sentence by a character -- to the sentence's length in characters,
+      // the unit the positions are in.
       words: indices.map((i) => ({
-        charStart: clamp(words[i].start - span.start, 0, sentence.length),
-        charEnd: clamp(words[i].end - span.start, 0, sentence.length),
+        charStart: clamp(words[i].start - span.start, 0, span.end - span.start),
+        charEnd: clamp(words[i].end - span.start, 0, span.end - span.start),
         offsetMs: words[i].offsetMs,
         durationMs: words[i].durationMs,
       })),

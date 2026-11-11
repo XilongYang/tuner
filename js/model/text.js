@@ -4,6 +4,24 @@
 // Both are pure and both are decisions about meaning rather than mechanics,
 // which is why they live in model/ rather than beside the UI that calls them.
 
+/**
+ * A text as the app counts it: one entry per character (code point), not per
+ * UTF-16 unit. Every position in a sentence -- a word's span, a cut, a
+ * highlight -- is an index into this, so a split never lands inside a surrogate
+ * pair and a word after 𠮷 is where the reading said it was.
+ */
+export const chars = (text) => Array.from(text || '');
+
+/**
+ * `text` between two positions counted the same way.
+ *
+ * The one way to cut a sentence's text by position. `String.prototype.slice`
+ * counts UTF-16 units, so used on these positions it is one off for every
+ * astral character before the span -- and it stored a different word from the
+ * one the picker showed, twice, before this existed.
+ */
+export const sliceChars = (text, from, to) => chars(text).slice(from, to).join('');
+
 // Terminal punctuation, full-width (。．！？…) and half-width (. ! ?). A
 // half-width period only terminates when followed by whitespace or the end of
 // the line, which keeps a decimal ("3.5") and a mid-token abbreviation ("U.S"

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  emptySession, startNew, splitTypedText, open, reopenLast, describe, remove, applyIncoming, startsHidden,
+  emptySession, startNew, splitTypedText, open, reopenLast, describe, rename, remove, applyIncoming, startsHidden,
 } from '../../js/app/commands/session.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence } from '../../js/model/session.js';
@@ -30,6 +30,7 @@ function harness({ stored = {} } = {}) {
       },
       db: {
         getOne: async (entity, id) => records.get(id) ?? undefined,
+        put: async (entity, record) => { records.set(record.id, record); },
         remove: async (entity, id) => { records.delete(id); },
       },
     },
@@ -198,6 +199,44 @@ test('remove: deleting a session that is not on screen leaves the screen alone',
 
   assert.equal(result.wasOnScreen, false);
   assert.equal(h.store.get().id, 'sess1');
+});
+
+test('rename: the stored copy is renamed, and both of its clocks move', async () => {
+  const h = harness({ stored: { sess1: storedSession({ updatedAt: 1, metaUpdatedAt: 1 }) } });
+
+  const result = await rename({ store: h.store, sessionId: 'sess1', name: 'Lesson 3', deps: h.deps });
+
+  assert.deepEqual(result, { ok: true });
+  const stored = h.records.get('sess1');
+  assert.equal(stored.name, 'Lesson 3');
+  assert.equal(stored.updatedAt, 1000);
+  assert.equal(stored.metaUpdatedAt, 1000, 'a name is one of the session\'s own fields');
+});
+
+test('rename: the copy on screen follows, with the same clock values as the stored one', async () => {
+  const h = harness({ stored: { sess1: storedSession() } });
+  h.store.replace(storedSession({ name: 'old' }));
+
+  await rename({ store: h.store, sessionId: 'sess1', name: 'new', deps: h.deps });
+
+  assert.equal(h.store.get().name, 'new');
+  assert.equal(h.store.get().updatedAt, h.records.get('sess1').updatedAt, 'one clock read, two copies');
+});
+
+test('rename: a session that is not on screen leaves the screen alone', async () => {
+  const h = harness({ stored: { sess2: storedSession({ id: 'sess2' }) } });
+  h.store.replace(storedSession({ id: 'sess1', name: 'mine' }));
+
+  await rename({ store: h.store, sessionId: 'sess2', name: 'theirs', deps: h.deps });
+
+  assert.equal(h.store.get().name, 'mine');
+  assert.equal(h.records.get('sess2').name, 'theirs');
+});
+
+test('rename: a session that is gone is reported, not invented', async () => {
+  const h = harness();
+  assert.deepEqual(await rename({ store: h.store, sessionId: 'nope', name: 'x', deps: h.deps }), { ok: false, reason: 'not-found' });
+  assert.equal(h.records.size, 0);
 });
 
 test('applyIncoming: a newer copy of the session on screen replaces it', () => {

@@ -16,7 +16,7 @@ import { forceRelease } from './cloud/sync/lock.js';
 import { createSettings } from './platform/settings.js';
 import { createPlayer } from './platform/player.js';
 import { browserSpeech as createBrowserSpeech } from './platform/speech-synthesis.js';
-import { createRecorder } from './platform/recorder.js';
+import { createMicrophone } from './platform/microphone.js';
 import * as hash from './platform/hash.js';
 import * as audio from './platform/audio.js';
 
@@ -29,9 +29,8 @@ import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
 import * as order from './app/commands/order.js';
-import { serialize } from './app/serialize.js';
 import { importAudio } from './app/commands/import-audio.js';
-import { syncNow, eraseCloud } from './app/commands/sync.js';
+import { createSyncScheduler } from './app/sync-scheduler.js';
 
 import { createSidebar } from './ui/panels/sidebar.js';
 import { createSyncIndicator } from './ui/sync-indicator.js';
@@ -42,8 +41,6 @@ import { createLibraryPanel } from './ui/panels/library/panel.js';
 import { createSettingsPanel } from './ui/panels/settings/panel.js';
 import { confirmModal } from './ui/modal.js';
 import { el } from './ui/dom.js';
-
-const AUTO_SYNC_DELAY_MS = 3000;
 
 function showFatal(message) {
   document.querySelector('.app-main')?.prepend(el('p', { class: 'app-fatal', text: message }));
@@ -61,6 +58,10 @@ async function start() {
   // The player enforces one sound at a time, and is told how to silence the
   // other source of it; see its own note.
   const player = createPlayer({ silenceOthers: () => browserSpeech.cancel() });
+  // One microphone for the whole page, the way there is one player: a take and
+  // a retest cannot record over each other, and leaving a session lets go of
+  // whichever was running with one call.
+  const microphone = createMicrophone();
 
   const statusLine = document.getElementById('app-status');
   const say = (message, kind = 'info') => {
@@ -89,11 +90,6 @@ async function start() {
     onError: (err) => say(`Could not save: ${err.message}`, 'error'),
   });
 
-  // The manifest's ETag, kept between rounds so an unchanged manifest is not
-  // re-downloaded and re-parsed every time.
-  let manifestCache = { etag: null, manifest: null };
-  const manifestCacheApi = { get: () => manifestCache, set: (next) => { manifestCache = next; } };
-
   const ids = () => crypto.randomUUID();
   const clock = () => Date.now();
 
@@ -104,96 +100,20 @@ async function start() {
   const commandDeps = {
     db, hash, audio, settings, speech, player, browserSpeech, ids, clock, saveRecord, autosave,
     release: () => releaseWorkspace(),
-    // A split or a merge replaces sentences, which leaves their clips with
-    // nothing pointing at them. Collected here rather than only at the end of a
-    // sync round: someone with no container configured never has a round, and
-    // the bytes would sit in their quota for good.
-    //
-    // The flush is what lets the sweep see them at all. Saving is debounced, so
-    // until it happens the stored session still lists the sentences that were
-    // just replaced -- and content a stored record still references is content
-    // the sweep must leave alone. The flush is also what records their
-    // deletion: the save that drops a sentence writes its tombstone in the same
-    // transaction (see app/persist.js), which is why nothing does that here.
-    settle: async () => {
-      await autosave.flush();
-      await db.sweepContent();
-    },
+    // A split or a merge replaces sentences. Saving is debounced, and this is
+    // the save that must not wait: it records the replaced sentences as deleted
+    // (see app/persist.js) and collects the clips nothing points at any more
+    // (see db/entities.js), both in its own transaction.
+    settle: () => autosave.flush(),
   };
 
-  // Every round goes through here -- startup, an edit settling, the button --
-  // so this is the one place that knows when one is running, and therefore the
-  // only place the header's indicator is driven from.
+  // When rounds run, and what the screen does after one, is app/'s business
+  // (app/sync-scheduler.js). What is wired here is only where its events show:
+  // the header's indicator, and the library, which may list what a round
+  // brought in.
   const syncIndicator = createSyncIndicator(document.getElementById('sync-indicator'));
-
-  const runRound = async (onProgress) => {
-    syncIndicator.set({ state: 'syncing', detail: syncProgress(null) });
-    const result = await syncNow({
-      deps: {
-        container: containerOrNull(), db, settings, hash,
-        manifestCache: manifestCacheApi,
-        onProgress: (progress) => {
-          syncIndicator.set({ state: 'syncing', detail: syncProgress(progress) });
-          onProgress?.(progress);
-        },
-      },
-    });
-    syncIndicator.set({ state: syncState(result), detail: describeSync(result), at: clock() });
-    if (result.ok) {
-      // A round may have replaced the session on screen; put the stored copy
-      // back so the user sees what was merged.
-      const current = store.get();
-      if (current) {
-        const stored = await db.getOne('sessions', current.id);
-        if (stored) session.applyIncoming({ store, session: stored, deps: commandDeps });
-      }
-      library.refreshIfOpen();
-    }
-    return result;
-  };
-
-  // One round at a time in this tab, and at most one waiting behind it.
-  //
-  // The container lock stops two *devices* running a round at once; it says
-  // nothing about two rounds in one tab (see cloud/sync/lock.js, which says so
-  // and leaves it to whatever schedules rounds -- this). A second round started
-  // here would be refused by this device's own lock and reported as "another
-  // device is syncing", which is a lie told to the person who just pressed
-  // Sync now while the automatic round was running.
-  const runSync = serialize(runRound);
-
-  /**
-   * A container has just been set or forgotten in Settings.
-   *
-   * Setting one starts a round straight away rather than waiting for the next
-   * edit: what is already up there is what the user wants to see, and a dot
-   * reading "Syncing" with nothing running would be a lie.
-   */
-  const containerChanged = () => {
-    if (!containerOrNull()) {
-      syncIndicator.set({ state: 'off' });
-      return;
-    }
-    runSync();
-  };
-
-  // Auto-sync: edits settle, then one round. Coalesced the same way saving is,
-  // for the same reason -- a burst of changes is one thing to publish, not
-  // twenty. Nothing is announced: the round is not something the user asked
-  // for, and the header's indicator is where its outcome belongs.
-  let syncHandle = null;
-  const scheduleSync = () => {
-    if (!containerOrNull()) return;
-    clearTimeout(syncHandle);
-    syncHandle = setTimeout(async () => {
-      await autosave.flush();
-      // Nothing is reported here on purpose: the indicator already shows what
-      // this round did, and the user did not ask for it.
-      await runSync();
-    }, AUTO_SYNC_DELAY_MS);
-  };
-  store.subscribe((_session, { reason }) => {
-    if (reason !== 'saved' && reason !== 'incoming') scheduleSync();
+  const scheduler = createSyncScheduler({
+    store, db, settings, hash, autosave, container: containerOrNull, clock,
   });
 
   // Remember what is on screen, so a refresh comes back to it rather than to a
@@ -211,7 +131,7 @@ async function start() {
     container: document.getElementById('practice'),
     store,
     player,
-    createRecorder,
+    microphone,
     actions: {
       splitText: (text) => session.splitTypedText({ store, text, deps: commandDeps }),
       startNew: () => session.startNew({ store, deps: commandDeps }),
@@ -270,12 +190,7 @@ async function start() {
         await autosave.flush();
         await session.open({ store, sessionId: id, deps: commandDeps });
       },
-      renameSession: async (id, name) => {
-        const stored = await db.getOne('sessions', id);
-        if (!stored) return;
-        await db.put('sessions', { ...stored, name, updatedAt: clock(), metaUpdatedAt: clock() });
-        if (store.get()?.id === id) session.describe({ store, patch: { name }, deps: commandDeps });
-      },
+      renameSession: (id, name) => session.rename({ store, sessionId: id, name, deps: commandDeps }),
       deleteSession: (id) => session.remove({ store, sessionId: id, deps: commandDeps }),
       deleteVocab: (id) => vocab.removeEntry({ id, deps: commandDeps }),
       setVocabHidden: (id, hidden) => vocab.setHidden({ id, hidden, deps: commandDeps }),
@@ -284,18 +199,26 @@ async function start() {
     },
   });
 
+  scheduler.subscribe((event) => {
+    if (event.phase === 'off') syncIndicator.set({ state: 'off' });
+    else if (event.phase === 'started') syncIndicator.set({ state: 'syncing', detail: syncProgress(null) });
+    else if (event.phase === 'progress') syncIndicator.set({ state: 'syncing', detail: syncProgress(event.progress) });
+    else if (event.phase === 'finished') {
+      syncIndicator.set({ state: syncState(event.outcome), detail: describeSync(event.outcome), at: event.at });
+      if (event.outcome.ok) library.refreshIfOpen();
+    }
+  });
+
   const settingsPanel = createSettingsPanel({
     container: document.getElementById('settings'),
     settings,
     // There is nothing to say about syncing until there is somewhere to sync
     // to, and nothing to say once that is forgotten.
-    onContainerChange: containerChanged,
+    onContainerChange: () => scheduler.containerChanged(),
     actions: {
-      sync: (onProgress) => runSync(onProgress),
+      sync: (onProgress) => scheduler.request(onProgress),
       eraseCloud: async (onProgress) => {
-        const outcome = await eraseCloud({
-          deps: { container: containerOrNull(), settings, manifestCache: manifestCacheApi, onProgress },
-        });
+        const outcome = await scheduler.erase(onProgress);
         library.refreshIfOpen();
         return outcome;
       },
@@ -365,10 +288,9 @@ async function start() {
 
   // One round at startup, so a session recorded on another device is here
   // before the user starts looking for it. Its outcome is not announced: the
-  // header's indicator is where sync state lives now, and a floating message
+  // header's indicator is where sync state lives, and a floating message
   // saying the same thing is one the user has to dismiss to read the page.
-  syncIndicator.set(containerOrNull() ? { state: 'syncing', detail: 'Starting sync…' } : { state: 'off' });
-  if (containerOrNull()) await runSync();
+  await scheduler.start();
 
   // ---- Practising from memory, for every sentence at once ----
   //
@@ -392,30 +314,21 @@ async function start() {
     }
     library.refreshIfOpen({ rehide: true });
   });
-  // A session arriving from storage or a sync decides how the switch reads: it
-  // shows the state of what is on screen, and only a session hidden right
-  // through counts as hidden.
-  //
-  // What it reads is also what it means, so the stored preference moves with
-  // it. Otherwise the switch says "on" while `startsHidden` still reads the
-  // old value, and the next sentence split -- or the next word collected --
-  // arrives uncovered, in plain sight, next to a page of covered ones.
-  const readHideSwitchFrom = (current) => {
-    const sentences = current?.sentences ?? [];
-    if (!sentences.length) return;
-    const allHidden = sentences.every((sentence) => sentence.hidden);
-    hideAll.checked = allHidden;
-    if (allHidden !== settings.hideText()) settings.saveHideText(allHidden);
+  // A session arriving from storage or a sync decides how the switch reads
+  // (see practice.readHideSwitch for the rule and why the preference follows).
+  const readHideSwitchFrom = () => {
+    const checked = practice.readHideSwitch({ store, deps: commandDeps });
+    if (checked !== null) hideAll.checked = checked;
   };
   store.subscribe(readHideSwitchFrom);
   // Including the session reopened a moment ago, which arrived before this was
   // listening: "a session arriving from storage decides how the switch reads"
   // is not true of the first one otherwise, and it is the one on screen.
-  readHideSwitchFrom(store.get());
+  readHideSwitchFrom();
 
   // Exposed for the end-to-end tests, which drive the app the way a person
   // does and need to seed and inspect stored data to do it.
-  window.tuner = { store, db, settings, sidebar, commandDeps, runSync, autosave, practicePanel };
+  window.tuner = { store, db, settings, sidebar, commandDeps, runSync: scheduler.request, autosave, practicePanel };
 }
 
 start().catch((err) => {

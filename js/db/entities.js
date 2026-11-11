@@ -12,6 +12,14 @@
 // separates them again -- and writing *new* bytes is the persist layer's job,
 // not this one's, because bytes have to be materialized before a transaction
 // can take them.
+//
+// Content is reached by hash, and a hash can be claimed by more than one
+// record, so no write or delete here removes bytes by name. Instead every
+// transaction that can leave bytes unreferenced -- a record stored without a
+// hash it used to claim, a record deleted -- ends by collecting what no record
+// references any more, inside that same transaction. Deleting a record and
+// collecting its content are then one step, and so are replacing a clip and
+// collecting the old one.
 
 import {
   SESSIONS, VOCAB, TOMBSTONES, CONTENT, ALL_STORES, transact, request,
@@ -19,12 +27,11 @@ import {
 import { putContentIn, deleteContentIn } from './content.js';
 import { tombstoneId } from '../model/merge.js';
 import { SESSION, VOCAB_ENTRY, walkContent, hashKey } from '../model/schema.js';
-import { contentPath } from '../model/content.js';
 
 // The content store's own reads are part of this module's surface: the app asks
 // the database for things, and should not have to know it keeps bytes in a
 // second place.
-export { readOne as readContent, storedHashes as storedContentHashes, listContentPaths } from './content.js';
+export { readOne as readContent, storedHashes as storedContentHashes, listContentHashes } from './content.js';
 
 /** Which store each collection lives in, its tombstone kind, and its shape. */
 const COLLECTIONS = {
@@ -38,13 +45,37 @@ function collection(name) {
   return c;
 }
 
-/** Every blob path a record references, whether or not the bytes are there. */
-function contentPathsOf(name, record) {
+/** Every content hash a record claims, whether or not the bytes are there. */
+function contentHashesOf(def, record) {
   if (!record) return [];
-  const { def } = collection(name);
-  return [...walkContent(def, record)]
-    .filter((slot) => slot.hash !== null)
-    .map((slot) => contentPath(slot.kind, slot.ref));
+  return [...walkContent(def, record)].filter((slot) => slot.hash !== null).map((slot) => slot.hash);
+}
+
+/**
+ * Delete the content no record references, inside a transaction that already
+ * covers every store.
+ *
+ * The same arithmetic as the container's orphan sweep: bytes are only
+ * reachable through a record, so bytes no record names are unreachable, and
+ * only the storage quota would ever mention them. Run at the end of every
+ * transaction that can produce such bytes, so "deleting a record deletes its
+ * content" and "replacing a clip collects the old one" hold at the moment the
+ * transaction commits rather than at some later sweep.
+ *
+ * @returns {Promise<string[]>} the hashes deleted
+ */
+async function collectIn(s) {
+  const referenced = new Set();
+  for (const [name, { store, def }] of Object.entries(COLLECTIONS)) {
+    const records = await request(s[store].getAll(), `Listing ${name}`);
+    for (const record of records) {
+      for (const hash of contentHashesOf(def, record)) referenced.add(hash);
+    }
+  }
+  const held = await request(s[CONTENT].getAllKeys(), 'Listing stored content');
+  const orphans = held.filter((hash) => !referenced.has(hash));
+  await deleteContentIn(s, orphans);
+  return orphans;
 }
 
 /**
@@ -77,34 +108,31 @@ function stripped(def, record) {
  * stops a clip whose bytes are missing from quietly becoming a sentence that
  * never had one.
  */
-function hydrated(def, record, entries, parentRef = {}) {
+function hydrated(def, record, entries) {
   if (!record) return record;
-  const ref = def.ref(record, parentRef);
   const out = { ...record };
   for (const [field, d] of def.entries) {
     if (d.role === 'content') {
-      if (record[hashKey(field)] == null) continue;
-      const entry = entries.get(contentPath(d.kind, ref));
-      out[field] = entry ? entry.value : null;
+      const hash = record[hashKey(field)];
+      if (hash == null) continue;
+      out[field] = entries.get(hash)?.value ?? null;
     } else if (d.role === 'children' && field in out) {
-      out[field] = (out[field] || []).map((child) => hydrated(d.def, child, entries, ref));
+      out[field] = (out[field] || []).map((child) => hydrated(d.def, child, entries));
     }
   }
   return out;
 }
 
 async function attachContent(def, records, stores) {
-  const paths = new Set();
+  const hashes = new Set();
   for (const record of records) {
-    for (const slot of walkContent(def, record)) {
-      if (slot.hash !== null) paths.add(contentPath(slot.kind, slot.ref));
-    }
+    for (const hash of contentHashesOf(def, record)) hashes.add(hash);
   }
 
   const entries = new Map();
-  for (const path of paths) {
-    const entry = await request(stores[CONTENT].get(path), `Reading content at "${path}"`);
-    if (entry) entries.set(path, entry);
+  for (const hash of hashes) {
+    const entry = await request(stores[CONTENT].get(hash), `Reading content ${hash}`);
+    if (entry) entries.set(hash, entry);
   }
   return records.map((record) => hydrated(def, record, entries));
 }
@@ -176,17 +204,22 @@ export async function put(name, record) {
  * a child this version has dropped is recorded as deleted at the same moment
  * the record stops listing it (see app/persist.js). The hash and what it names,
  * the deletion and the record it is a deletion from: each pair becomes true
- * together or not at all. `entries` carries
- * only what is new -- see app/persist.js, which decides that, and which has
- * already read the bytes into self-contained values, because a transaction
- * cannot wait for a Blob to be read.
+ * together or not at all. `entries` carries only what is new -- see
+ * app/persist.js, which decides that, and which has already read the bytes
+ * into self-contained values, because a transaction cannot wait for a Blob to
+ * be read.
+ *
+ * Content this version of the record no longer claims -- a retake's previous
+ * take, a replaced sentence's clip -- is collected before the transaction
+ * commits, unless another record still claims it.
  */
 export async function putRecord(name, record, entries = [], tombstones = []) {
   const { store, def } = collection(name);
-  await transact([store, CONTENT, TOMBSTONES], 'readwrite', async (s) => {
+  await transact(ALL_STORES, 'readwrite', async (s) => {
     await putContentIn(s, entries);
     for (const t of tombstones) await request(s[TOMBSTONES].put(t), `Recording tombstone ${t.id}`);
     await request(s[store].put(stripped(def, record)), `Storing ${name} ${record.id}`);
+    await collectIn(s);
   });
 }
 
@@ -207,14 +240,13 @@ export async function putMany(name, records) {
  */
 export async function remove(name, id, now = Date.now()) {
   const { store, kind } = collection(name);
-  await transact([store, TOMBSTONES, CONTENT], 'readwrite', async (s) => {
-    const record = await request(s[store].get(id), `Reading ${name} ${id}`);
-    await deleteContentIn(s, contentPathsOf(name, record));
+  await transact(ALL_STORES, 'readwrite', async (s) => {
     await request(s[store].delete(id), `Deleting ${name} ${id}`);
     await request(
       s[TOMBSTONES].put({ id: tombstoneId(kind, id), kind, targetId: id, deletedAt: now }),
       `Recording the deletion of ${name} ${id}`,
     );
+    await collectIn(s);
   });
 }
 
@@ -225,10 +257,9 @@ export async function remove(name, id, now = Date.now()) {
  */
 export async function removeRecord(name, id) {
   const { store } = collection(name);
-  await transact([store, CONTENT], 'readwrite', async (s) => {
-    const record = await request(s[store].get(id), `Reading ${name} ${id}`);
-    await deleteContentIn(s, contentPathsOf(name, record));
+  await transact(ALL_STORES, 'readwrite', async (s) => {
     await request(s[store].delete(id), `Deleting ${name} ${id}`);
+    await collectIn(s);
   });
 }
 
@@ -254,30 +285,18 @@ export async function clearAll(now = Date.now()) {
 }
 
 /**
- * Content this device holds that no record references any more -- what a
- * split, a merge or a re-recording leaves behind.
+ * Collect content no record references, on its own.
  *
- * The same arithmetic as the container's orphan sweep, on the same paths, and
- * for the same reason: the bytes are only reachable through a record, so bytes
- * no record names are unreachable, and nothing but the storage quota can tell.
+ * Every write and delete here already collects as it commits, so in the normal
+ * run of things this finds nothing. It exists for the state a store can be
+ * left in by anything else -- a transaction interrupted by the browser, a
+ * database written by an older build -- and for tests to assert the invariant
+ * directly.
  *
- * @returns {Promise<string[]>} the paths deleted
+ * @returns {Promise<string[]>} the hashes deleted
  */
 export async function sweepContent() {
-  return transact(ALL_STORES, 'readwrite', async (s) => {
-    const referenced = new Set();
-    for (const [name, { store }] of Object.entries(COLLECTIONS)) {
-      const records = await request(s[store].getAll(), `Listing ${name}`);
-      for (const record of records) {
-        for (const path of contentPathsOf(name, record)) referenced.add(path);
-      }
-    }
-
-    const held = await request(s[CONTENT].getAllKeys(), 'Listing stored content');
-    const orphans = held.filter((path) => !referenced.has(path));
-    await deleteContentIn(s, orphans);
-    return orphans;
-  });
+  return transact(ALL_STORES, 'readwrite', collectIn);
 }
 
 /**
@@ -294,7 +313,8 @@ export async function sweepContent() {
  * stored claiming bytes that did not make it in beside it. An entry whose
  * owning record is skipped is dropped with it: bytes with no record to reach
  * them through are unreachable, and the next round fetches them again alongside
- * the write that was refused.
+ * the write that was refused. Content the writes and deletes leave
+ * unreferenced is collected before the transaction commits.
  *
  * @param {{localWrites: Array<{entity: string, record: object, baseClock: number|null, id: string}>,
  *          localDeletes: Array<{entity: string, id: string}>,
@@ -330,13 +350,12 @@ export async function applyPlan(plan, clocks, { content = [] } = {}) {
 
     for (const del of plan.localDeletes) {
       const { store } = collection(del.entity);
-      const record = await request(s[store].get(del.id), `Reading ${del.entity} ${del.id}`);
-      await deleteContentIn(s, contentPathsOf(del.entity, record));
       await request(s[store].delete(del.id), `Deleting ${del.entity} ${del.id}`);
       deleted.push(del.id);
     }
 
     for (const t of plan.tombstones || []) await request(s[TOMBSTONES].put(t), `Recording tombstone ${t.id}`);
+    await collectIn(s);
 
     return { written, skipped, deleted };
   });

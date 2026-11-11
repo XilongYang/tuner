@@ -9,6 +9,7 @@ global.window = dom.window;
 global.document = dom.window.document;
 
 const { createPracticePanel } = await import('../../js/ui/panels/practice/panel.js');
+const { createMicrophone } = await import('../../js/platform/microphone.js');
 const { renderSentenceText, setSpeaking } = await import('../../js/ui/panels/practice/sentence-text.js');
 
 // The split positions a rendered sentence is offering. This used to be exported
@@ -87,7 +88,7 @@ function harness(initial = session([sentence('s1', 'Alpha beta')]), actionOverri
       subscribe: (listener) => { playbackListeners.push(listener); return () => {}; },
       onTime: (listener) => { timeListeners.push(listener); return () => { timeListeners.splice(timeListeners.indexOf(listener), 1); }; },
     },
-    createRecorder: () => { const r = fakeRecorder(); recorders.push(r); return r; },
+    microphone: createMicrophone({ createRecorder: () => { const r = fakeRecorder(); recorders.push(r); return r; } }),
   });
 
   return {

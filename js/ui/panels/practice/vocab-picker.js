@@ -12,11 +12,10 @@
 
 import { openModal } from '../../modal.js';
 import { el, button } from '../../dom.js';
-import { chars, groupAdjacent } from '../../../model/geometry.js';
+import { groupAdjacent } from '../../../model/geometry.js';
+import { sliceChars } from '../../../model/text.js';
 
-// Characters, not UTF-16 units: the spans are counted the way the chips below
-// are cut, and the two have to name the same word.
-const phrase = (text, units) => chars(text).slice(units[0].charStart, units[units.length - 1].charEnd).join('');
+const phrase = (text, units) => sliceChars(text, units[0].charStart, units[units.length - 1].charEnd);
 
 /**
  * The words of the sentence that no unit covers.
@@ -85,7 +84,7 @@ export function vocabPicker({ sentence, addGroups }) {
   const chips = units.map((unit, index) => {
     const chip = button({
       class: 'vocab-word',
-      text: chars(text).slice(unit.charStart, unit.charEnd).join(''),
+      text: sliceChars(text, unit.charStart, unit.charEnd),
       onClick: () => {
         if (frozen) return;
         if (selected.has(index)) selected.delete(index);

@@ -145,6 +145,27 @@ export function describe({ store, patch, deps }) {
 }
 
 /**
+ * Rename a stored session, from the library.
+ *
+ * The stored copy is written directly, because the session need not be on
+ * screen; when it is, the copy on screen follows with the same clock values --
+ * not a second read of the clock -- so the two never disagree about when the
+ * rename happened, which is how the older of them would win later. Both clocks
+ * move: a name is one of the session's own fields (see model/schema.js).
+ */
+export async function rename({ store, sessionId, name, deps }) {
+  const { db, clock } = deps;
+  const stored = await db.getOne('sessions', sessionId);
+  if (!stored) return { ok: false, reason: 'not-found' };
+
+  const now = clock();
+  const changes = { name, updatedAt: now, metaUpdatedAt: now };
+  await db.put('sessions', { ...stored, ...changes });
+  store.apply((current) => (current?.id === sessionId ? { ...current, ...changes } : null), 'describe');
+  return { ok: true };
+}
+
+/**
  * Delete a stored session.
  *
  * The record and its tombstone are written together by the database, so the

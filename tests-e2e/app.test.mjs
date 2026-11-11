@@ -687,7 +687,7 @@ test('a clip is written once, and later edits leave the stored bytes alone', asy
   await page.waitForFunction(() => Boolean(window.tuner.store.get().sentences[0].reference));
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  /** When each stored clip was last written, by path. */
+  /** When each stored clip was last written, by hash. */
   const storedAt = () => page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const req = indexedDB.open('tuner');
@@ -700,11 +700,12 @@ test('a clip is written once, and later edits leave the stored bytes alone', asy
       req.onerror = () => reject(req.error);
     });
     db.close();
-    return entries.map((e) => [e.path, e.storedAt, e.value.size ?? String(e.value).length]);
+    return entries.map((e) => [e.hash, e.storedAt, e.value.size ?? String(e.value).length]);
   });
 
   const before = await storedAt();
-  assert.ok(before.some(([path]) => path.startsWith('references/')), 'the clip is in the content store');
+  const referenceHash = await page.evaluate(() => window.tuner.store.get().sentences[0].referenceHash);
+  assert.ok(before.some(([hash]) => hash === referenceHash), 'the clip is in the content store');
 
   // Edits of the kind that happen constantly: a hidden toggle, then another.
   await page.waitForTimeout(5);
@@ -744,7 +745,7 @@ test('splitting a sentence collects the clip nothing references any more', async
       : realFetch(url, options));
   });
 
-  const contentPaths = () => page.evaluate(async () => {
+  const contentHashes = () => page.evaluate(async () => {
     const db = await new Promise((resolve, reject) => {
       const req = indexedDB.open('tuner');
       req.onsuccess = () => resolve(req.result);
@@ -766,15 +767,15 @@ test('splitting a sentence collects the clip nothing references any more', async
   await page.waitForFunction(() => Boolean(window.tuner.store.get().sentences[0].reference));
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  const before = await contentPaths();
-  const reference = before.find((path) => path.startsWith('references/'));
-  assert.ok(reference, 'the clip was stored');
+  const before = await contentHashes();
+  const reference = await page.evaluate(() => window.tuner.store.get().sentences[0].referenceHash);
+  assert.ok(before.includes(reference), 'the clip was stored');
 
   await page.locator('.split-marker').first().click();
   await page.waitForFunction(() => window.tuner.store.get().sentences.length === 2);
   await page.evaluate(() => window.tuner.autosave.flush());
 
-  const after = await contentPaths();
+  const after = await contentHashes();
   assert.ok(!after.includes(reference), 'the replaced sentence took its clip with it');
   assert.deepEqual(errors.filter((e) => !e.includes('play')), []);
 

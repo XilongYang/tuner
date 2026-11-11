@@ -5,7 +5,7 @@ import {
   getOne, listAll, listTombstones, snapshot, put, putMany, putRecord,
   remove, removeRecord, clearAll, applyPlan, sweepContent,
 } from '../../js/db/entities.js';
-import { listContentPaths } from '../../js/db/content.js';
+import { listContentHashes } from '../../js/db/content.js';
 import { transact, ALL_STORES, request, dbError } from '../../js/db/open.js';
 
 const CLOCKS = { sessions: 'updatedAt', vocab: 'updatedAt' };
@@ -29,9 +29,7 @@ test('a record is stored without its content, and comes back with it', async () 
     sentences: [{ id: 'x', text: 'hi', recording, recordingHash: 'h3' }],
   };
 
-  await putRecord('sessions', record, [
-    { path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h3', value: recording },
-  ]);
+  await putRecord('sessions', record, [{ kind: 'recording', hash: 'h3', value: recording }]);
 
   const raw = await transact([ALL_STORES[0]], 'readonly', (s) => request(s.sessions.get('s1')));
   assert.equal(raw.sentences[0].recording, null, 'the record holds no bytes');
@@ -55,25 +53,56 @@ test('a hash whose content is missing comes back as a claim with nothing behind 
 test('deleting a record takes its content with it', async () => {
   const value = new Blob([new Uint8Array([1])]);
   await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'x', recordingHash: 'h' }] },
-    [{ path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h', value }]);
+    [{ kind: 'recording', hash: 'h', value }]);
 
   await remove('sessions', 's1');
 
-  assert.deepEqual(await listContentPaths(), []);
+  assert.deepEqual(await listContentHashes(), []);
+});
+
+test('content two records claim survives the deletion of one of them', async () => {
+  // Bytes are keyed by what they are, so the same clip in two places is one
+  // entry -- and deleting one place must not take it from the other.
+  const value = new Blob([new Uint8Array([1])]);
+  await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'x', recordingHash: 'shared' }] },
+    [{ kind: 'recording', hash: 'shared', value }]);
+  await putRecord('sessions', { id: 's2', updatedAt: 1, sentences: [{ id: 'y', recordingHash: 'shared' }] }, []);
+
+  await remove('sessions', 's1');
+  assert.deepEqual(await listContentHashes(), ['shared']);
+  assert.ok((await getOne('sessions', 's2')).sentences[0].recording, 'still reachable from the other');
+
+  await remove('sessions', 's2');
+  assert.deepEqual(await listContentHashes(), [], 'and gone once nothing claims it');
+});
+
+test('a save that stops claiming a hash collects its bytes in the same transaction', async () => {
+  // A retake, a split, a merge: the record is rewritten without the old hash,
+  // and the old bytes go with that write rather than waiting for a sweep.
+  const value = new Blob([new Uint8Array([1])]);
+  await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'x', recordingHash: 'old' }] },
+    [{ kind: 'recording', hash: 'old', value }]);
+
+  await putRecord('sessions', { id: 's1', updatedAt: 2, sentences: [{ id: 'x', recordingHash: 'new' }] },
+    [{ kind: 'recording', hash: 'new', value }]);
+
+  assert.deepEqual(await listContentHashes(), ['new']);
 });
 
 test('sweepContent removes what no record references any more', async () => {
+  // Nothing in this module leaves such bytes behind any more; the sweep is for
+  // a store something else left in that state, and for asserting the rule.
   const value = new Blob([new Uint8Array([1])]);
-  await putRecord('sessions', { id: 's1', updatedAt: 1, sentences: [{ id: 'kept', recordingHash: 'h' }] }, [
-    { path: 'recordings/s1/kept.wav', kind: 'recording', hash: 'h', value },
-    // What a split or a merge leaves behind: bytes whose sentence is gone.
-    { path: 'recordings/s1/orphan.wav', kind: 'recording', hash: 'h2', value },
-  ]);
+  await transact(ALL_STORES, 'readwrite', async (s) => {
+    await request(s.sessions.put({ id: 's1', updatedAt: 1, sentences: [{ id: 'kept', recordingHash: 'h' }] }));
+    await request(s.content.put({ hash: 'h', kind: 'recording', value, storedAt: 1 }));
+    await request(s.content.put({ hash: 'h2', kind: 'recording', value, storedAt: 1 }));
+  });
 
   const swept = await sweepContent();
 
-  assert.deepEqual(swept, ['recordings/s1/orphan.wav']);
-  assert.deepEqual(await listContentPaths(), ['recordings/s1/kept.wav']);
+  assert.deepEqual(swept, ['h2']);
+  assert.deepEqual(await listContentHashes(), ['h']);
 });
 
 test('putMany is a no-op on an empty list rather than an error', async () => {
@@ -236,12 +265,10 @@ test('a record and its content land together, or neither does', async () => {
     sentences: [{ id: 'x', recordingHash: 'h' }],
   };
 
-  await assert.rejects(() => putRecord('sessions', refused, [
-    { path: 'recordings/s1/x.wav', kind: 'recording', hash: 'h', value },
-  ]));
+  await assert.rejects(() => putRecord('sessions', refused, [{ kind: 'recording', hash: 'h', value }]));
 
   assert.equal(await getOne('sessions', 's1'), undefined, 'no record');
-  assert.deepEqual(await listContentPaths(), [], 'and no bytes left behind by the attempt');
+  assert.deepEqual(await listContentHashes(), [], 'and no bytes left behind by the attempt');
 });
 
 test('a deletion and its tombstone land together, or neither does', async () => {

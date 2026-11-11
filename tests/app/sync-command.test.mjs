@@ -215,7 +215,7 @@ test('a record written locally while the round was in flight is not overwritten 
   // no record reaching them, so they would be unreachable -- and the sweep at
   // the end of the round would delete them anyway. The next round fetches them
   // with the write that was refused.
-  assert.deepEqual(await db.listContentPaths(), [], 'no bytes without a record to reach them');
+  assert.deepEqual(await db.listContentHashes(), [], 'no bytes without a record to reach them');
 });
 
 test('vocab from two devices unions rather than one overwriting the other', async () => {
@@ -360,10 +360,12 @@ test('content is read at the moment it is uploaded, not when the snapshot was ta
 });
 
 test('a clip recorded again while the round was running is not sent under the old hash', async () => {
-  // The content store is keyed by path, so a new take lands where the plan
-  // read the old one. Sending what is there now would publish the new bytes
-  // under the old hash -- a claim every other device would download and store
-  // as something it is not.
+  // Content is read by the hash the plan named, so a new take stored under
+  // the same path cannot be sent as the old one: the save that replaced the
+  // take collected the old bytes, and the slot is withheld like any other the
+  // device cannot supply. Publishing the new bytes under the old hash would
+  // be a claim every other device would download and store as something it
+  // is not.
   await wipe();
   await seedSession({ recording: clip([5, 6]) });
   const container = fakeContainer();
@@ -375,19 +377,19 @@ test('a clip recorded again while the round was running is not sent under the ol
       manifestCache: cache,
       db: {
         ...db,
-        readContent: async (path) => {
+        readContent: async (hash) => {
           if (!rerecorded) {
             rerecorded = true;
             await seedSession({ recording: clip([9, 9, 9]), updatedAt: 20 }); // the user stopped a new take
           }
-          return db.readContent(path);
+          return db.readContent(hash);
         },
       },
     }),
   });
 
   assert.equal(first.ok, true, first.reason);
-  assert.equal(first.uploaded, 0, 'the bytes in hand are not the bytes the plan named');
+  assert.equal(first.uploaded, 0, 'the bytes the plan named are no longer what the record claims');
   assert.equal(first.skipped, 1, 'and the record, which moved on, is left as the user left it');
   assert.equal(container.has('recordings/sess1/sess1-s1.wav'), false);
   assert.equal((await container.downloadJson(MANIFEST_PATH)).sessions[0].sentences[0].recordingHash, null,

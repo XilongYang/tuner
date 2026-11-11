@@ -45,8 +45,8 @@ const isBlob = (value) => typeof value?.arrayBuffer === 'function';
  * The content a round downloaded, as entries for the content store.
  *
  * Nothing is attached to a record: a stored record carries hashes, and the
- * bytes go beside it under the same blob path the container used. A downloaded
- * value came off the network and owns its bytes, so it is stored as it is.
+ * bytes go beside it under the hash. A downloaded value came off the network
+ * and owns its bytes, so it is stored as it is.
  *
  * Each entry names the record it belongs to, because the store writes bytes
  * only for records that were actually written -- see db/entities.js.
@@ -54,7 +54,7 @@ const isBlob = (value) => typeof value?.arrayBuffer === 'function';
 const contentEntries = (plan, downloaded) => plan.slots
   .filter((slot) => downloaded.has(slot.path))
   .map((slot) => ({
-    path: slot.path, kind: slot.kind, hash: slot.hash,
+    kind: slot.kind, hash: slot.hash,
     ownerId: slot.ownerId, value: downloaded.get(slot.path),
   }));
 
@@ -100,28 +100,19 @@ export async function syncNow({ deps }) {
 
     // Bytes this device claims to hold and turned out not to be able to read.
     const unreadable = new Map();
-    // Paths whose bytes were replaced after the plan read their hash.
-    const replaced = new Set();
     const transfer = await transferContent(plan, container, {
       // One slot's bytes, read when that slot is uploaded and not before: a
       // round that has to send a whole library should not hold the whole
       // library in memory to do it. Reading here also means a clip whose bytes
       // are gone is found as that, rather than as an opaque network error about
       // the SAS URL, which is the wrong thing to go looking at.
+      //
+      // By hash, so what is read is the bytes the plan named or nothing: a
+      // sentence recorded again while the round is in flight cannot have its
+      // new take sent under the old claim.
       getValue: async (slot) => {
-        const entry = await db.readContent(slot.path);
+        const entry = await db.readContent(slot.hash);
         if (!entry || entry.value == null) return null;
-        // The store is keyed by path, and a path can be rewritten while a
-        // round is in flight -- a sentence recorded again lands its new take
-        // under the same path the plan read the old one from. Sending what is
-        // there now would publish the new bytes under the old hash: a claim
-        // every other device would download and store as something it is not.
-        // Withheld instead; the next round plans against the new hash and
-        // sends the bytes under the name they actually have.
-        if (entry.hash !== slot.hash) {
-          replaced.add(slot.path);
-          return null;
-        }
         if (!isBlob(entry.value)) return entry.value;
         try {
           // Read now rather than handing fetch() a Blob to read later: a Blob
@@ -138,12 +129,6 @@ export async function syncNow({ deps }) {
 
     outcome.uploaded = transfer.uploaded.length;
     outcome.downloaded = transfer.downloaded.size;
-    for (const missing of transfer.missing) {
-      if (!unreadable.has(missing.path) && !replaced.has(missing.path)) outcome.warnings.push(`${missing.path}: ${missing.reason}`);
-    }
-    for (const path of replaced) {
-      outcome.warnings.push(`${path}: replaced while the round was running; the new bytes go up next round`);
-    }
 
     // Content that was due to go up and did not. The manifest must not claim
     // it: a claim is "these bytes exist and can be fetched", and publishing one
@@ -162,9 +147,6 @@ export async function syncNow({ deps }) {
       ...unreadable.keys(),
       ...transfer.missing.filter((m) => m.direction === 'up').map((m) => m.path),
     ]);
-    for (const [path, message] of unreadable) {
-      outcome.warnings.push(`${path}: the local copy could not be read (${message}); it stays out of the cloud copy, and the record keeps it, until it can be read again`);
-    }
 
     const publishedPlan = withheld.size
       ? planSync({ local: withoutContent(snapshot, withheld), remote })
@@ -179,16 +161,27 @@ export async function syncNow({ deps }) {
 
     // Records and the bytes they arrived with, in one transaction. Nothing this
     // device already holds is rewritten: an unchanged clip is not touched by a
-    // round at all, which is the point of the content store.
+    // round at all, which is the point of the content store. Content the
+    // round leaves unreferenced here is collected in that transaction too.
     const applied = await db.applyPlan(plan, CLOCKS, { content: contentEntries(plan, transfer.downloaded) });
     outcome.written = applied.written.length;
     outcome.skipped = applied.skipped.length;
     outcome.deleted = applied.deleted.length;
 
-    // Both sides, by the same arithmetic: content a split or a merge left
-    // behind is unreachable here for exactly the reason it is unreachable
-    // there, and only the storage quota would ever mention it.
-    await db.sweepContent();
+    // What was withheld, said once each, and said rightly: a slot whose record
+    // moved on under the plan (its write was skipped) is a take replaced while
+    // the round ran -- the old bytes were collected with it -- not bytes lost.
+    const movedOn = new Set(applied.skipped);
+    for (const missing of transfer.missing) {
+      if (unreadable.has(missing.path)) continue;
+      const slot = plan.slots.find((s) => s.path === missing.path);
+      outcome.warnings.push(missing.direction === 'up' && slot && movedOn.has(slot.ownerId)
+        ? `${missing.path}: replaced while the round was running; the new bytes go up next round`
+        : `${missing.path}: ${missing.reason}`);
+    }
+    for (const [path, message] of unreadable) {
+      outcome.warnings.push(`${path}: the local copy could not be read (${message}); it stays out of the cloud copy, and the record keeps it, until it can be read again`);
+    }
 
     const sweep = await sweepOrphans(plan, container, { onProgress });
     outcome.swept = sweep.deleted.length;

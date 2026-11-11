@@ -11,6 +11,11 @@
 // database or the network, and it does not decide anything: what a failed
 // score means, or whether a split can keep its audio, is the command's answer
 // to report.
+//
+// It does not own a recorder either. The microphone is one thing for the whole
+// panel (platform/microphone.js), and the row records in its own name through
+// a handle on it; who holds it is read from there, which is how the row knows
+// to disable Record while a retest in one of its own words is speaking.
 
 import { el, button } from '../../dom.js';
 import { wordAt } from '../../../model/transcript.js';
@@ -39,20 +44,22 @@ const describe = (reason) => REASONS[reason] ?? reason;
  * @param {number} spec.index Its position in the session, for the row's number.
  * @param {object} spec.actions Command dispatchers, already bound to the store.
  * @param {object} spec.player
- * @param {(id: string) => object} spec.recorderFor
- * @param {() => object} spec.createRecorder For a per-word retest, which records
- *   without the sentence's own take being replaced.
+ * @param {object} spec.microphone The page's one microphone, as the panel was given it.
  * @param {(id: string, selected: boolean) => void} spec.onSelect
  * @param {(id: string) => boolean} spec.isSelected
  * @param {(id: string) => boolean} spec.isSelectable
  */
 export function createRow({
-  sentence: initial, index, actions, player, recorderFor, createRecorder, onSelect, isSelected, isSelectable,
+  sentence: initial, index, actions, player, microphone, onSelect, isSelected, isSelectable,
 }) {
   const sentenceId = initial.id;
   let sentence = initial;
   let position = index;
   let busy = false;
+  // The sentence's own take records in the sentence's name; a word's retest
+  // records in the word's (see ./score.js), which begins with the sentence's.
+  const recorder = microphone.for(sentenceId);
+  const retestOwner = (owner) => typeof owner === 'string' && owner.startsWith(`${sentenceId}:word:`);
 
   const row = el('div', { class: 'sentence-row' });
 
@@ -111,7 +118,6 @@ export function createRow({
   const recordBtn = button({
     class: 'btn', text: 'Record',
     onClick: () => {
-      const recorder = recorderFor(sentenceId);
       if (recorder.isRecording) {
         return run('Saving the take…', async () => {
           const outcome = await actions.stopRecording(sentenceId, recorder);
@@ -178,15 +184,7 @@ export function createRow({
   // The score: four numbers, every word marked, and a popover per word. Held
   // as its own thing because it has a lifetime -- an open popover, a retest
   // recording -- and the row has to be able to end it.
-  let retesting = false;
-  const score = createScoreBlock({
-    sentence: initial,
-    actions,
-    player,
-    createRecorder,
-    rowIsRecording: () => recorderFor(sentenceId).isRecording,
-    onBusy: (busy) => { retesting = busy; refreshControls(); },
-  });
+  const score = createScoreBlock({ sentence: initial, actions, player, microphone });
 
   const body = el('div', { class: 'row-body' }, [textHost, controls, score.element, status]);
   row.append(head, body);
@@ -214,9 +212,13 @@ export function createRow({
     refreshControls();
   });
 
+  // The microphone changing hands is the one other thing the controls read.
+  const stopWatchingMicrophone = microphone.subscribe(() => refreshControls());
+
   function refreshControls() {
-    const recorder = recorderFor(sentenceId);
-    const recording = recorder.isRecording;
+    const holder = microphone.owner();
+    const recording = holder === sentenceId;
+    const retesting = retestOwner(holder);
 
     // Two digits, so a list of ten or more does not shift as it is read.
     number.textContent = String(position + 1).padStart(2, '0');
@@ -233,10 +235,10 @@ export function createRow({
       : 'Only sentences next to the ones already selected can be merged with them';
 
     row.classList.toggle('is-recording', recording || retesting);
-    // Record stays live while recording, or there would be no way to stop. A
-    // retest holds the microphone, so the row cannot start its own take while
-    // one is running.
-    recordBtn.disabled = (busy && !recording) || retesting;
+    // Record stays live while recording, or there would be no way to stop.
+    // While anything else holds the microphone -- a retest in this row, or
+    // another row's take -- it cannot start one, so it says so.
+    recordBtn.disabled = (busy && !recording) || (holder !== null && !recording);
     recordBtn.textContent = recording ? 'Stop' : 'Record';
 
     for (const control of [speakBtn, scoreBtn, hideBtn, langBtn, vocabBtn]) {
@@ -313,6 +315,7 @@ export function createRow({
     dispose() {
       stopFollowing();
       stopWatchingPlayback();
+      stopWatchingMicrophone();
       // A popover left open would be holding the microphone for a retest.
       score.dispose();
     },

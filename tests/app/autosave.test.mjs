@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createAutosave } from '../../js/app/autosave.js';
 import { createSessionStore } from '../../js/app/store.js';
+import { saveRecord } from '../../js/app/persist.js';
+import { placeNew } from '../../js/app/commands/order.js';
 import { blankSentence, updateSentence } from '../../js/model/session.js';
+import { hashBlob, hashString, hashJson, materializeBlob } from '../../js/platform/hash.js';
 
 const session = (over = {}) => ({
   id: 'sess1', name: null, folderId: null, splitMode: 'auto',
@@ -270,6 +273,38 @@ test('a record gets its last look before storage, and what comes back is what is
 
   assert.equal(h.saves.at(-1).sortKey, 'i');
   assert.equal(h.store.get().sortKey, 'i', 'and the screen has it too, so the next save is not a second placement');
+});
+
+test('the write-back keeps every content value the same object the screen already holds', async () => {
+  // Through the real path, as main.js wires it: saveRecord, real hashing, and
+  // placeNew as the last look. A score in flight tells a retake from the take
+  // it scored by identity (`now.recording !== recording`), so a save that
+  // handed the screen a copy of the Blob would have every score that landed
+  // after an autosave discarded as superseded -- with nothing on screen to
+  // explain it.
+  const take = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' });
+  const held = new Set();
+  const db = {
+    listAll: async () => [],
+    storedContentHashes: async (hashes) => new Set(hashes.filter((h) => held.has(h))),
+    putRecord: async (_entity, _record, entries) => { for (const e of entries) held.add(e.hash); },
+  };
+  const h = harness({
+    db,
+    hash: { hashBlob, hashString, hashJson, materializeBlob },
+    saveRecord,
+    prepare: (record) => placeNew({ db, record }),
+  });
+  h.store.apply((s) => updateSentence(s, 's1', { recording: take, recordingHash: null }, 20), 'recording');
+  const before = h.store.get();
+
+  await h.autosave.flush();
+
+  const after = h.store.get();
+  assert.notEqual(after, before, 'the stamped record is on screen');
+  assert.equal(after.sentences[0].recordingHash, await hashBlob(take), 'with its hash');
+  assert.equal(after.sortKey !== null, true, 'and its place in the library');
+  assert.equal(after.sentences[0].recording, take, 'around the very Blob the screen already held');
 });
 
 test('flush waits for a change that arrived while a save was running', async () => {

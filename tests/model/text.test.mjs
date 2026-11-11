@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { segmentText, vocabKey, detectLang, canCutBetween , seamSeparator} from '../../js/model/text.js';
+import { segmentText, vocabKey, detectLang, canCutBetween, seamSeparator, sliceChars } from '../../js/model/text.js';
 
 test('segmentText: splits on Japanese terminal punctuation, keeping it', () => {
   assert.deepEqual(segmentText('おはよう。元気ですか？はい！'), ['おはよう。', '元気ですか？', 'はい！']);
@@ -151,4 +151,12 @@ test('seamSeparator: nothing to join, nothing to insert', () => {
   assert.equal(seamSeparator('', 'beta'), '');
   assert.equal(seamSeparator('Alpha', ''), '');
   assert.equal(seamSeparator(null, null), '');
+});
+
+test('sliceChars: cuts by character, so a span after an astral character is the span that was meant', () => {
+  const text = '𠮷野家で 食べた';
+  assert.equal(sliceChars(text, 5, 8), '食べた');
+  assert.equal(sliceChars(text, 0, 4), '𠮷野家で');
+  // The same call on the string itself is the bug this exists to prevent.
+  assert.equal(text.slice(5, 8), ' 食べ');
 });

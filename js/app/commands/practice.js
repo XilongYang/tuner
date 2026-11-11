@@ -319,6 +319,30 @@ export function setAllHidden({ store, hidden, deps }) {
 }
 
 /**
+ * What the header's switch should read, given the session on screen.
+ *
+ * A session arriving from storage or a sync decides how the switch reads: it
+ * shows the state of what is on screen, and only a session hidden right
+ * through counts as hidden. What it reads is also what it means, so the stored
+ * preference moves with it -- otherwise the switch says "on" while
+ * `startsHidden` still reads the old value, and the next sentence split, or the
+ * next word collected, arrives uncovered next to a page of covered ones.
+ *
+ * Returns null when there is nothing to read it from, so the switch keeps
+ * whatever it said.
+ *
+ * @returns {boolean|null}
+ */
+export function readHideSwitch({ store, deps }) {
+  const { settings } = deps;
+  const sentences = store.get()?.sentences ?? [];
+  if (!sentences.length) return null;
+  const allHidden = sentences.every((sentence) => sentence.hidden);
+  if (allHidden !== settings.hideText()) settings.saveHideText(allHidden);
+  return allHidden;
+}
+
+/**
  * Change a sentence's language.
  *
  * A synthesised reference is in the old language, so it is dropped: keeping it

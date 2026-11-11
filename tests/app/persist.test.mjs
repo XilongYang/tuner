@@ -121,14 +121,14 @@ test('does not mutate the record it was given, and keeps every other field', asy
 });
 
 /** A database that records what it was asked to store, and what it already holds. */
-function fakeDb(held = new Map()) {
+function fakeDb(held = new Set()) {
   const writes = [];
   return {
     writes,
     held,
-    storedContentHashes: async (paths) => new Map(paths.filter((p) => held.has(p)).map((p) => [p, held.get(p)])),
+    storedContentHashes: async (hashes) => new Set(hashes.filter((h) => held.has(h))),
     putRecord: async (entity, record, entries, tombstones = []) => {
-      for (const entry of entries) held.set(entry.path, entry.hash);
+      for (const entry of entries) held.add(entry.hash);
       writes.push({ entity, record, entries, tombstones });
     },
   };
@@ -165,7 +165,7 @@ test('saveRecord: content the store already holds under that hash is not written
   assert.equal(third.sentences[0].recordingHash, await hashBlob(recording));
 });
 
-test('saveRecord: replacing the content writes the new bytes, under the same path', async () => {
+test('saveRecord: replacing the content writes the new bytes, under their own hash', async () => {
   const db = fakeDb();
   const first = await saveRecord('sessions', session({
     sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording: clip([1]) })],
@@ -177,9 +177,44 @@ test('saveRecord: replacing the content writes the new bytes, under the same pat
     sentences: [{ ...first.sentences[0], recording: retaken, recordingHash: null }],
   }, { db, hash, previous: first });
 
-  assert.deepEqual(db.writes[1].entries.map((e) => e.path), ['recordings/sess1/s1.wav']);
-  assert.equal(db.writes[1].entries[0].hash, await hashBlob(retaken));
+  assert.deepEqual(db.writes[1].entries.map((e) => e.hash), [await hashBlob(retaken)]);
   assert.equal(second.sentences[0].recordingHash, await hashBlob(retaken));
+});
+
+test('saveRecord: the record handed back holds the very content objects it was given', async () => {
+  // The rule a score in flight depends on (see ARCHITECTURE.md, "App and
+  // UI"): while a session is on screen, a content value stays the same
+  // object. `score` tells a retake from the take it scored by identity, and
+  // this is the one place a save could quietly hand the screen a copy.
+  const db = fakeDb();
+  const recording = clip([5]);
+  const reference = clip([6]);
+  const assessment = { overall: { pronunciation: 80 }, words: [] };
+  const record = session({
+    inputText: 'text',
+    sentences: [blankSentence({ id: 's1', text: 'hi', lang: 'en', now: 1, recording, reference, assessment })],
+  });
+
+  const stored = await saveRecord('sessions', record, { db, hash });
+
+  assert.equal(stored.sentences[0].recording, recording);
+  assert.equal(stored.sentences[0].reference, reference);
+  assert.equal(stored.sentences[0].assessment, assessment);
+  assert.notEqual(stored, record, 'a new record, with hashes, around the same values');
+});
+
+test('saveRecord: the same bytes in two slots are one entry, written once', async () => {
+  const db = fakeDb();
+  const same = clip([4, 2]);
+  await saveRecord('sessions', session({
+    sentences: [
+      blankSentence({ id: 's1', text: 'a', lang: 'en', now: 1, recording: same }),
+      blankSentence({ id: 's2', text: 'b', lang: 'en', now: 1, recording: clip([4, 2]) }),
+    ],
+  }), { db, hash });
+
+  assert.equal(db.writes[0].entries.length, 1);
+  assert.equal(db.writes[0].entries[0].hash, await hashBlob(same));
 });
 
 test('saveRecord: the stored record carries no bytes of its own', async () => {
@@ -192,8 +227,9 @@ test('saveRecord: the stored record carries no bytes of its own', async () => {
   // saveRecord hands the record to the database whole; the database is what
   // strips it (see db/entities.js), so what matters here is that every byte it
   // sent went as a content entry.
-  assert.deepEqual(db.writes[0].entries.map((e) => e.path).sort(),
-    ['inputtext/sess1.txt', 'recordings/sess1/s1.wav']);
+  assert.deepEqual(db.writes[0].entries.map((e) => e.kind).sort(), ['inputText', 'recording']);
+  assert.deepEqual(db.writes[0].entries.map((e) => e.hash).sort(),
+    [await hashBlob(clip([2])), await hashString('hello')].sort());
 });
 
 test('stampContentHashes: a claim whose bytes are missing is kept, not nulled', async () => {

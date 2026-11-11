@@ -22,16 +22,12 @@ import { overallScores, wordMark, wordHeadline, wordRange, accuracyLevel, LEGEND
  * @param {object} spec.sentence
  * @param {object} spec.actions `wordClip`, `scoreWord`, `speakWord`.
  * @param {object} spec.player
- * @param {() => object} spec.createRecorder A recorder of this block's own: a
- *   retest records while the row is not, and the row's recorder belongs to the
- *   take the sentence keeps.
- * @param {() => boolean} [spec.rowIsRecording] Whether the row is recording.
- * @param {(busy: boolean) => void} [spec.onBusy] Told while a retest holds the
- *   microphone, so the row can refuse to start its own recording.
+ * @param {object} spec.microphone The page's one microphone, as the row was given it.
+ *   A retest records in the word's own name on the one microphone, so it
+ *   cannot start over the row's take and the row cannot start over it -- and
+ *   neither has to tell the other.
  */
-export function createScoreBlock({
-  sentence: initial, actions, player, createRecorder, rowIsRecording = () => false, onBusy = () => {},
-}) {
+export function createScoreBlock({ sentence: initial, actions, player, microphone }) {
   let sentence = initial;
   const element = el('div', { class: 'row-result', hidden: true });
   const scores = el('div', { class: 'score-grid' });
@@ -121,7 +117,10 @@ export function createScoreBlock({
     let clip = null;
     let originalClip = null;
     let originalClipRequest = null;
-    let recorder = null;
+    // In the word's name, under the sentence's: the row reads that prefix to
+    // know a retest of one of its words is what holds the microphone.
+    const owner = `${sentence.id}:word:${word.word}`;
+    const recorder = microphone.for(owner);
 
     function say(message, kind = 'info') {
       status.hidden = !message;
@@ -160,40 +159,43 @@ export function createScoreBlock({
     const retestBtn = button({
       class: 'tip-retest-btn', text: 'Retest',
       title: 'Say this word again and score it on its own',
-      onClick: () => (recorder ? finishRetest() : startRetest()),
+      onClick: () => (recorder.isRecording ? finishRetest() : startRetest()),
     });
+
+    const showIdle = () => {
+      retestBtn.textContent = 'Retest';
+      retestBtn.classList.remove('is-recording');
+    };
 
     element.append(head, phonemes, el('span', { class: 'tip-retest' }, [retestBtn, playBtn, status]));
 
     async function startRetest() {
-      if (rowIsRecording()) {
-        say('The row is already recording.', 'error');
-        return;
-      }
       player.stop();
+      let started;
       try {
-        recorder = createRecorder();
-        await recorder.start();
+        started = await recorder.start();
       } catch (err) {
-        recorder = null;
         say(`Cannot record: ${err.message}`, 'error');
         return;
       }
-      onBusy(true);
+      // Refused: the row's own take, or a retest elsewhere, holds the
+      // microphone -- or the popover closed while the prompt was up and let go
+      // of this one. Either way there is nothing to show as recording.
+      if (!started) {
+        if (microphone.owner() !== null) say('The microphone is already recording.', 'error');
+        return;
+      }
       retestBtn.textContent = 'Stop';
       retestBtn.classList.add('is-recording');
       say('Recording…', 'recording');
     }
 
     async function finishRetest() {
-      const taking = recorder;
-      recorder = null;
       retestBtn.disabled = true;
-      retestBtn.textContent = 'Retest';
-      retestBtn.classList.remove('is-recording');
+      showIdle();
 
       try {
-        const take = await taking.stop();
+        const take = await recorder.stop();
         if (!take?.blob) {
           say('Nothing was recorded.', 'error');
           return;
@@ -213,13 +215,10 @@ export function createScoreBlock({
         renderScore();
         say('');
       } catch (err) {
+        // A stop that throws has still let go of the microphone: the handle
+        // disposes its recorder on every way out of stop().
         say(`Retest failed: ${err.message}`, 'error');
       } finally {
-        // Here rather than after the stop: a stop that throws leaves this
-        // recorder unreachable -- `stop()` below has already been given up on
-        // it -- and it would hold the microphone for the life of the page.
-        taking.dispose?.();
-        onBusy(false);
         retestBtn.disabled = false;
       }
     }
@@ -267,21 +266,22 @@ export function createScoreBlock({
         originalClip = await ensureOriginalClip();
         // A retest may have started while the take was being decoded; its own
         // clip is the newer answer.
-        if (recorder || retest || clip) return;
+        if (recorder.isRecording || retest || clip) return;
         if (originalClip) {
           clip = originalClip;
           playBtn.hidden = false;
         }
       },
 
-      /** The popover is closing, or the row is repainting: let go of the microphone. */
+      /**
+       * The popover is closing, or the row is repainting: let go of the
+       * microphone -- in this word's name, so a take the row itself is
+       * recording is not stopped by a popover shutting beside it.
+       */
       stop() {
-        if (!recorder) return;
-        recorder.dispose?.();
-        recorder = null;
-        onBusy(false);
-        retestBtn.textContent = 'Retest';
-        retestBtn.classList.remove('is-recording');
+        if (!microphone.isHeldBy(owner)) return;
+        microphone.release(owner);
+        showIdle();
         say('');
       },
     };

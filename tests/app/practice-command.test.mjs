@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   speak, startRecording, stopRecording, score, toggleHidden, setLanguage, setAllHidden, alignReference,
-  wordClip, scoreWord, speakWord,
+  wordClip, scoreWord, speakWord, readHideSwitch,
 } from '../../js/app/commands/practice.js';
 import { createSessionStore } from '../../js/app/store.js';
 import { blankSentence, updateSentence } from '../../js/model/session.js';
@@ -351,6 +351,39 @@ test('speak: a stored clip is still preferred over the browser voice', async () 
 
   assert.deepEqual(result, { ok: true, synthesized: false, played: true });
   assert.deepEqual(h.spoken, [], 'nothing was read aloud: the recording of it exists');
+});
+
+test('readHideSwitch: reads the session on screen, and only a session hidden right through counts', () => {
+  const h = harness({ sentences: [sentence('s1', 'One.', { hidden: true }), sentence('s2', 'Two.', { hidden: false })] });
+  assert.equal(readHideSwitch({ store: h.store, deps: h.deps }), false);
+
+  h.store.replace(session([sentence('s1', 'One.', { hidden: true }), sentence('s2', 'Two.', { hidden: true })]));
+  assert.equal(readHideSwitch({ store: h.store, deps: h.deps }), true);
+});
+
+test('readHideSwitch: what the switch reads is what the stored preference says, so the next split follows it', () => {
+  const saved = [];
+  const h = harness({ sentences: [sentence('s1', 'One.', { hidden: true })] });
+  h.deps.settings.hideText = () => false;
+  h.deps.settings.saveHideText = (value) => saved.push(value);
+
+  readHideSwitch({ store: h.store, deps: h.deps });
+  assert.deepEqual(saved, [true]);
+
+  // Already in step: nothing is rewritten.
+  h.deps.settings.hideText = () => true;
+  readHideSwitch({ store: h.store, deps: h.deps });
+  assert.deepEqual(saved, [true]);
+});
+
+test('readHideSwitch: with no sentences there is nothing to read, and the preference is left alone', () => {
+  const saved = [];
+  const h = harness({ sentences: [] });
+  h.deps.settings.saveHideText = (value) => saved.push(value);
+  assert.equal(readHideSwitch({ store: h.store, deps: h.deps }), null);
+  h.store.replace(null);
+  assert.equal(readHideSwitch({ store: h.store, deps: h.deps }), null);
+  assert.deepEqual(saved, []);
 });
 
 test('setAllHidden: hides every sentence and remembers it as the way of practising', () => {

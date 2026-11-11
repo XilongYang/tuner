@@ -150,9 +150,15 @@ const selfContained = (value, hash) => (isBlob(value) ? hash.materializeBlob(val
  * Stamp one record and store it, writing any content it has brought with it.
  *
  * Bytes are written when their hash is not one the content store already
- * holds, which is to say once per distinct piece of content. Every later save
- * of the same record -- a rename, a hidden toggle, a score, the twentieth
- * keystroke -- writes hashes and text, and leaves the audio where it is.
+ * holds, which is to say once per distinct piece of content -- the store is
+ * keyed by hash, so two slots with the same bytes are one entry, written once.
+ * Every later save of the same record -- a rename, a hidden toggle, a score,
+ * the twentieth keystroke -- writes hashes and text, and leaves the audio where
+ * it is.
+ *
+ * The record handed back is built around the values it was given, never
+ * copies: a content value on screen stays the same object until something
+ * replaces it on purpose (see ARCHITECTURE.md, "App and UI").
  *
  * @param {'sessions'|'vocab'} entity
  * @returns {Promise<object>} the record as stored, hashes included and content
@@ -170,13 +176,14 @@ export async function saveRecord(entity, record, { db, hash, previous = null, no
     : [];
 
   const slots = [...walkContent(def, stamped)].filter((slot) => slot.hash !== null && slot.value != null);
-  const held = await db.storedContentHashes(slots.map((slot) => contentPath(slot.kind, slot.ref)));
+  const held = await db.storedContentHashes(slots.map((slot) => slot.hash));
 
   const entries = [];
+  const queued = new Set();
   for (const slot of slots) {
-    const path = contentPath(slot.kind, slot.ref);
-    if (held.get(path) === slot.hash) continue;
-    entries.push({ path, kind: slot.kind, hash: slot.hash, value: await selfContained(slot.value, hash) });
+    if (held.has(slot.hash) || queued.has(slot.hash)) continue;
+    queued.add(slot.hash);
+    entries.push({ kind: slot.kind, hash: slot.hash, value: await selfContained(slot.value, hash) });
   }
 
   await db.putRecord(entity, stamped, entries, tombstones);

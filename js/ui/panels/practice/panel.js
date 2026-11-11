@@ -6,9 +6,9 @@
 // updates the rows that changed and leaves the rest of the DOM, and everything
 // living in it, exactly where it was.
 //
-// It owns the recorders, keyed by sentence id, because a recorder is a
-// lifecycle and records hold data. A sentence that goes away takes its recorder
-// with it.
+// It is handed the one microphone and sees that nothing holds it on behalf of
+// a sentence that is no longer here: a recorder is a lifecycle and records
+// hold data, so the two are kept apart.
 
 import { el, button, reconcile } from '../../dom.js';
 import { createRow } from './row.js';
@@ -21,10 +21,11 @@ import { derivedInputText, mergeSelectable } from '../../../model/session.js';
  * @param {import('../../../app/store.js').SessionStore} spec.store
  * @param {object} spec.actions
  * @param {object} spec.player
- * @param {() => object} spec.createRecorder
+ * @param {object} spec.microphone The page's one microphone (see
+ *   platform/microphone.js): `owner()`, `for(owner)`, `release()`, `subscribe()`.
+ *   Injected, so this layer never names the platform.
  */
-export function createPracticePanel({ container, store, actions, player, createRecorder }) {
-  const recorders = new Map();
+export function createPracticePanel({ container, store, actions, player, microphone }) {
   const rows = new Map();
 
   const input = el('textarea', {
@@ -132,19 +133,16 @@ export function createPracticePanel({ container, store, actions, player, createR
     say(outcome.ok ? '' : 'There is nothing to split yet.', outcome.ok ? 'info' : 'error');
   }
 
-  function recorderFor(sentenceId) {
-    if (!recorders.has(sentenceId)) recorders.set(sentenceId, createRecorder());
-    return recorders.get(sentenceId);
-  }
-
-  /** Let go of the recorders of sentences that are no longer here. */
-  function pruneRecorders(liveIds) {
-    for (const [id, recorder] of recorders) {
-      if (!liveIds.has(id)) {
-        recorder.dispose();
-        recorders.delete(id);
-      }
-    }
+  /**
+   * A sentence that has gone takes its recording with it, whether the take
+   * was the sentence's own or a retest of one of its words. The owner's name
+   * begins with the sentence id either way (see ./row.js and ./score.js).
+   */
+  function releaseOrphanedMicrophone(liveIds) {
+    const holder = microphone.owner();
+    if (holder === null) return;
+    const sentenceId = holder.split(':')[0];
+    if (!liveIds.has(sentenceId)) microphone.release();
   }
 
   function render(session) {
@@ -186,8 +184,7 @@ export function createPracticePanel({ container, store, actions, player, createR
           index,
           actions,
           player,
-          recorderFor,
-          createRecorder,
+          microphone,
           onSelect,
           isSelected: (id) => selection.has(id),
           isSelectable: (id) => selectable.has(id),
@@ -203,7 +200,7 @@ export function createPracticePanel({ container, store, actions, player, createR
       rows.get(id)?.dispose?.();
       rows.delete(id);
     }
-    pruneRecorders(liveIds);
+    releaseOrphanedMicrophone(liveIds);
 
     mergeBar.hidden = selection.size === 0;
     mergeLabel.textContent = `${selection.size} selected`;
@@ -224,11 +221,11 @@ export function createPracticePanel({ container, store, actions, player, createR
   return {
     /** Release everything this panel holds. Called when the session on screen is replaced. */
     release() {
-      for (const recorder of recorders.values()) recorder.dispose();
-      recorders.clear();
+      // Whatever was recording -- a take, a retest -- belongs to the workspace
+      // being left.
+      microphone.release();
       // A row that survives this (the same session reopened keeps its sentence
-      // ids) keeps its place on screen, but not a retest that was recording
-      // into it.
+      // ids) keeps its place on screen, but not a popover open over it.
       for (const row of rows.values()) row.release?.();
       // Rows are deliberately left alone: release() runs when the session on
       // screen is replaced, and reopening the same session keeps the same

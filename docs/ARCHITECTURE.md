@@ -298,12 +298,29 @@ rather than letting the older call's failure release it. A failed `openDb` is
 not cached: one blocked open otherwise leaves storage dead for the life of the
 page.
 
+The microphone is one holder for the page (`platform/microphone.js`), the way
+the player is one for playback. A sentence's take and a word's retest each
+record in their own name through a recorder-shaped handle on it; starting
+while another name holds it is refused, releasing is one call, and who holds
+it is announced so every row reads its controls from that one fact. Before
+this each kept a recorder of its own and told the other about it through
+callbacks and a flag per row, and a retest whose start was abandoned left its
+row's controls disabled for good.
+
 ## db/ — bytes are written once
 
 A record carries hashes. The bytes those hashes name live in their own store,
-keyed by the same blob path the container uses, and are written exactly once:
-when the content is produced. Reading joins the two back together, so nothing
-above `db/` knows there are two places; writing separates them again.
+keyed by the hash itself, and are written exactly once: when the content is
+produced. Reading joins the two back together, so nothing above `db/` knows
+there are two places; writing separates them again.
+
+The key is the hash and not the blob path for a reason that showed up as a
+defect: a path is a place, and a place can be rewritten. A sentence recorded
+again landed its new take at the path the old one had, so for a moment the
+record said one hash and the path held another, and a sync round that had
+planned against the first picked up the second. Keyed by hash, a record asks
+for the bytes it claims and gets those or nothing. The path is the container's
+address and is built from the record when the container is spoken to.
 
 This is not a layout preference, and not an optimisation. Measured in Safari 27
 (the probe is `scratch/webkit-blob-repro.html`): a Blob stored in IndexedDB,
@@ -333,9 +350,12 @@ What follows from writing bytes once:
 - A sync round reads one slot's bytes when it uploads that slot, so a round
   does not hold a library in memory, and a clip whose bytes are gone is found
   as that rather than as a network error about the SAS URL.
-- Deleting a record deletes its content in the same transaction, and
-  `sweepContent()` collects what a split or a merge left behind — the same
-  arithmetic as the container's orphan sweep, on the same paths.
+- A hash can be claimed by more than one record, so nothing deletes bytes by
+  name. Every transaction that can leave bytes unreferenced -- a record stored
+  without a hash it used to claim, a record deleted, a sync plan applied --
+  ends by collecting what no record references, in that same transaction: the
+  same arithmetic as the container's orphan sweep. `sweepContent()` runs it on
+  its own, for a store something else left behind and for tests.
 - **There is no data migration, and there will not be one.** A schema change
   adds or drops object stores in `onupgradeneeded` and nothing else; no pass
   rewrites stored records into a newer shape. This is a deliberate limit on
@@ -360,7 +380,22 @@ Commands (`app/commands/*.js`) are the use cases the UI dispatches: split,
 merge, record, score, import audio, sync, delete. A command is the *only*
 place a workflow is defined, so no caller can hand-roll a partial copy of one
 — which is how a sync-triggered "clear the workspace" ended up omitting three
-of the eight steps its own function does and stranding the UI.
+of the eight steps its own function does and stranding the UI. The same rule
+holds the other way: the composition root wires, it does not decide. A rename
+reached from the library is `session.rename`, not a `db.put` written beside
+the button; what the header's switch reads from a session is
+`practice.readHideSwitch`. Policy written in `main.js` is policy with no test
+on it, and the defect that put a sync round in the way of a score in flight
+grew in exactly that gap.
+
+When a sync round runs is `app/sync-scheduler.js`'s: the round at startup, the
+one when a container is first configured, the debounce after edits settle
+(flushing the save first, so the round plans against what was just typed),
+one lane for every round and erase from this tab, and the re-read of the
+session on screen once a round has landed -- offered back through
+`applyIncoming`, which refuses a copy that says nothing new. It announces
+`started`, `progress` and `finished` and draws nothing; the indicator
+subscribes.
 
 ## ui/ — keyed reconciliation, shared primitives
 
@@ -430,6 +465,19 @@ not bump that version -- counting it made a save landing mid-split cancel the
 split, with nothing on screen to explain it. Listeners are still told, because
 the object they hold is a new one.
 
+Nor does it change what the session's content *is*. While a session is on
+screen, each of its content values -- a recording, a reference clip, an
+assessment -- stays the same object from the moment it arrives until something
+replaces it on purpose. `score` and `alignReference` depend on that: they tell
+a retake from the take they were given by identity, which is the only test
+that lets an unrelated edit (a hidden toggle, a rename) land without
+invalidating a score in flight. So the stamped record is built around the
+values it was given, not copies of them; a sync offers the stored copy back
+only when it says something new, because a fresh read is new objects
+throughout; and nothing in between may clone the session. It is a rule four
+modules keep together, which is why it is written here and held by tests
+rather than left to each of them to remember.
+
 `flush()` resolves only when everything asked for so far is stored, a change
 that arrived mid-save included. It is called before switching sessions and on
 the way out of the page, so returning early there is losing the last edit.
@@ -437,8 +485,9 @@ the way out of the page, so returning early there is losing the last edit.
 Sync is the one thing the app does without being asked, so it has a permanent
 place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
 masthead, with the round's full account on hover or focus. It renders a state
-and decides nothing — which state a round is in comes from `main.js`, the one
-place every round passes through. The wording lives in `ui/sync-text.js`,
+and decides nothing — which state a round is in comes from the scheduler's
+events (`app/sync-scheduler.js`), the one place every round passes through,
+mapped to the indicator in `main.js`. The wording lives in `ui/sync-text.js`,
 shared with the settings panel, because the panel and the indicator describe
 the same round and two copies of that vocabulary would drift. A round's
 outcome is no longer also announced over the page: one fact, one home.
@@ -485,15 +534,17 @@ Storage:
   it may be absent, which means the bytes are not in hand. *(`app/persist`
   tests: a claim with no bytes is kept; a caller clearing content clears both.
   `db/entities` tests: a hash with nothing behind it reads back as a claim.)*
-- Bytes are written once per path and hash, however often the record is
-  rewritten. *(`app/persist` tests; browser test "a clip is written once".)*
+- Bytes are written once per hash, however often the record is rewritten, and
+  the same bytes claimed twice are one entry. *(`app/persist` tests; browser
+  test "a clip is written once".)*
 - A stored record never contains bytes. *(`db/entities` test reading the raw
   record.)*
 - A record and the bytes it brought land in one transaction, or neither does.
   *(`db/entities` test, forced with a record the engine refuses to serialize.)*
 - A deletion and its tombstone land in one transaction. *(`db/entities`.)*
-- Deleting a record deletes its content; content no record references is
-  collected. *(`db/entities`; browser test "splitting a sentence collects the
+- Deleting a record deletes its content, unless another record claims it;
+  content no record references is collected in the transaction that
+  unreferenced it. *(`db/entities`; browser test "splitting a sentence collects the
   clip nothing references any more".)*
 - Nothing but `db/entities.js` reaches the content store. *(`arch`.)*
 - An upgrade blocked by an older tab is reported, and a connection here lets go
@@ -508,11 +559,11 @@ Sync:
   upload is offered again next round.)*
 - A failed read never discards a claim, here or upstream. *(`app/persist`,
   `app/sync-command`.)*
-- Bytes go up only under the hash the plan named for them. The content store is
-  keyed by path, and a path can be rewritten while a round is in flight; what is
-  found there is checked against the slot's hash before it is sent, and withheld
-  like a failed read when it differs. *(`app/sync-command`: a clip recorded
-  again mid-round is not sent under the old hash.)*
+- Bytes go up only under the hash the plan named for them. Content is read by
+  that hash, so a take replaced while the round is in flight is not found and
+  is withheld like a failed read, rather than sent under the old claim.
+  *(`app/sync-command`: a clip recorded again mid-round is not sent under the
+  old hash.)*
 - A sync round that changed nothing about the session on screen leaves it
   alone: the stored copy is offered back after every successful round, and it
   is compared as a manifest node before it replaces anything. Replacing it
@@ -583,6 +634,12 @@ App and UI:
 
 - The session on screen is the only mutable state, and commands address
   sentences by id. *(command tests throughout.)*
+- A content value on screen stays the same object until something replaces it
+  on purpose: a save hands back the values it was given, and a sync does not
+  replace a session with a copy that says nothing new. *(`app/persist`: the
+  stored record holds the very objects; `app/autosave`: the write-back through
+  the real path keeps the Blob; `app/session-command`: an unchanged copy is
+  refused; `app/practice-command`: a retake is told from the take it scored.)*
 - `ui/` never reaches the database or the network. *(`arch`.)*
 - A session with nothing in it is not stored. *(`app/session-command`.)*
 

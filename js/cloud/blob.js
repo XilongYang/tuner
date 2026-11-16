@@ -158,7 +158,7 @@ function parseNextMarker(xml) {
  * @property {(path: string, value: unknown, opts?: object) => Promise<string|null>} uploadJson
  * @property {(path: string) => Promise<Blob>} downloadBytes
  * @property {(path: string) => Promise<unknown>} downloadJson
- * @property {(path: string, knownEtag: string|null) => Promise<{notModified: true} | {notModified: false, value: unknown, etag: string|null}>} downloadJsonConditional
+ * @property {(path: string) => Promise<{value: unknown, etag: string|null}>} downloadJsonWithEtag
  * @property {(prefix?: string) => Promise<string[]>} listBlobs
  * @property {(path: string, opts?: {ifMatch?: string}) => Promise<void>} deleteBlob
  */
@@ -216,27 +216,19 @@ export function container(sasUrl) {
   }
 
   /**
-   * Conditional GET: pass the ETag from a previous read and Azure answers 304
-   * instead of resending an unchanged body. Used by sync, which reads the same
-   * manifest on every round.
-   *
-   * With `knownEtag` null this is an ordinary GET. A missing ETag on the
-   * response degrades to "always changed", which is correct but unoptimized.
+   * A JSON blob and the ETag it was read at, for a caller that is about to
+   * write it back conditionally (the lock does).
    */
-  async function downloadJsonConditional(path, knownEtag) {
-    const headers = { 'x-ms-version': API_VERSION };
-    if (knownEtag) headers['If-None-Match'] = knownEtag;
-
+  async function downloadJsonWithEtag(path) {
     const action = `Download of "${path}"`;
-    // A conditional *read* is safe to repeat: both attempts answer the same
-    // question, and nothing was changed by asking it.
+    // A read is safe to repeat: both attempts answer the same question, and
+    // nothing was changed by asking it.
     const response = await send(
-      () => fetchWithTimeout(blobUrl(path), { method: 'GET', headers }, TRANSFER_TIMEOUT_MS),
+      () => fetchWithTimeout(blobUrl(path), { method: 'GET', headers: { 'x-ms-version': API_VERSION } }, TRANSFER_TIMEOUT_MS),
       { action, retry: true },
     );
-    if (response.status === 304) return { notModified: true };
     await check(response, action);
-    return { notModified: false, value: parseJson(await response.text(), action), etag: response.headers.get('ETag') || null };
+    return { value: parseJson(await response.text(), action), etag: response.headers.get('ETag') || null };
   }
 
   /** Every blob name under `prefix`, following pagination to the end. */
@@ -282,7 +274,7 @@ export function container(sasUrl) {
     uploadJson: (path, value, opts) => uploadBytes(path, new TextEncoder().encode(JSON.stringify(value)), 'application/json', opts),
     downloadBytes,
     downloadJson: async (path) => parseJson(await (await downloadBytes(path)).text(), `Download of "${path}"`),
-    downloadJsonConditional,
+    downloadJsonWithEtag,
     listBlobs,
     deleteBlob,
   };

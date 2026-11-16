@@ -197,7 +197,7 @@ than line numbers, so this stays true as the files move.
 | `model/merge` `mergeEntity` | A tie kept the local side, so neither device ever won | `tests/model/merge` |
 | `cloud/sync/run` `transferContent` | An unreadable blob ended every round from then on | `tests/cloud/run` |
 | `cloud/sync/lock` `release` | Deleted unconditionally whenever the ETag was absent | `tests/cloud/lock` |
-| `cloud/blob` `downloadJsonConditional` | A corrupt body surfaced as a bare syntax error | (message only; the round still fails, deliberately) |
+| `cloud/blob` `downloadJsonWithEtag` | A corrupt body surfaced as a bare syntax error | (message only; the round still fails, deliberately) |
 | `cloud/speech` `post` | No deadline on any request | `tests/cloud/http`, `tests/cloud/speech` |
 | `db/open` `openDb` | A failed open was cached for the life of the page | (read; no test -- see Open items) |
 | `model/content` `contentPath` | Built paths out of refs missing a part | `tests/model/schema` |

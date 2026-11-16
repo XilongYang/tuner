@@ -11,11 +11,6 @@
 // Nothing here draws. A round's progress and outcome are announced as events,
 // and whoever owns the indicator subscribes; the wording for those outcomes is
 // ui/'s (ui/sync-text.js), which this module cannot import and does not need.
-//
-// The manifest cache lives here because it belongs to the sequence of rounds:
-// a round reads it, publishes, and writes it back for the next; emptying the
-// container has to drop it. One owner, so a round and an erase cannot
-// disagree about what the container currently says.
 
 import { syncNow, eraseCloud } from './commands/sync.js';
 import { reloadOnScreen } from './commands/session.js';
@@ -47,9 +42,6 @@ export function createSyncScheduler({
   sync = syncNow,
   erase = eraseCloud,
 }) {
-  let manifestCache = { etag: null, manifest: null };
-  const manifestCacheApi = { get: () => manifestCache, set: (next) => { manifestCache = next; } };
-
   const listeners = new Set();
   const emit = (event) => {
     for (const listener of [...listeners]) listener(event);
@@ -71,7 +63,7 @@ export function createSyncScheduler({
     await autosave.flush();
     const outcome = await sync({
       deps: {
-        container: container(), db, settings, hash, manifestCache: manifestCacheApi,
+        container: container(), db, settings, hash,
         onProgress: (progress) => {
           emit({ phase: 'progress', progress });
           onProgress?.(progress);
@@ -112,9 +104,9 @@ export function createSyncScheduler({
       if (!container()) emit({ phase: 'off' });
     },
 
-    /** Empty the container, in the same lane as the rounds, with the same cache. */
+    /** Empty the container, in the same lane as the rounds, */
     erase: (onProgress) => lane(() => erase({
-      deps: { container: container(), settings, manifestCache: manifestCacheApi, onProgress },
+      deps: { container: container(), settings, onProgress },
     })),
   };
 }

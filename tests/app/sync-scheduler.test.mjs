@@ -149,7 +149,7 @@ test('two requests run one after the other, never together', async () => {
   await Promise.all([first, second]);
 });
 
-test('an erase goes down the same lane as the rounds, with the same cache', async () => {
+test('an erase goes down the same lane as the rounds', async () => {
   const h = harness();
   const request = h.scheduler.request();
   const erasing = h.scheduler.erase();
@@ -159,7 +159,6 @@ test('an erase goes down the same lane as the rounds, with the same cache', asyn
   await Promise.all([request, erasing]);
 
   assert.equal(h.rounds[1].erase, true);
-  assert.equal(h.rounds[1].manifestCache, h.rounds[0].manifestCache, 'one cache for both');
 });
 
 test('a container being set does not start a round; one being forgotten turns the indicator off', async () => {

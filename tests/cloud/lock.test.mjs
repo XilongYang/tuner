@@ -92,8 +92,8 @@ test('acquire: a lock released between the create attempt and the read is retrie
   container.seed(LOCK_PATH, { deviceId: 'device-b', acquiredAt: 0 });
 
   // The holder releases in the window between the failed create and the read.
-  const realRead = container.downloadJsonConditional;
-  container.downloadJsonConditional = async (path, etag) => {
+  const realRead = container.downloadJsonWithEtag;
+  container.downloadJsonWithEtag = async (path, etag) => {
     await container.deleteBlob(LOCK_PATH);
     return realRead(path, etag);
   };

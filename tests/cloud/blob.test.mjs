@@ -198,25 +198,17 @@ test('downloadJson: parses the body', async () => {
   assert.deepEqual(await container(SAS).downloadJson('manifest.json'), { version: 6 });
 });
 
-test('downloadJsonConditional: sends If-None-Match and reports 304 as notModified', async () => {
-  stubFetch([response({ status: 304 })]);
-  const result = await container(SAS).downloadJsonConditional('manifest.json', '"v1"');
-
-  assert.equal(calls[0].opts.headers['If-None-Match'], '"v1"');
-  assert.deepEqual(result, { notModified: true });
-});
-
-test('downloadJsonConditional: with no known ETag it is a plain GET', async () => {
+test('downloadJsonWithEtag: returns the body and the ETag it was read at, with no condition sent', async () => {
   stubFetch([response({ body: '{"a":1}', etag: '"v2"' })]);
-  const result = await container(SAS).downloadJsonConditional('manifest.json', null);
+  const result = await container(SAS).downloadJsonWithEtag('manifest.json');
 
   assert.equal('If-None-Match' in calls[0].opts.headers, false);
-  assert.deepEqual(result, { notModified: false, value: { a: 1 }, etag: '"v2"' });
+  assert.deepEqual(result, { value: { a: 1 }, etag: '"v2"' });
 });
 
-test('downloadJsonConditional: a 404 still surfaces as notFound, not as notModified', async () => {
+test('downloadJsonWithEtag: a 404 surfaces as notFound', async () => {
   stubFetch([response({ status: 404 })]);
-  await assert.rejects(() => container(SAS).downloadJsonConditional('manifest.json', '"v1"'), (err) => err.notFound === true);
+  await assert.rejects(() => container(SAS).downloadJsonWithEtag('manifest.json'), (err) => err.notFound === true);
 });
 
 test('deleteBlob: treats an already-deleted blob as success', async () => {

@@ -55,12 +55,11 @@ export function fakeContainer() {
     return new Blob([blob.bytes], { type: blob.contentType });
   }
 
-  async function downloadJsonConditional(path, knownEtag) {
-    calls.push({ op: 'downloadJsonConditional', path, knownEtag });
+  async function downloadJsonWithEtag(path) {
+    calls.push({ op: 'downloadJsonWithEtag', path });
     const blob = blobs.get(path);
     if (!blob) throw notFound(path);
-    if (knownEtag && knownEtag === blob.etag) return { notModified: true };
-    return { notModified: false, value: JSON.parse(new TextDecoder().decode(blob.bytes)), etag: blob.etag };
+    return { value: JSON.parse(new TextDecoder().decode(blob.bytes)), etag: blob.etag };
   }
 
   async function deleteBlob(path, opts = {}) {
@@ -86,7 +85,7 @@ export function fakeContainer() {
       if (!blob) throw notFound(path);
       return JSON.parse(new TextDecoder().decode(blob.bytes));
     },
-    downloadJsonConditional,
+    downloadJsonWithEtag,
     listBlobs: async (prefix = '') => {
       calls.push({ op: 'listBlobs', prefix });
       return [...blobs.keys()].filter((p) => p.startsWith(prefix)).sort();

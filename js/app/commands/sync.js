@@ -71,7 +71,7 @@ const contentEntries = (plan, downloaded) => plan.slots
  *   written: number, skipped: number, deleted: number, swept: number, warnings: string[]}>}
  */
 export async function syncNow({ deps }) {
-  const { container, db, settings, hash, manifestCache, onProgress } = deps;
+  const { container, db, settings, hash, onProgress } = deps;
 
   const outcome = {
     ok: false, reason: null, uploaded: 0, downloaded: 0,
@@ -91,9 +91,7 @@ export async function syncNow({ deps }) {
   }
 
   try {
-    const cached = manifestCache?.get?.() ?? { etag: null, manifest: null };
-    const read = await readManifest(container, cached.etag);
-    const remote = read.notModified ? cached.manifest : read.manifest;
+    const remote = await readManifest(container);
 
     const snapshot = await db.snapshot();
     const plan = planSync({ local: snapshot, remote });
@@ -151,13 +149,7 @@ export async function syncNow({ deps }) {
     const publishedPlan = withheld.size
       ? planSync({ local: withoutContent(snapshot, withheld), remote })
       : plan;
-    const published = await publishManifest(publishedPlan, container);
-    manifestCache?.set?.({
-      etag: published.published ? published.etag : (read.notModified ? cached.etag : read.etag),
-      // What is actually up there, which is not what this device holds when
-      // something was withheld.
-      manifest: publishedPlan.manifest,
-    });
+    await publishManifest(publishedPlan, container);
 
     // Records and the bytes they arrived with, in one transaction. Nothing this
     // device already holds is rewritten: an unchanged clip is not touched by a
@@ -211,13 +203,12 @@ export async function syncNow({ deps }) {
  * reads. It is the cloud copy that is discarded, not the practice: the next
  * sync finds nothing there and uploads what this device holds.
  *
- * Takes the lock first, like any round, so nothing is mid-write while it runs,
- * and drops the cached manifest afterwards -- the cache describes a container
- * that no longer exists, and a sync trusting it would publish a manifest
- * pointing at blobs that were just deleted.
+ * Takes the lock first, like any round, so nothing is mid-write while it runs.
+ * Nothing is remembered between rounds -- each one reads the container afresh --
+ * so there is no copy of the manifest for an erase to leave stale.
  */
 export async function eraseCloud({ deps }) {
-  const { container, settings, manifestCache, onProgress } = deps;
+  const { container, settings, onProgress } = deps;
 
   if (!container) return { ok: false, reason: 'not-configured', deleted: 0 };
 
@@ -233,10 +224,6 @@ export async function eraseCloud({ deps }) {
 
   try {
     const result = await eraseContainer(container, { onProgress });
-    // Dropped whether or not every blob went: what is left up there is not what
-    // the cache says either way.
-    manifestCache?.set?.({ etag: null, manifest: null });
-
     return result.reason
       ? { ok: false, reason: result.reason, deleted: result.deleted.length }
       : { ok: true, reason: null, deleted: result.deleted.length };

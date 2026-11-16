@@ -127,28 +127,20 @@ export async function transferContent(plan, container, { getValue, onProgress = 
  * Publish the manifest, unless the plan already determined it would be
  * identical to what is there.
  *
- * Returns the new etag so the caller can keep it for the next round's
- * conditional read, or null when nothing was written.
+ * Says whether anything was written.
  */
 export async function publishManifest(plan, container) {
-  if (!plan.manifestChanged) return { published: false, etag: null };
-  return { published: true, etag: await container.uploadJson(MANIFEST_PATH, plan.manifest) };
+  if (!plan.manifestChanged) return { published: false };
+  await container.uploadJson(MANIFEST_PATH, plan.manifest);
+  return { published: true };
 }
 
-/**
- * Read the manifest, returning null when the container has none yet.
- *
- * `knownEtag` makes it conditional: on a 304 the caller's cached manifest is
- * still current, which is the common case for a periodic sync and saves
- * re-downloading and re-parsing it every time.
- */
-export async function readManifest(container, knownEtag = null) {
+/** Read the manifest, returning null when the container has none yet. */
+export async function readManifest(container) {
   try {
-    const result = await container.downloadJsonConditional(MANIFEST_PATH, knownEtag);
-    if (result.notModified) return { manifest: null, etag: knownEtag, notModified: true };
-    return { manifest: result.value, etag: result.etag, notModified: false };
+    return (await container.downloadJsonWithEtag(MANIFEST_PATH)).value;
   } catch (err) {
-    if (err.notFound) return { manifest: null, etag: null, notModified: false };
+    if (err.notFound) return null;
     throw err;
   }
 }
@@ -170,9 +162,9 @@ export async function readManifest(container, knownEtag = null) {
 export async function sweepOrphans(plan, container, { onProgress = noop } = {}) {
   const referenced = new Set(plan.referencedPaths);
   try {
-    const current = await readManifest(container, null);
-    if (current.manifest) {
-      for (const path of manifestContentPaths(current.manifest)) referenced.add(path);
+    const current = await readManifest(container);
+    if (current) {
+      for (const path of manifestContentPaths(current)) referenced.add(path);
     }
   } catch (err) {
     return { deleted: [], skipped: true, reason: `could not re-read the manifest: ${err.message}` };

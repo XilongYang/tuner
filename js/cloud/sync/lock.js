@@ -70,7 +70,7 @@ export async function acquire(container, deviceId, clock = Date.now) {
   let existing;
   let existingEtag;
   try {
-    const read = await container.downloadJsonConditional(LOCK_PATH, null);
+    const read = await container.downloadJsonWithEtag(LOCK_PATH);
     existing = read.value;
     existingEtag = read.etag;
   } catch (err) {

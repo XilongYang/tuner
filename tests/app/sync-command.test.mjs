@@ -16,17 +16,11 @@ import { seed } from '../helpers/seed.mjs';
 
 const settings = (deviceId = 'device-a') => ({ deviceId: () => deviceId });
 
-function makeCache() {
-  let value = { etag: null, manifest: null };
-  return { get: () => value, set: (next) => { value = next; } };
-}
-
 const deps = (container, over = {}) => ({
   container,
   db,
   settings: settings(),
   hash: { materializeBlob },
-  manifestCache: makeCache(),
   ...over,
 });
 
@@ -122,31 +116,15 @@ test('an unchanged second round transfers nothing and does not rewrite the manif
   const container = fakeContainer();
   await seedSession({ recording: clip([7]) });
 
-  const cache = makeCache();
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  await syncNow({ deps: deps(container) });
   const etagAfterFirst = container.etagOf(MANIFEST_PATH);
 
-  const result = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  const result = await syncNow({ deps: deps(container) });
 
   assert.equal(result.ok, true, result.reason);
   assert.equal(result.uploaded, 0);
   assert.equal(result.downloaded, 0);
   assert.equal(container.etagOf(MANIFEST_PATH), etagAfterFirst);
-});
-
-test('the cached manifest etag turns the next read into a not-modified check', async () => {
-  const container = fakeContainer();
-  await seedSession();
-  const cache = makeCache();
-
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
-
-  // Not the last read: the orphan sweep deliberately re-reads the manifest
-  // unconditionally at the end of every round, so the last call always carries
-  // no etag.
-  const reads = container.callsOf('downloadJsonConditional').filter((c) => c.path === MANIFEST_PATH);
-  assert.ok(reads.some((r) => r.knownEtag), 'the second round asked conditionally');
 });
 
 test('a deletion here propagates, and the other device applies it', async () => {
@@ -299,12 +277,11 @@ test('eraseCloud: empties the container and leaves this device alone', async () 
   await wipe();
   await seedSession({ recording: clip([1, 2, 3]) });
   const container = fakeContainer();
-  const cache = makeCache();
 
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  await syncNow({ deps: deps(container) });
   assert.ok((await container.listBlobs('')).length > 1, 'there is something up there to clear');
 
-  const outcome = await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
+  const outcome = await eraseCloud({ deps: deps(container) });
 
   assert.equal(outcome.ok, true);
   assert.ok(outcome.deleted >= 2);
@@ -312,29 +289,15 @@ test('eraseCloud: empties the container and leaves this device alone', async () 
   assert.equal((await db.listAll('sessions')).length, 1, 'the practice is still here');
 });
 
-test('eraseCloud: the cached manifest goes with it, so the next round starts fresh', async () => {
-  await wipe();
-  await seedSession({ recording: clip([4]) });
-  const container = fakeContainer();
-  const cache = makeCache();
-
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
-  assert.ok(cache.get().manifest, 'the round cached what it published');
-
-  await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
-  assert.deepEqual(cache.get(), { etag: null, manifest: null });
-});
-
 test('eraseCloud: the next sync uploads this device s copy again', async () => {
   await wipe();
   await seedSession({ recording: clip([5, 6]) });
   const container = fakeContainer();
-  const cache = makeCache();
 
-  await syncNow({ deps: deps(container, { manifestCache: cache }) });
-  await eraseCloud({ deps: deps(container, { manifestCache: cache }) });
+  await syncNow({ deps: deps(container) });
+  await eraseCloud({ deps: deps(container) });
 
-  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  const second = await syncNow({ deps: deps(container) });
 
   assert.equal(second.ok, true);
   assert.ok(second.uploaded > 0, 'it found nothing there and put it all back');
@@ -369,12 +332,10 @@ test('a clip recorded again while the round was running is not sent under the ol
   await wipe();
   await seedSession({ recording: clip([5, 6]) });
   const container = fakeContainer();
-  const cache = makeCache();
   let rerecorded = false;
 
   const first = await syncNow({
     deps: deps(container, {
-      manifestCache: cache,
       db: {
         ...db,
         readContent: async (hash) => {
@@ -398,7 +359,7 @@ test('a clip recorded again while the round was running is not sent under the ol
   assert.equal(first.warnings.length, 1);
 
   // The next round plans against the new hash and sends the bytes under it.
-  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  const second = await syncNow({ deps: deps(container) });
   assert.equal(second.ok, true, second.reason);
   assert.equal(second.uploaded, 1);
   assert.deepEqual([...new Uint8Array(container.bytesOf('recordings/sess1/sess1-s1.wav'))], [9, 9, 9]);
@@ -437,11 +398,10 @@ test('a withheld upload is offered again on the next round', async () => {
   await wipe();
   await seedSession({ recording: clip([5, 6]) });
   const container = fakeContainer();
-  const cache = makeCache();
 
-  await syncNow({ deps: deps(container, { hash: dead(), manifestCache: cache }) });
+  await syncNow({ deps: deps(container, { hash: dead() }) });
   // Whatever went wrong with the read has passed.
-  const second = await syncNow({ deps: deps(container, { manifestCache: cache }) });
+  const second = await syncNow({ deps: deps(container) });
 
   assert.equal(second.ok, true);
   assert.equal(second.uploaded, 1, 'the container never claimed it, so it is still due');
@@ -530,7 +490,7 @@ test('the round keeps its order: lock, read, upload, publish, write, sweep, rele
     ...container,
     uploadJson: async (path, value, opts) => { log.push(`put ${path}`); return container.uploadJson(path, value, opts); },
     uploadBytes: async (path, ...rest) => { log.push(`put ${path}`); return container.uploadBytes(path, ...rest); },
-    downloadJsonConditional: async (path, etag) => { log.push(`get ${path}`); return container.downloadJsonConditional(path, etag); },
+    downloadJsonWithEtag: async (path, etag) => { log.push(`get ${path}`); return container.downloadJsonWithEtag(path, etag); },
     listBlobs: async (prefix) => { log.push('list'); return container.listBlobs(prefix); },
     deleteBlob: async (path, opts) => { log.push(`delete ${path}`); return container.deleteBlob(path, opts); },
   };

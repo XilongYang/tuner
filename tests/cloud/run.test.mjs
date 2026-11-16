@@ -148,7 +148,6 @@ test('publishManifest: writes when the plan says it changed', async () => {
   const result = await publishManifest(p, container);
 
   assert.equal(result.published, true);
-  assert.equal(result.etag, container.etagOf(MANIFEST_PATH));
   assert.deepEqual(container.jsonOf(MANIFEST_PATH), p.manifest);
 });
 
@@ -167,31 +166,20 @@ test('publishManifest: writes nothing when the plan says it would be identical',
 });
 
 test('readManifest: an empty container reads as no manifest, not as an error', async () => {
-  assert.deepEqual(await readManifest(fakeContainer()), { manifest: null, etag: null, notModified: false });
+  assert.equal(await readManifest(fakeContainer()), null);
 });
 
-test('readManifest: returns the manifest and its etag', async () => {
+test('readManifest: returns the manifest', async () => {
   const container = fakeContainer();
   const p = plan({ sessions: [session()] });
   await publishManifest(p, container);
 
-  const result = await readManifest(container);
-  assert.deepEqual(result.manifest, p.manifest);
-  assert.equal(result.etag, container.etagOf(MANIFEST_PATH));
-});
-
-test('readManifest: a matching etag short-circuits instead of re-downloading', async () => {
-  const container = fakeContainer();
-  await publishManifest(plan({ sessions: [session()] }), container);
-  const etag = container.etagOf(MANIFEST_PATH);
-
-  const result = await readManifest(container, etag);
-  assert.deepEqual(result, { manifest: null, etag, notModified: true });
+  assert.deepEqual(await readManifest(container), p.manifest);
 });
 
 test('readManifest: a real failure propagates', async () => {
   const container = fakeContainer();
-  container.downloadJsonConditional = async () => { throw new Error('HTTP 403'); };
+  container.downloadJsonWithEtag = async () => { throw new Error('HTTP 403'); };
   await assert.rejects(() => readManifest(container), /403/);
 });
 
@@ -257,7 +245,7 @@ test('sweepOrphans: a listing failure skips the sweep and says why, rather than 
 
 test('sweepOrphans: a manifest re-read failure skips the sweep rather than deleting against stale data', async () => {
   const container = fakeContainer();
-  container.downloadJsonConditional = async () => { throw new Error('HTTP 500'); };
+  container.downloadJsonWithEtag = async () => { throw new Error('HTTP 500'); };
 
   const result = await sweepOrphans(plan({}), container);
   assert.equal(result.skipped, true);

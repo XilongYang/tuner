@@ -18,7 +18,7 @@ import { SESSION, VOCAB_ENTRY, fromNode, walkContent } from '../../model/schema.
 export const MANIFEST_PATH = 'manifest.json';
 
 /** Bytes for a value, in the encoding its content kind declares. */
-function encode(kind, value) {
+export function encode(kind, value) {
   switch (contentKind(kind).encoding) {
     case 'json': return new TextEncoder().encode(JSON.stringify(value));
     case 'text': return new TextEncoder().encode(String(value));
@@ -27,7 +27,7 @@ function encode(kind, value) {
 }
 
 /** A downloaded Blob turned back into the value its content kind implies. */
-async function decode(kind, blob) {
+export async function decode(kind, blob) {
   switch (contentKind(kind).encoding) {
     case 'json': return JSON.parse(await blob.text());
     case 'text': return blob.text();

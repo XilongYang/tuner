@@ -193,6 +193,54 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
     },
   });
 
+  // ---- Backup ----
+  //
+  // A file on this device, with no container involved: it is how data moves
+  // when there is nothing to sync with, and a copy that outlives the browser's
+  // own storage.
+  const fileInput = el('input', { type: 'file', accept: '.zip,application/zip', hidden: true, 'aria-label': 'Archive to import' });
+
+  const exportBtn = button({
+    class: 'btn', text: 'Export…',
+    title: 'Save every session, recording and word to a file',
+    onClick: async () => {
+      exportBtn.disabled = true;
+      say('Preparing the archive…', 'busy');
+      try {
+        const result = await actions.exportData();
+        saveFile(result.blob, `tuner-${new Date().toISOString().slice(0, 10)}.zip`);
+        say(describeExport(result), result.missing.length ? 'error' : 'info');
+      } catch (err) {
+        say(`Could not export: ${err.message}`, 'error');
+      } finally {
+        exportBtn.disabled = false;
+      }
+    },
+  });
+
+  const importBtn = button({
+    class: 'btn', text: 'Import…',
+    title: 'Merge an exported file into what is here. Nothing is replaced.',
+    onClick: () => fileInput.click(),
+  });
+
+  fileInput.addEventListener('change', async () => {
+    const [file] = fileInput.files;
+    // Reset so choosing the same file again still fires `change`.
+    fileInput.value = '';
+    if (!file) return;
+    importBtn.disabled = true;
+    say('Reading the archive…', 'busy');
+    try {
+      const outcome = await actions.importData(file);
+      say(describeImport(outcome), outcome.ok && !outcome.warnings.length ? 'info' : 'error');
+    } catch (err) {
+      say(`Could not import: ${err.message}`, 'error');
+    } finally {
+      importBtn.disabled = false;
+    }
+  });
+
   // The fields and the Save button go away once credentials are stored: there
   // is nothing to do with a stored key except replace it, and a form left
   // standing with the key blanked out reads as though it had been lost. Clear
@@ -218,6 +266,10 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
       el('div', { class: 'settings-actions' }, [clearCredentials]),
     ]),
     section('Voices', voiceRows),
+    section('Backup', [
+      el('p', { class: 'settings-state', text: 'Save everything to a file, or merge a saved file back in. Importing never replaces what is here.' }),
+      el('div', { class: 'settings-actions' }, [exportBtn, importBtn, fileInput]),
+    ]),
     section('Cloud sync', [
       sasState,
       // Same as the key above: once it is stored there is nothing to do with it
@@ -273,6 +325,36 @@ export function createSettingsPanel({ container, actions, settings, onContainerC
 
 const field = (label, input) => el('label', { class: 'settings-field' }, [el('span', { text: label }), input]);
 const section = (heading, children) => el('section', { class: 'settings-section' }, [el('h3', { text: heading }), ...children]);
+
+/** Hand a Blob to the browser as a download. */
+function saveFile(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const link = el('a', { href: url, download: name });
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // After the click has been handled: revoking at once can cancel the save.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+function describeExport(result) {
+  const head = `Exported ${plural(result.sessions, 'session')} and ${plural(result.vocab, 'word')}.`;
+  return result.missing.length
+    ? `${head} ${plural(result.missing.length, 'recording')} could not be read and ${result.missing.length === 1 ? 'is' : 'are'} not in the file.`
+    : head;
+}
+
+function describeImport(outcome) {
+  if (!outcome.ok) return outcome.reason;
+  const parts = [`${outcome.added} new`];
+  if (outcome.deleted) parts.push(`${outcome.deleted} removed by deletions in the file`);
+  if (outcome.skipped) parts.push(`${outcome.skipped} changed here meanwhile and left alone`);
+  const [first, ...rest] = outcome.warnings;
+  const warning = first ? ` ${first}${rest.length ? ` (and ${rest.length} more)` : ''}` : '';
+  return `Imported — ${parts.join(', ')}.${warning}`;
+}
 
 const erasing = (progress) => (progress?.total
   ? `Clearing ${progress.done ?? 0} / ${progress.total}…`

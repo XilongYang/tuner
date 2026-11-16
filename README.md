@@ -3,8 +3,9 @@
 A pronunciation-practice app for Japanese and English: paste text or import an
 audio file, split it into sentences, hear a reference reading, record your own,
 and get Azure's pronunciation assessment on it. Words you stumble over go into
-a vocabulary library. Everything is stored locally in the browser; cloud sync
-against an Azure Blob container is optional.
+a vocabulary library. Everything is stored locally in the browser. Sync
+against an Azure Blob container is optional and manual, and everything can be
+exported to, and merged back from, one zip file.
 
 Static site, no backend, no build step: the browser runs the source as it is
 served.

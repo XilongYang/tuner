@@ -29,6 +29,7 @@ import * as practice from './app/commands/practice.js';
 import * as splitCommands from './app/commands/split.js';
 import * as vocab from './app/commands/vocab.js';
 import * as order from './app/commands/order.js';
+import * as archive from './app/commands/archive.js';
 import { importAudio } from './app/commands/import-audio.js';
 import { createSyncScheduler } from './app/sync-scheduler.js';
 
@@ -217,6 +218,21 @@ async function start() {
     onContainerChange: () => scheduler.containerChanged(),
     actions: {
       sync: (onProgress) => scheduler.request(onProgress),
+      // Both settle the save first, so the file holds what was just typed and
+      // an import merges against what is stored rather than a step behind it.
+      exportData: async () => {
+        await autosave.flush();
+        return archive.exportArchive({ db, hash });
+      },
+      importData: async (file) => {
+        await autosave.flush();
+        const outcome = await archive.importArchive({ db, hash, file });
+        if (outcome.ok) {
+          library.refreshIfOpen();
+          await session.reloadOnScreen({ store, db, autosave });
+        }
+        return outcome;
+      },
       eraseCloud: async (onProgress) => {
         const outcome = await scheduler.erase(onProgress);
         library.refreshIfOpen();
@@ -286,11 +302,9 @@ async function start() {
 
   await session.reopenLast({ store, deps: commandDeps });
 
-  // One round at startup, so a session recorded on another device is here
-  // before the user starts looking for it. Its outcome is not announced: the
-  // header's indicator is where sync state lives, and a floating message
-  // saying the same thing is one the user has to dismiss to read the page.
-  await scheduler.start();
+  // Syncing is manual: nothing runs here, only the indicator is told whether
+  // there is anywhere to sync to.
+  scheduler.start();
 
   // ---- Practising from memory, for every sentence at once ----
   //

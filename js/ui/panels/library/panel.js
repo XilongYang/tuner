@@ -77,8 +77,15 @@ export function createLibraryPanel({ container, actions, player }) {
     reorder.cancel();
     const mine = ++generation;
     const stale = () => mine !== generation;
-    if (tab === 'sessions') await renderSessions(stale);
-    else await renderVocab(stale);
+    try {
+      if (tab === 'sessions') await renderSessions(stale);
+      else await renderVocab(stale);
+    } catch (err) {
+      // Callers do not await a refresh, so a failed read used to vanish as an
+      // unhandled rejection and leave the list blank -- after a sync that
+      // stored its records, indistinguishable from "nothing arrived".
+      if (!stale()) say(`The list could not be read: ${err.message}`, 'error');
+    }
   }
 
   async function renderSessions(stale = () => false) {

@@ -218,5 +218,17 @@ export function applyIncoming({ store, session, deps }) {
   return { ok: true };
 }
 
+/**
+ * After something changed what is stored -- a sync round, an import -- offer
+ * the stored copy of the session on screen back to the screen.
+ * `applyIncoming` refuses it when it says nothing new, which is most of the
+ * time, so this is safe to call after anything.
+ */
+export async function reloadOnScreen({ store, db, autosave }) {
+  const current = store.get();
+  const stored = current ? await db.getOne('sessions', current.id) : null;
+  return stored ? applyIncoming({ store, session: stored, deps: { autosave } }) : { ok: false, reason: 'not-stored' };
+}
+
 /** The text a session should be stored with; audio sessions derive theirs. */
 export { derivedInputText };

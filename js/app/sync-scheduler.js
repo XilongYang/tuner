@@ -1,12 +1,12 @@
-// When a sync round runs, and what the screen does when one has run.
+// What happens around a sync round: the queue that keeps two rounds in one tab
+// apart, the save that is flushed first, and the re-read of the session on
+// screen once a round has landed.
 //
-// This is policy, and it used to live in the composition root: the debounce
-// after an edit, the round at startup, the one when a container is first
-// configured, the queue that keeps two rounds in one tab apart, and the
-// re-read of the session on screen once a round has landed. Nothing there was
-// under test, and the defect that put a sync in the way of a score in flight
-// grew in exactly that gap -- there was no unit whose job it was to say what
-// happens to the screen after a round.
+// Rounds are manual. Nothing here starts one: not an edit, not startup, not a
+// container being configured. A round runs when a person asks for it, which is
+// why `request` is the only way in. (It used to debounce after every edit and
+// run at startup; a sync that arrives uninvited is one that can change the
+// screen, or fail, while the person is looking at something else.)
 //
 // Nothing here draws. A round's progress and outcome are announced as events,
 // and whoever owns the indicator subscribes; the wording for those outcomes is
@@ -18,11 +18,8 @@
 // disagree about what the container currently says.
 
 import { syncNow, eraseCloud } from './commands/sync.js';
-import { applyIncoming } from './commands/session.js';
+import { reloadOnScreen } from './commands/session.js';
 import { serialize } from './serialize.js';
-
-/** How long edits settle before the round that publishes them. */
-export const AUTO_SYNC_DELAY_MS = 3000;
 
 /**
  * @typedef {{phase: 'off'}
@@ -43,18 +40,12 @@ export const AUTO_SYNC_DELAY_MS = 3000;
  * @param {() => number} [deps.clock]
  * @param {typeof syncNow} [deps.sync]     Injected by tests.
  * @param {typeof eraseCloud} [deps.erase] Injected by tests.
- * @param {number} [deps.delayMs]
- * @param {(fn: Function, ms: number) => any} [deps.schedule]
- * @param {(handle: any) => void} [deps.cancel]
  */
 export function createSyncScheduler({
   store, db, settings, hash, autosave, container,
   clock = Date.now,
   sync = syncNow,
   erase = eraseCloud,
-  delayMs = AUTO_SYNC_DELAY_MS,
-  schedule = setTimeout,
-  cancel = clearTimeout,
 }) {
   let manifestCache = { etag: null, manifest: null };
   const manifestCacheApi = { get: () => manifestCache, set: (next) => { manifestCache = next; } };
@@ -75,6 +66,9 @@ export function createSyncScheduler({
    */
   async function round(onProgress) {
     emit({ phase: 'started' });
+    // What was just typed is written before the round plans, so it is in the
+    // round rather than a step behind it.
+    await autosave.flush();
     const outcome = await sync({
       deps: {
         container: container(), db, settings, hash, manifestCache: manifestCacheApi,
@@ -85,9 +79,7 @@ export function createSyncScheduler({
       },
     });
     if (outcome.ok) {
-      const current = store.get();
-      const stored = current ? await db.getOne('sessions', current.id) : null;
-      if (stored) applyIncoming({ store, session: stored, deps: { autosave } });
+      await reloadOnScreen({ store, db, autosave });
     }
     emit({ phase: 'finished', outcome, at: clock() });
     return outcome;
@@ -100,23 +92,6 @@ export function createSyncScheduler({
   // in progress (see ./serialize.js).
   const lane = serialize((job) => job());
 
-  // Edits settle, then one round. Coalesced the way saving is, for the same
-  // reason: a burst of changes is one thing to publish, not twenty. The flush
-  // first, so the round plans against what was just typed rather than what was
-  // last written.
-  let handle = null;
-  const unsubscribe = store.subscribe((_session, { reason }) => {
-    // What a save writes back, and what a round brought in, are not edits.
-    if (reason === 'saved' || reason === 'incoming') return;
-    if (!container()) return;
-    if (handle !== null) cancel(handle);
-    handle = schedule(async () => {
-      handle = null;
-      await autosave.flush();
-      await lane(() => round());
-    }, delayMs);
-  });
-
   return {
     /** @param {(event: SyncEvent) => void} listener */
     subscribe(listener) {
@@ -128,40 +103,25 @@ export function createSyncScheduler({
     request: (onProgress) => lane(() => round(onProgress)),
 
     /**
-     * The round at startup, so a session recorded on another device is here
-     * before the user starts looking for it. With no container there is
-     * nothing to run, and the indicator is told so.
+     * Say what the indicator should read before any round has run: nothing,
+     * when there is no container; otherwise it stays quiet until asked.
      */
     start() {
-      if (!container()) {
-        emit({ phase: 'off' });
-        return Promise.resolve(null);
-      }
-      return lane(() => round());
+      if (!container()) emit({ phase: 'off' });
     },
 
     /**
-     * A container was just set or forgotten in Settings. Setting one starts a
-     * round straight away rather than waiting for the next edit: what is
-     * already up there is what the user wants to see.
+     * A container was just set or forgotten in Settings. Setting one does not
+     * start a round -- the person presses Sync when they want one -- but
+     * forgetting it takes the indicator away.
      */
     containerChanged() {
-      if (!container()) {
-        emit({ phase: 'off' });
-        return Promise.resolve(null);
-      }
-      return lane(() => round());
+      if (!container()) emit({ phase: 'off' });
     },
 
     /** Empty the container, in the same lane as the rounds, with the same cache. */
     erase: (onProgress) => lane(() => erase({
       deps: { container: container(), settings, manifestCache: manifestCacheApi, onProgress },
     })),
-
-    stop() {
-      if (handle !== null) cancel(handle);
-      handle = null;
-      unsubscribe();
-    },
   };
 }

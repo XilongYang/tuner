@@ -1,4 +1,4 @@
-// When rounds run, in what order, and what the screen does afterwards -- with
+// What a round does around itself, in what order, and what the screen does afterwards -- with
 // the round itself replaced by a function the test controls.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,7 +21,6 @@ function harness({ configured = true, stored = null, outcome = { ok: true } } = 
   const events = [];
   const rounds = [];
   const flushes = [];
-  const timers = [];
   let finish = [];
 
   const scheduler = createSyncScheduler({
@@ -38,60 +37,45 @@ function harness({ configured = true, stored = null, outcome = { ok: true } } = 
       finish.push((result = outcome) => resolve(result));
     }),
     erase: async ({ deps }) => { rounds.push({ erase: true, ...deps }); return { ok: true, deleted: 3 }; },
-    delayMs: 3000,
-    schedule: (fn, ms) => { timers.push({ fn, ms }); return timers.length; },
-    cancel: (handle) => { timers[handle - 1].cancelled = true; },
   });
   scheduler.subscribe((event) => events.push(event));
 
   return {
-    store, scheduler, events, rounds, flushes, timers,
+    store, scheduler, events, rounds, flushes,
     finishRound: async (result) => { finish.shift()?.(result); await settle(); },
-    pendingTimers: () => timers.filter((t) => !t.cancelled && !t.fired),
-    fire: async (timer) => { timer.fired = true; await timer.fn(); },
   };
 }
 
-test('an edit settles, the save is flushed, then one round runs', async () => {
+test('editing never starts a round: syncing is manual', async () => {
   const h = harness();
   h.store.apply((s) => ({ ...s, name: 'typed' }), 'describe');
-
-  assert.equal(h.pendingTimers().length, 1);
-  assert.equal(h.pendingTimers()[0].ms, 3000);
-  const firing = h.fire(h.pendingTimers()[0]);
+  h.store.apply((s) => ({ ...s, name: 'typed more' }), 'describe');
   await settle();
-  assert.deepEqual(h.flushes, ['flush'], 'what was just typed is written before the round plans');
-  assert.equal(h.rounds.length, 1);
-  await h.finishRound();
-  await firing;
-});
-
-test('a burst of edits is one round, not one per keystroke', async () => {
-  const h = harness();
-  h.store.apply((s) => ({ ...s, name: 'a' }), 'describe');
-  h.store.apply((s) => ({ ...s, name: 'ab' }), 'describe');
-  h.store.apply((s) => ({ ...s, name: 'abc' }), 'describe');
-
-  assert.equal(h.timers.length, 3);
-  assert.equal(h.pendingTimers().length, 1, 'the earlier two were cancelled');
-});
-
-test('a save writing back, or a round landing, is not an edit', async () => {
-  const h = harness();
-  h.store.apply((s) => ({ ...s }), 'saved');
-  h.store.replace(session({ name: 'from elsewhere' }), 'incoming');
-  assert.equal(h.timers.length, 0);
-});
-
-test('with no container nothing is scheduled, and start says the indicator is off', async () => {
-  const h = harness({ configured: false });
-  h.store.apply((s) => ({ ...s, name: 'typed' }), 'describe');
-  assert.equal(h.timers.length, 0);
-
-  await h.scheduler.start();
-  assert.deepEqual(h.events, [{ phase: 'off' }]);
   assert.equal(h.rounds.length, 0);
 });
+
+test('start runs no round either, and tells the indicator when there is nowhere to sync', async () => {
+  const configured = harness();
+  configured.scheduler.start();
+  await settle();
+  assert.equal(configured.rounds.length, 0);
+  assert.deepEqual(configured.events, []);
+
+  const off = harness({ configured: false });
+  off.scheduler.start();
+  assert.deepEqual(off.events, [{ phase: 'off' }]);
+  assert.equal(off.rounds.length, 0);
+});
+
+test('a requested round flushes the save first, so it plans against what was just typed', async () => {
+  const h = harness();
+  const request = h.scheduler.request();
+  await settle();
+  assert.deepEqual(h.flushes, ['flush']);
+  assert.equal(h.rounds.length, 1);
+  await h.finishRound();
+  await request;
+}) ;
 
 test('a round announces itself: started, each step of progress, then the outcome with the time', async () => {
   const h = harness();
@@ -178,32 +162,24 @@ test('an erase goes down the same lane as the rounds, with the same cache', asyn
   assert.equal(h.rounds[1].manifestCache, h.rounds[0].manifestCache, 'one cache for both');
 });
 
-test('a container being set starts a round; one being forgotten turns the indicator off', async () => {
+test('a container being set does not start a round; one being forgotten turns the indicator off', async () => {
   let configured = true;
   const h = harness();
-  // Re-point the container function through the harness's closure.
+  let rounds = 0;
   const scheduler = createSyncScheduler({
     store: h.store, db: { getOne: async () => null }, settings: {}, hash: {},
     autosave: { flush: async () => {} },
     container: () => (configured ? {} : null),
-    sync: async () => ({ ok: true }),
+    sync: async () => { rounds += 1; return { ok: true }; },
   });
   const events = [];
   scheduler.subscribe((e) => events.push(e.phase));
 
-  await scheduler.containerChanged();
-  assert.deepEqual(events, ['started', 'finished']);
+  scheduler.containerChanged();
+  assert.deepEqual(events, []);
+  assert.equal(rounds, 0);
 
   configured = false;
-  await scheduler.containerChanged();
-  assert.deepEqual(events.at(-1), 'off');
-});
-
-test('stop: a pending round is cancelled and edits no longer schedule one', async () => {
-  const h = harness();
-  h.store.apply((s) => ({ ...s, name: 'a' }), 'describe');
-  h.scheduler.stop();
-  assert.equal(h.pendingTimers().length, 0);
-  h.store.apply((s) => ({ ...s, name: 'b' }), 'describe');
-  assert.equal(h.timers.length, 1, 'nothing new');
+  scheduler.containerChanged();
+  assert.deepEqual(events, ['off']);
 });

@@ -388,14 +388,20 @@ the button; what the header's switch reads from a session is
 on it, and the defect that put a sync round in the way of a score in flight
 grew in exactly that gap.
 
-When a sync round runs is `app/sync-scheduler.js`'s: the round at startup, the
-one when a container is first configured, the debounce after edits settle
-(flushing the save first, so the round plans against what was just typed),
-one lane for every round and erase from this tab, and the re-read of the
-session on screen once a round has landed -- offered back through
-`applyIncoming`, which refuses a copy that says nothing new. It announces
-`started`, `progress` and `finished` and draws nothing; the indicator
-subscribes.
+Sync is manual. A round runs when a person presses Sync, and at no other
+time: not at startup, not when a container is configured, not after edits. What
+surrounds a round is `app/sync-scheduler.js`'s: the save flushed first (so the
+round plans against what was just typed), one lane for every round and erase
+from this tab, and the re-read of the session on screen once a round has
+landed -- offered back through `applyIncoming`, which refuses a copy that says
+nothing new. It announces `started`, `progress` and `finished` and draws
+nothing; the indicator subscribes.
+
+An archive (`app/commands/archive.js`, `platform/zip.js`) is a sync container
+held in one stored-entry zip file: the same manifest, the same content paths and
+hashes. Export plans a round against an empty container; import plans one
+against the archive and applies it with the same `applyPlan`, so the merge
+rules are the sync's own and importing never replaces anything.
 
 ## ui/ — keyed reconciliation, shared primitives
 
@@ -482,8 +488,8 @@ rather than left to each of them to remember.
 that arrived mid-save included. It is called before switching sessions and on
 the way out of the page, so returning early there is losing the last edit.
 
-Sync is the one thing the app does without being asked, so it has a permanent
-place to say so: `ui/sync-indicator.js`, a dot and one of three words in the
+A sync round leaves a mark that outlasts the message about it, so it has a
+permanent place to say what happened: `ui/sync-indicator.js`, a dot and one of three words in the
 masthead, with the round's full account on hover or focus. It renders a state
 and decides nothing — which state a round is in comes from the scheduler's
 events (`app/sync-scheduler.js`), the one place every round passes through,

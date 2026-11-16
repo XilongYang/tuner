@@ -54,15 +54,15 @@ test('editing never starts a round: syncing is manual', async () => {
   assert.equal(h.rounds.length, 0);
 });
 
-test('start runs no round either, and tells the indicator when there is nowhere to sync', async () => {
+test('reportAvailability runs no round, and tells the indicator when there is nowhere to sync', async () => {
   const configured = harness();
-  configured.scheduler.start();
+  configured.scheduler.reportAvailability();
   await settle();
   assert.equal(configured.rounds.length, 0);
   assert.deepEqual(configured.events, []);
 
   const off = harness({ configured: false });
-  off.scheduler.start();
+  off.scheduler.reportAvailability();
   assert.deepEqual(off.events, [{ phase: 'off' }]);
   assert.equal(off.rounds.length, 0);
 });
@@ -175,11 +175,11 @@ test('a container being set does not start a round; one being forgotten turns th
   const events = [];
   scheduler.subscribe((e) => events.push(e.phase));
 
-  scheduler.containerChanged();
+  scheduler.reportAvailability();
   assert.deepEqual(events, []);
   assert.equal(rounds, 0);
 
   configured = false;
-  scheduler.containerChanged();
+  scheduler.reportAvailability();
   assert.deepEqual(events, ['off']);
 });

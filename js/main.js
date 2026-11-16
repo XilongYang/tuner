@@ -215,7 +215,7 @@ async function start() {
     settings,
     // There is nothing to say about syncing until there is somewhere to sync
     // to, and nothing to say once that is forgotten.
-    onContainerChange: () => scheduler.containerChanged(),
+    onContainerChange: () => scheduler.reportAvailability(),
     actions: {
       sync: (onProgress) => scheduler.request(onProgress),
       // Both settle the save first, so the file holds what was just typed and
@@ -304,7 +304,7 @@ async function start() {
 
   // Syncing is manual: nothing runs here, only the indicator is told whether
   // there is anywhere to sync to.
-  scheduler.start();
+  scheduler.reportAvailability();
 
   // ---- Practising from memory, for every sentence at once ----
   //

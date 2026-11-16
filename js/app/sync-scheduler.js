@@ -103,19 +103,12 @@ export function createSyncScheduler({
     request: (onProgress) => lane(() => round(onProgress)),
 
     /**
-     * Say what the indicator should read before any round has run: nothing,
-     * when there is no container; otherwise it stays quiet until asked.
+     * Tell the indicator whether there is anywhere to sync to: called at
+     * startup and when a container is set or forgotten in Settings. It never
+     * starts a round -- the person presses Sync when they want one -- and with
+     * no container it takes the indicator away.
      */
-    start() {
-      if (!container()) emit({ phase: 'off' });
-    },
-
-    /**
-     * A container was just set or forgotten in Settings. Setting one does not
-     * start a round -- the person presses Sync when they want one -- but
-     * forgetting it takes the indicator away.
-     */
-    containerChanged() {
+    reportAvailability() {
       if (!container()) emit({ phase: 'off' });
     },
 

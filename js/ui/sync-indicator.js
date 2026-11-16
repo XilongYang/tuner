@@ -1,8 +1,7 @@
 // The header's sync indicator: a dot, one word, and the detail on hover.
 //
-// Sync is the one thing in this app that happens without being asked for, so
-// it needs somewhere to be visible that is not a message that has already
-// scrolled past. A dot is enough: green and it is done, amber and pulsing and
+// A round's outcome needs somewhere to stay visible that is not a message that
+// has already scrolled past. A dot is enough: green and it is done, amber and pulsing and
 // it is working, red and something needs looking at -- and the words for each
 // are in ./sync-text.js, shared with the settings panel so the same round is
 // not described twice in two voices.

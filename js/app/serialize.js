@@ -1,8 +1,8 @@
 // One run at a time, and at most one waiting behind it.
 //
 // For work that must not overlap with itself and that gets asked for from
-// several places at once -- a sync round, asked for by startup, by an edit
-// settling, and by the button in Settings.
+// several places at once -- a sync round and an erase, both asked for
+// from Settings.
 //
 // Waiting rather than joining: a caller asking now is asking about the state
 // now, and the run already going read its plan before that. Joining would

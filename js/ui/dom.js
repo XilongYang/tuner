@@ -4,7 +4,7 @@
 // repainted by emptying a container and rebuilding every row, which threw away
 // anything living in those rows: an in-progress multi-sentence selection, the
 // sidebar's scroll position, open word popovers and their object URLs, and the
-// state of a recording in flight. A background sync could therefore undo work
+// state of a recording in flight. A sync landing could therefore undo work
 // the user was in the middle of, and other modules grew workarounds to avoid
 // repainting at all. Updating by key removes the whole class of problem: a row
 // that is still present is updated in place, never replaced.

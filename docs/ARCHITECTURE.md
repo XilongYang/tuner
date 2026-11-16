@@ -409,7 +409,7 @@ rules are the sync's own and importing never replaces anything.
 { key, create, update })`. Lists are reconciled by key: rows are created,
 updated, moved and removed, never wholesale rebuilt. Selection, scroll
 position, open popovers and in-flight recordings therefore survive a repaint
-triggered by a background sync, and no module needs to avoid repainting.
+triggered by a sync or an import landing, and no module needs to avoid repainting.
 
 There is exactly one modal primitive, with focus management and Escape
 handling in it. (The previous design had three hand-rolled modals that had

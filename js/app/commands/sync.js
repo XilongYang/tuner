@@ -12,7 +12,7 @@
 // round simply pulls; the reverse would leave content referenced by nothing.
 
 import { planSync } from '../../cloud/sync/plan.js';
-import { transferContent, publishManifest, readManifest, sweepOrphans } from '../../cloud/sync/run.js';
+import { transferContent, publishManifest, readManifestVersion, sweepOrphans } from '../../cloud/sync/run.js';
 import { acquire, release } from '../../cloud/sync/lock.js';
 import { eraseContainer } from '../../cloud/sync/erase.js';
 import { SESSION, VOCAB_ENTRY, dropContent } from '../../model/schema.js';
@@ -91,7 +91,8 @@ export async function syncNow({ deps }) {
   }
 
   try {
-    const remote = await readManifest(container);
+    const base = await readManifestVersion(container);
+    const remote = base.manifest;
 
     const snapshot = await db.snapshot();
     const plan = planSync({ local: snapshot, remote });
@@ -122,6 +123,10 @@ export async function syncNow({ deps }) {
           return null;
         }
       },
+      // Bytes come down under the hash the manifest names, so they are checked
+      // against it: the store is keyed by hash and must never hold bytes that
+      // are not the hash's own.
+      verify: async (slot, blob) => (await hash.hashBlob(blob)) === slot.hash,
       onProgress,
     });
 
@@ -149,7 +154,15 @@ export async function syncNow({ deps }) {
     const publishedPlan = withheld.size
       ? planSync({ local: withoutContent(snapshot, withheld), remote })
       : plan;
-    await publishManifest(publishedPlan, container);
+    try {
+      await publishManifest(publishedPlan, container, base);
+    } catch (err) {
+      // The lock was lost mid-round (this one ran past its staleness window)
+      // and another device published first. Nothing local was written yet, so
+      // the next round simply plans again against what is there now.
+      if (err.conflict) throw new Error('another device published during this round; nothing was lost, try again');
+      throw err;
+    }
 
     // Records and the bytes they arrived with, in one transaction. Nothing this
     // device already holds is rewritten: an unchanged clip is not touched by a

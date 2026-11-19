@@ -388,9 +388,12 @@ the button; what the header's switch reads from a session is
 on it, and the defect that put a sync round in the way of a score in flight
 grew in exactly that gap.
 
-Sync is manual. A round runs when a person presses Sync, and at no other
-time: not at startup, not when a container is configured, not after edits. What
-surrounds a round is `app/sync-scheduler.js`'s: the save flushed first (so the
+Sync is automatic and can also be asked for. A round runs at startup, when a
+container is configured, a few seconds after edits settle, and when a person
+presses Sync. A round that finds a live lock is skipped, and one that fails shows
+on the indicator only. The manifest is published conditionally on the etag the
+round read, so a device that overran the lock's staleness window fails with a
+conflict instead of overwriting a newer round. What surrounds a round is `app/sync-scheduler.js`'s: the save flushed first (so the
 round plans against what was just typed), one lane for every round and erase
 from this tab, and the re-read of the session on screen once a round has
 landed -- offered back through `applyIncoming`, which refuses a copy that says

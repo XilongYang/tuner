@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  transferContent, publishManifest, readManifest, sweepOrphans, manifestContentPaths, MANIFEST_PATH,
+  transferContent, publishManifest, readManifest, readManifestVersion, sweepOrphans, manifestContentPaths, MANIFEST_PATH,
 } from '../../js/cloud/sync/run.js';
 import { planSync } from '../../js/cloud/sync/plan.js';
 import { fakeContainer } from './fake-container.mjs';
@@ -319,4 +319,28 @@ test('transferContent: a slot with no bytes to send still counts towards the pro
   await transferContent(p, container, { getValue: () => null, onProgress: (progress) => seen.push(progress) });
 
   assert.deepEqual(seen.map((s) => `${s.done}/${s.total}`), ['1/1'], 'a round that finished says so');
+});
+
+test('publishManifest: with the version it planned against, a manifest changed since is a conflict, not an overwrite', async () => {
+  const container = fakeContainer();
+  await publishManifest(plan({ sessions: [session()] }), container);
+  const base = await readManifestVersion(container);
+
+  // Another device publishes after this one read.
+  await container.uploadJson(MANIFEST_PATH, { ...base.manifest, theirs: true });
+
+  const mine = plan({ sessions: [session({ id: 'sess9' })] }, base.manifest);
+  await assert.rejects(() => publishManifest(mine, container, base), (err) => err.conflict === true);
+  assert.equal(container.jsonOf(MANIFEST_PATH).theirs, true, 'their manifest is intact');
+});
+
+test('publishManifest: with no manifest read, a manifest that has since appeared is a conflict', async () => {
+  const container = fakeContainer();
+  const base = await readManifestVersion(container);
+  assert.equal(base.manifest, null);
+
+  await publishManifest(plan({ sessions: [session()] }), container);
+
+  const mine = plan({ sessions: [session({ id: 'sess9' })] });
+  await assert.rejects(() => publishManifest(mine, container, base), (err) => err.conflict === true);
 });

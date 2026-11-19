@@ -798,13 +798,7 @@ test('the header says nothing about syncing until there is something to sync wit
   // The second Save in the panel: the first belongs to the speech credentials.
   await page.locator('#settings button:text-is("Save")').nth(1).click();
 
-  // Syncing is manual: configuring a container starts nothing, so the header
-  // is still quiet until the person asks for a round.
-  await page.waitForTimeout(500);
-  assert.equal(await page.locator('#sync-indicator').isVisible(), false,
-    'a container alone does not start a round');
-  await page.locator('#settings button:text-is("Sync now")').click();
-
+  // Configuring a container starts a round by itself.
   await page.waitForFunction(() => document.getElementById('sync-indicator')?.dataset.state === 'failed', null, { timeout: 60000 });
   assert.equal(await page.locator('#sync-indicator .sync-label').textContent(), 'Sync Failed');
   assert.match(await page.locator('#sync-indicator .sync-tooltip').textContent(), /Sync failed:/);

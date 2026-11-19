@@ -2,11 +2,13 @@
 // apart, the save that is flushed first, and the re-read of the session on
 // screen once a round has landed.
 //
-// Rounds are manual. Nothing here starts one: not an edit, not startup, not a
-// container being configured. A round runs when a person asks for it, which is
-// why `request` is the only way in. (It used to debounce after every edit and
-// run at startup; a sync that arrives uninvited is one that can change the
-// screen, or fail, while the person is looking at something else.)
+// Rounds run by themselves and on request: once at startup, once when a
+// container is configured, and a few seconds after edits settle. A round that
+// finds another device holding the container lock is simply skipped (the
+// indicator reads "syncing"), and one that fails says so on the indicator and
+// nowhere else; only a round a person asked for (`request`) reports to them
+// directly. What a round brings in reaches the screen only through
+// `applyIncoming`, which leaves alone a session edited since.
 //
 // Nothing here draws. A round's progress and outcome are announced as events,
 // and whoever owns the indicator subscribes; the wording for those outcomes is
@@ -15,6 +17,9 @@
 import { syncNow, eraseCloud } from './commands/sync.js';
 import { reloadOnScreen } from './commands/session.js';
 import { serialize } from './serialize.js';
+
+/** How long edits settle before the round that publishes them. */
+export const AUTO_SYNC_DELAY_MS = 3000;
 
 /**
  * @typedef {{phase: 'off'}
@@ -35,12 +40,18 @@ import { serialize } from './serialize.js';
  * @param {() => number} [deps.clock]
  * @param {typeof syncNow} [deps.sync]     Injected by tests.
  * @param {typeof eraseCloud} [deps.erase] Injected by tests.
+ * @param {number} [deps.delayMs]
+ * @param {(fn: Function, ms: number) => any} [deps.schedule]
+ * @param {(handle: any) => void} [deps.cancel]
  */
 export function createSyncScheduler({
   store, db, settings, hash, autosave, container,
   clock = Date.now,
   sync = syncNow,
   erase = eraseCloud,
+  delayMs = AUTO_SYNC_DELAY_MS,
+  schedule = setTimeout,
+  cancel = clearTimeout,
 }) {
   const listeners = new Set();
   const emit = (event) => {
@@ -84,6 +95,20 @@ export function createSyncScheduler({
   // in progress (see ./serialize.js).
   const lane = serialize((job) => job());
 
+  // Edits settle, then one round: a burst of changes is one thing to publish.
+  // What a save writes back and what a round brought in are not edits. The
+  // round flushes the save itself, so it plans against what was just typed.
+  let handle = null;
+  store.subscribe((_session, { reason }) => {
+    if (reason === 'saved' || reason === 'incoming') return;
+    if (!container()) return;
+    if (handle !== null) cancel(handle);
+    handle = schedule(() => {
+      handle = null;
+      lane(() => round()).catch(() => {});
+    }, delayMs);
+  });
+
   return {
     /** @param {(event: SyncEvent) => void} listener */
     subscribe(listener) {
@@ -95,13 +120,16 @@ export function createSyncScheduler({
     request: (onProgress) => lane(() => round(onProgress)),
 
     /**
-     * Tell the indicator whether there is anywhere to sync to: called at
-     * startup and when a container is set or forgotten in Settings. It never
-     * starts a round -- the person presses Sync when they want one -- and with
-     * no container it takes the indicator away.
+     * Called at startup and when a container is set or forgotten in Settings.
+     * With none it takes the indicator away; with one it runs a round, so what
+     * is already up there is here before the person goes looking for it.
      */
     reportAvailability() {
-      if (!container()) emit({ phase: 'off' });
+      if (!container()) {
+        emit({ phase: 'off' });
+        return Promise.resolve(null);
+      }
+      return lane(() => round());
     },
 
     /** Empty the container, in the same lane as the rounds, */

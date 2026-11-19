@@ -20,7 +20,7 @@ const deps = (container, over = {}) => ({
   container,
   db,
   settings: settings(),
-  hash: { materializeBlob },
+  hash: { materializeBlob, hashBlob },
   ...over,
 });
 
@@ -508,4 +508,46 @@ test('the round keeps its order: lock, read, upload, publish, write, sweep, rele
     `delete ${LOCK_PATH}`,
   ]);
   assert.equal(log[1], `get ${MANIFEST_PATH}`, 'the manifest is read once the lock is held');
+});
+
+test('another device publishing during the round fails it before anything local is written, and releases the lock', async () => {
+  const container = fakeContainer();
+  await seedSession({ id: 'mine', text: 'mine' });
+  const first = await syncNow({ deps: deps(container) });
+  assert.equal(first.ok, true, first.reason);
+
+  await seedSession({ id: 'mine2', text: 'more' });
+  const read = container.downloadJsonWithEtag;
+  container.downloadJsonWithEtag = async (path) => {
+    const result = await read(path);
+    // The lock was lost and the other device finished a round: it publishes now.
+    if (path === MANIFEST_PATH) await container.uploadJson(MANIFEST_PATH, { ...result.value, theirs: true });
+    return result;
+  };
+
+  const result = await syncNow({ deps: deps(container) });
+
+  assert.equal(result.ok, false);
+  assert.match(result.reason, /another device published/);
+  assert.equal(container.jsonOf(MANIFEST_PATH).theirs, true, 'their manifest was not overwritten');
+  assert.equal(container.has(LOCK_PATH), false);
+});
+
+test('bytes in the container that are not the ones the manifest names are not stored under its hash', async () => {
+  const container = fakeContainer();
+  await seedSession({ recording: clip([1, 2, 3]) });
+  const first = await syncNow({ deps: deps(container) });
+  assert.equal(first.ok, true, first.reason);
+
+  // Another device was interrupted after uploading a retake over the path and
+  // before publishing the manifest that names it.
+  await container.uploadBytes('recordings/sess1/sess1-s1.wav', clip([9, 9, 9]), 'audio/wav');
+
+  await wipe(); // device B: nothing local, so the round is a download
+  const result = await syncNow({ deps: deps(container, { settings: settings('device-b') }) });
+
+  assert.equal(result.ok, true, result.reason);
+  assert.equal(result.downloaded, 0, 'nothing wrong was taken in');
+  assert.ok(result.warnings.some((w) => /not the ones the manifest names/.test(w)), result.warnings.join('\n'));
+  assert.deepEqual(await db.listContentHashes(), [], 'no bytes stored under a hash that is not theirs');
 });

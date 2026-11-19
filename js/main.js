@@ -302,8 +302,7 @@ async function start() {
 
   await session.reopenLast({ store, deps: commandDeps });
 
-  // Syncing is manual: nothing runs here, only the indicator is told whether
-  // there is anywhere to sync to.
+  // The round at startup, or the indicator off when there is no container.
   scheduler.reportAvailability();
 
   // ---- Practising from memory, for every sentence at once ----

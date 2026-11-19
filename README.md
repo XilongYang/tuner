@@ -2,7 +2,7 @@
 
 Pronunciation practice for Japanese and English: paste text or import audio, split it into sentences, hear a reference reading, record yourself, and get scored by Azure.
 
-Data stays in the browser. Sync to Azure Blob is manual; everything can be exported to and imported from a zip. Static site, no backend, no build.
+Data stays in the browser. Optional sync to Azure Blob runs automatically, guarded by a cross-device lock; everything can be exported to and imported from a zip. Static site, no backend, no build.
 
 ## Architecture
 

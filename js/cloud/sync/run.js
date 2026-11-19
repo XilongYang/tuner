@@ -62,10 +62,15 @@ const noop = () => {};
  * @param {import('../blob.js').Container} container
  * @param {object} ports
  * @param {(slot: object) => Promise<any>} ports.getValue
+ * @param {(slot: object, blob: Blob) => Promise<boolean>} [ports.verify] Whether
+ *   downloaded bytes are the ones the slot's hash names. A path is a place, and
+ *   a device that died between uploading a retake and publishing it leaves new
+ *   bytes where the manifest still names the old ones; bytes that fail this are
+ *   reported as missing rather than stored under a hash that is not theirs.
  * @param {(progress: {done: number, total: number, kind: string, direction: 'up'|'down'}) => void} [ports.onProgress]
  * @returns {Promise<{uploaded: string[], downloaded: Map<string, any>, reused: string[], missing: Array<{path: string, direction: string, reason: string}>}>}
  */
-export async function transferContent(plan, container, { getValue, onProgress = noop }) {
+export async function transferContent(plan, container, { getValue, verify = null, onProgress = noop }) {
   const uploads = plan.slots.filter((s) => s.action === 'upload');
   const downloads = plan.slots.filter((s) => s.action === 'download');
   const total = uploads.length + downloads.length;
@@ -101,6 +106,15 @@ export async function transferContent(plan, container, { getValue, onProgress = 
       missing.push({ path: slot.path, direction: 'down', reason: 'referenced by the manifest but not in the container' });
     }
 
+    if (blob && verify && !await verify(slot, blob)) {
+      missing.push({
+        path: slot.path,
+        direction: 'down',
+        reason: 'the bytes in the container are not the ones the manifest names (an interrupted sync on another device); they will be replaced when that device syncs again',
+      });
+      blob = null;
+    }
+
     if (blob) {
       try {
         downloadedValues.set(slot.path, await decode(slot.kind, blob));
@@ -127,22 +141,42 @@ export async function transferContent(plan, container, { getValue, onProgress = 
  * Publish the manifest, unless the plan already determined it would be
  * identical to what is there.
  *
+ * With `base` -- what `readManifestVersion` returned at the start of the round
+ * -- the write is conditional: it succeeds only if the manifest is still the
+ * one the round planned against, and otherwise fails with `.conflict`. The
+ * lock keeps devices apart in the ordinary case; this is what keeps a device
+ * that overran the lock's staleness window from publishing over a round that
+ * started after it. Without an etag (a CORS rule that does not expose it) the
+ * write is unconditional, as before.
+ *
  * Says whether anything was written.
  */
-export async function publishManifest(plan, container) {
+export async function publishManifest(plan, container, base = null) {
   if (!plan.manifestChanged) return { published: false };
-  await container.uploadJson(MANIFEST_PATH, plan.manifest);
+  let opts;
+  if (base?.manifest === null) opts = { ifNoneMatch: '*' };
+  else if (base?.etag) opts = { ifMatch: base.etag };
+  await container.uploadJson(MANIFEST_PATH, plan.manifest, opts);
   return { published: true };
+}
+
+/**
+ * The manifest and the etag it was read at; `manifest` is null when the
+ * container has none yet.
+ */
+export async function readManifestVersion(container) {
+  try {
+    const { value, etag } = await container.downloadJsonWithEtag(MANIFEST_PATH);
+    return { manifest: value, etag };
+  } catch (err) {
+    if (err.notFound) return { manifest: null, etag: null };
+    throw err;
+  }
 }
 
 /** Read the manifest, returning null when the container has none yet. */
 export async function readManifest(container) {
-  try {
-    return (await container.downloadJsonWithEtag(MANIFEST_PATH)).value;
-  } catch (err) {
-    if (err.notFound) return null;
-    throw err;
-  }
+  return (await readManifestVersion(container)).manifest;
 }
 
 /**
